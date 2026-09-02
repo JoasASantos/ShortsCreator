@@ -1,15 +1,19 @@
-.PHONY: help setup api web dev doctor clean
+.PHONY: help setup api web dev doctor test test-fast typecheck check clean
 
 VENV := .venv
 PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
 help:
-	@echo "make setup   — cria venv, instala backend e frontend"
-	@echo "make api     — sobe a API em :8000"
-	@echo "make web     — sobe a interface em :3000"
-	@echo "make dev     — sobe os dois juntos"
-	@echo "make doctor  — checa dependências do sistema"
+	@echo "make setup     — cria venv, instala backend e frontend"
+	@echo "make api       — sobe a API em :8000"
+	@echo "make web       — sobe a interface em :3000"
+	@echo "make dev       — sobe os dois juntos"
+	@echo "make doctor    — checa dependências do sistema"
+	@echo "make test      — roda os testes do backend"
+	@echo "make test-fast — só os testes que não usam FFmpeg"
+	@echo "make typecheck — checa os tipos do frontend"
+	@echo "make check     — test + typecheck"
 
 setup:
 	python3 -m venv $(VENV)
@@ -36,6 +40,21 @@ doctor:
 	@printf "node     : "; node --version 2>/dev/null || echo "AUSENTE"
 	@printf "fontes   : "; ls assets/fonts/*.tt* 2>/dev/null | wc -l | tr -d ' '
 	@printf "trilhas  : "; ls assets/music/*.mp3 2>/dev/null | wc -l | tr -d ' '
+	@printf "claude   : "; command -v claude >/dev/null && claude --version 2>/dev/null || echo "ausente (elo Fable/Opus da cadeia)"
+	@printf "codex    : "; command -v codex >/dev/null && echo ok || echo "ausente (elo GPT-5.6 da cadeia)"
+	@printf "espaco   : "; df -h . | tail -1 | awk '{print $$4" livres"}'
+
+test:
+	cd backend && ../$(PY) -m pytest
+
+test-fast:
+	cd backend && ../$(PY) -m pytest -k "not ffmpeg" -q
+
+typecheck:
+	cd web && npx tsc --noEmit -p .
+
+check: test typecheck
 
 clean:
 	rm -rf data/jobs/* data/cache/* data/outputs/*
+	rm -rf backend/.pytest_cache

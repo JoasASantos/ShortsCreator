@@ -14,3 +14,4 @@ google-auth-oauthlib>=1.2
 google-api-python-client>=2.150
 pillow>=11.0
 faster-whisper>=1.2
+pytest>=8.3

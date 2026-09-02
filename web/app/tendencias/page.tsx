@@ -2,8 +2,15 @@
 
 import { useEffect, useState } from "react";
 
-import { api, type TrendItem } from "@/lib/api";
+import { api, type TrendItem, type TrendSource } from "@/lib/api";
 import { Chips, Topbar, useToast } from "@/components/ui";
+
+const SOURCE_LABEL: Record<string, string> = {
+  google_trends: "Google Trends",
+  reddit: "Reddit",
+  hackernews: "Hacker News",
+  youtube_popular: "YouTube",
+};
 
 const NICHES = [
   { value: "tecnologia", label: "Tecnologia" },
@@ -28,14 +35,15 @@ export default function Tendencias() {
   const [niche, setNiche] = useState("tecnologia");
   const [geo, setGeo] = useState("BR");
   const [items, setItems] = useState<TrendItem[]>([]);
+  const [feeds, setFeeds] = useState<TrendSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [source, setSource] = useState("todas");
 
   useEffect(() => {
     setLoading(true);
     api.trends(niche, geo)
-      .then((r) => setItems(r.items))
-      .catch(() => setItems([]))
+      .then((r) => { setItems(r.items); setFeeds(r.sources); })
+      .catch(() => { setItems([]); setFeeds([]); })
       .finally(() => setLoading(false));
   }, [niche, geo]);
 
@@ -62,6 +70,21 @@ export default function Tendencias() {
                         onClick={() => setSource(s)}>{s}</button>
               ))}
             </div>
+            {feeds.length ? (
+              <div className="row wrap" style={{ gap: 14 }}>
+                {feeds.map((f) => (
+                  <span className="mono dimmer" key={f.source} style={{ fontSize: 11 }}
+                        title={f.items === 0
+                          ? "sem resultado agora — a fonte pode estar limitando requisições, ou não cobre este nicho"
+                          : f.age_seconds != null ? `coletado há ${Math.round(f.age_seconds / 60)} min` : ""}>
+                    <i className="dot" style={{ marginRight: 5,
+                       color: f.items ? "var(--ok)" : "var(--ink-3)" }} />
+                    {SOURCE_LABEL[f.source] ?? f.source}
+                    {f.items ? ` ${f.items}` : " —"}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -69,7 +92,9 @@ export default function Tendencias() {
           <div className="empty">consultando Google Trends, Reddit, Hacker News e YouTube…</div>
         ) : visible.length === 0 ? (
           <div className="empty">
-            Nada encontrado agora. As fontes podem estar limitando requisições — tente de novo em alguns minutos.
+            Nada encontrado agora. O Reddit limita requisições por IP de forma agressiva e o
+            Hacker News só entra em nichos técnicos — tente de novo em alguns minutos ou troque
+            o nicho.
           </div>
         ) : (
           <div className="grid" style={{ gap: 8 }}>

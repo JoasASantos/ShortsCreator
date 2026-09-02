@@ -1,8 +1,9 @@
 # ShortsCreator
 
-Gera vídeos verticais 9:16 prontos para YouTube Shorts e TikTok a partir de um
-link, um tema, um repositório, fotos ou um vídeo longo — com narração, legenda
-karaokê sincronizada, auditoria automática de formato e publicação agendada.
+Gera vídeos verticais 9:16 prontos para YouTube Shorts, TikTok, Instagram Reels
+e LinkedIn a partir de um link, um tema, um repositório, fotos ou um vídeo longo
+— com narração, legenda karaokê sincronizada, auditoria automática de formato,
+publicação agendada e retorno de desempenho que realimenta o roteirista.
 
 ![formato](https://img.shields.io/badge/sa%C3%ADda-1080%C3%971920%20%C2%B7%209%3A16-ffc400)
 
@@ -20,8 +21,26 @@ karaokê sincronizada, auditoria automática de formato e publicação agendada.
 | Imagens | Narração sobre as fotos com zoom e pan lento (Ken Burns) |
 | Roteiro pronto | Narra o seu texto sem passar por IA |
 
-**Sai** um MP4 1080×1920 auditado, com legenda queimada, trilha mixada e texto
-de publicação pronto para cada plataforma.
+**Sai** um MP4 1080×1920 auditado, com legenda queimada, trilha mixada, capa
+composta e texto de publicação pronto para cada plataforma.
+
+Um vídeo longo pode virar **vários** shorts de uma vez: a tela **Lote**
+transcreve, o modelo escolhe os melhores momentos e cada trecho vira um short
+independente — com agendamento em sequência, se você quiser um por dia.
+
+## O ciclo fecha
+
+O que é publicado volta como dado, e o dado volta como roteiro:
+
+1. **Tendências** — Google Trends, Reddit rising, Hacker News e YouTube em alta,
+   por nicho e região. Um clique transforma o assunto em short.
+2. **Ganchos A/B** — três alternativas para o mesmo roteiro, cada uma com um
+   mecanismo diferente (pergunta, número, contradição, promessa), com prévia em
+   áudio na voz do vídeo. Troque no lugar ou publique as duas versões.
+3. **Desempenho** — views, likes, comentários, compartilhamentos e retenção
+   média chegam sozinhos a cada 6 horas (YouTube Analytics, TikTok, Instagram).
+4. **Realimentação** — os ganchos que mais retiveram no seu canal entram no
+   prompt do próximo roteiro como referência de *mecanismo*, não de texto.
 
 ## Auditoria automática (QA)
 
@@ -48,6 +67,11 @@ até passar ou esgotar as tentativas. Cada correção fica registrada.
 - **Linha do tempo** — corta, move e estica clipes, áudio e legendas, com
   monitor de vídeo sincronizado ao cursor. Recompila com FFmpeg sem passar de
   novo pelo LLM nem pelo TTS
+- **Capa** — escolhe sozinha o frame com mais detalhe visual e compõe o título
+  em cima; dá para trocar o frame e o texto à mão
+- **Reprocessar de uma etapa** — retoma de `voz`, `legendas`, `fundo` ou
+  `render` reaproveitando o que já está no disco, sem gastar LLM nem TTS de
+  novo. Um restart do servidor no meio de um job também retoma sozinho
 
 ## Sincronia da legenda
 
@@ -102,6 +126,10 @@ CLAUDE_CLI_MODEL=claude-fable-5-1
 
 Também aceita `anthropic`, `openai` (chave por token) e `ollama` (local).
 
+Cada chamada registra qual elo respondeu e quanto demorou — visível no job e
+agregado em **Desempenho**, então dá para ver se o principal está sendo
+suficiente ou se a cadeia está caindo para o Codex toda hora.
+
 ### Voz
 
 `edge-tts` é o padrão e é gratuito, com vozes neurais em pt-BR. Para voz de
@@ -113,9 +141,33 @@ vozes em português) ou **XTTS** local a partir de um sample de 6 a 30 segundos.
 
 ## Publicação
 
-YouTube Shorts via Data API v3 (upload resumível, agendamento nativo) e TikTok
-via Content Posting API v2. Enquanto o app do TikTok não passa pela auditoria
-deles, os envios chegam na caixa de rascunhos — é limitação da plataforma.
+| Plataforma | Como | Observação |
+|---|---|---|
+| YouTube Shorts | Data API v3, upload resumível | Agendamento nativo (`publishAt`). Capa personalizada exige canal verificado por telefone |
+| TikTok | Content Posting API v2 | Sem a auditoria do app aprovada, os envios chegam na caixa de rascunhos — limitação da plataforma |
+| Instagram Reels | Graph API (container → publish) | Conta profissional ligada a uma página. A Meta **baixa** o MP4, então `PUBLIC_API_URL` precisa ser alcançável da internet (ngrok, cloudflared) |
+| LinkedIn | Posts API (vídeo nativo) | Token com `w_member_social`. Sem analytics de post para membros |
+
+Publicação avulsa, agendada ou em sequência (lote). O agendamento espera cada
+short terminar de renderizar e passar no QA antes de subir.
+
+### Avisos
+
+Telegram, Discord ou webhook genérico quando um short termina, falha ou é
+publicado. Opcional — sem credencial configurada, nada é enviado.
+
+## Testes
+
+```bash
+make test        # backend inteiro
+make test-fast   # pula o que precisa de FFmpeg
+make typecheck   # tipos do frontend
+make check       # os dois
+```
+
+Os testes de QA e de sincronia geram MP4 e MP3 de verdade com FFmpeg e auditam
+o arquivo resultante — é o único jeito de exercitar o que o QA realmente faz.
+Sem FFmpeg no PATH, esses casos são pulados em vez de falhar.
 
 ## Arquitetura
 
@@ -123,16 +175,24 @@ deles, os envios chegam na caixa de rascunhos — é limitação da plataforma.
 backend/app/
   pipeline/
     ingest.py        artigo, vídeo, repositório, imagens, roteiro
-    script.py        geração e refinamento de roteiro por LLM
+    script.py        roteiro, refinamento e ganchos alternativos por LLM
+    llm.py           cadeia de modelos com fallback + telemetria
     tts.py           síntese com timing por palavra
     captions.py      legenda ASS com destaque karaokê
     overlays.py      legenda em PNG quando o FFmpeg não tem libass
     highlights.py    detecção de cena e escolha de trechos
+    clipper.py       um vídeo longo → N shorts
     render.py        composição 9:16 com FFmpeg
+    cover.py         escolha do melhor frame + título na capa
     qa.py            auditoria do arquivo final
+    metrics.py       coleta de desempenho e briefing de realimentação
+    trends.py        radar de assuntos em alta
+    notify.py        Telegram, Discord, webhook
     timeline.py      modelo EDL do editor
-    orchestrator.py  pipeline + laço de autoajuste
+    orchestrator.py  pipeline + laço de autoajuste + retomada
+    publishers/      youtube, tiktok, instagram, linkedin
   routers/           API HTTP
+  tests/             pytest (93 casos)
 web/                 interface Next.js
 ```
 

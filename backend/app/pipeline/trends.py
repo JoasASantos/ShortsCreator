@@ -17,15 +17,19 @@ import re
 import threading
 import time
 import xml.etree.ElementTree as ET
-from html import unescape
+from html import unescape  # noqa: F401  (usado nas duas fontes de RSS)
 
 import httpx
 
 from .. import db
 
-UA = "ShortsCreator/1.0 (+https://github.com/JoasASantos/ShortsCreator)"
+# O www.reddit.com devolve 403 para User-Agent de robô desde que fecharam a
+# API pública; old.reddit.com continua servindo o JSON com UA de navegador.
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/131.0 Safari/537.36")
 TIMEOUT = 15.0
 CACHE_TTL = 1800
+WEEK = 7 * 24 * 3600
 
 SUBREDDITS = {
     "tecnologia": ["technology", "gadgets", "brasil"],
@@ -41,29 +45,66 @@ SUBREDDITS = {
 
 HN_NICHES = {"tecnologia", "ciberseguranca", "programacao"}
 
+# Cache POR FONTE, não por consulta: o Reddit limita requisições por IP de
+# forma agressiva, e um bloqueio dele não pode apagar o que as outras fontes
+# já entregaram. Também é o que evita marretar as APIs a cada F5.
 _cache: dict[str, tuple[float, list[dict]]] = {}
 _lock = threading.Lock()
 
 
+def _sources() -> tuple:
+    # resolvido em tempo de chamada: as funções são definidas abaixo
+    return (_google_trends, _reddit, _hackernews, _youtube_popular)
+
+
 def fetch(niche: str = "generico", geo: str = "BR") -> list[dict]:
-    key = f"{niche}:{geo}"
-    with _lock:
-        cached = _cache.get(key)
-        if cached and time.time() - cached[0] < CACHE_TTL:
-            return cached[1]
-
     items: list[dict] = []
-    for source in (_google_trends, _reddit, _hackernews, _youtube_popular):
-        try:
-            items.extend(source(niche, geo))
-        except Exception:  # noqa: BLE001 — fonte fora do ar não derruba o radar
-            continue
-
+    for source in _sources():
+        items.extend(_cached_source(source, niche, geo))
     items = _dedupe(items)
     items.sort(key=lambda i: i.get("heat", 0), reverse=True)
-    with _lock:
-        _cache[key] = (time.time(), items)
     return items
+
+
+def _cached_source(source, niche: str, geo: str) -> list[dict]:
+    key = f"{source.__name__}:{niche}:{geo}"
+    now = time.time()
+    with _lock:
+        cached = _cache.get(key)
+        if cached and now - cached[0] < CACHE_TTL:
+            return cached[1]
+
+    try:
+        items = source(niche, geo)
+    except Exception:  # noqa: BLE001 — fonte fora do ar não derruba o radar
+        items = []
+
+    with _lock:
+        if items:
+            _cache[key] = (now, items)
+        elif cached:
+            # a fonte falhou agora (limite de requisições, por exemplo): melhor
+            # servir o resultado anterior, mesmo velho, do que sumir com ela
+            return cached[1]
+        else:
+            # sem nada antes: guarda o vazio por menos tempo e tenta de novo logo
+            _cache[key] = (now - CACHE_TTL + 120, [])
+    return items
+
+
+def sources_status(niche: str = "generico", geo: str = "BR") -> list[dict]:
+    """Quais fontes têm resultado em cache — a tela mostra isso para deixar
+    claro quando o Reddit está limitando em vez de fingir que não existe."""
+    out = []
+    with _lock:
+        for source in _sources():
+            cached = _cache.get(f"{source.__name__}:{niche}:{geo}")
+            out.append({
+                "source": source.__name__.lstrip("_"),
+                "items": len(cached[1]) if cached else 0,
+                "age_seconds": int(time.time() - cached[0]) if cached else None,
+            })
+    return out
 
 
 def _dedupe(items: list[dict]) -> list[dict]:
@@ -113,39 +154,61 @@ def _parse_traffic(raw: str) -> int:
     return n * {"K": 1000, "M": 1_000_000}.get(unit, 1) // 100
 
 
+ATOM = {"a": "http://www.w3.org/2005/Atom"}
+
+
 def _reddit(niche: str, geo: str) -> list[dict]:
+    """Feed Atom de `rising`. O JSON público virou 403 (e o old.reddit devolve
+    uma página de boas-vindas com status 200, que é pior), mas o RSS continua
+    aberto. Ele não traz score, então o calor vem da posição na lista — que já
+    é a ordem de "subindo" que interessa."""
     out = []
-    for sub in SUBREDDITS.get(niche, SUBREDDITS["generico"])[:3]:
-        r = httpx.get(f"https://www.reddit.com/r/{sub}/rising.json?limit=8",
+    subs = SUBREDDITS.get(niche, SUBREDDITS["generico"])[:3]
+    for index, sub in enumerate(subs):
+        if index:
+            time.sleep(1.2)   # o Reddit fecha a porta em rajada de requisições
+        r = httpx.get(f"https://www.reddit.com/r/{sub}/rising.rss?limit=8",
                       headers={"User-Agent": UA}, timeout=TIMEOUT, follow_redirects=True)
-        if r.status_code != 200:
+        if r.status_code != 200 or "xml" not in r.headers.get("content-type", ""):
             continue
-        for child in r.json().get("data", {}).get("children", []):
-            d = child.get("data", {})
-            if d.get("over_18") or d.get("stickied"):
+        try:
+            root = ET.fromstring(r.content)
+        except ET.ParseError:
+            continue
+        for position, entry in enumerate(root.findall("a:entry", ATOM)):
+            title = unescape(entry.findtext("a:title", default="", namespaces=ATOM)).strip()
+            if not title:
                 continue
-            score = int(d.get("score", 0))
-            comments = int(d.get("num_comments", 0))
+            link = entry.find("a:link", ATOM)
             out.append({
-                "source": f"r/{sub}", "title": unescape(d.get("title", "")).strip(),
-                "snippet": (d.get("selftext") or "")[:200].replace("\n", " "),
-                "url": d.get("url") if not d.get("is_self") else
-                       f"https://reddit.com{d.get('permalink', '')}",
-                "heat": score // 10 + comments, "heat_label": f"{score} ↑ · {comments} comentários",
+                "source": f"r/{sub}", "title": title, "snippet": "",
+                "url": link.get("href", "") if link is not None else "",
+                "heat": max(60 - position * 5, 8),
+                "heat_label": f"subindo · #{position + 1} em r/{sub}",
             })
     return out
 
 
 def _hackernews(niche: str, geo: str) -> list[dict]:
+    """`tags=front_page` cruzado com `query` quase nunca casa (a capa tem ~30
+    itens), então com termo de busca vamos nas stories da última semana
+    ordenadas por relevância; sem termo, na capa de hoje."""
     if niche not in HN_NICHES:
         return []
-    query = {"ciberseguranca": "security", "programacao": ""}.get(niche, "")
-    r = httpx.get("https://hn.algolia.com/api/v1/search",
-                  params={"tags": "front_page", "query": query, "hitsPerPage": 12},
+    query = {"ciberseguranca": "security", "programacao": "programming"}.get(niche, "")
+    params: dict = {"hitsPerPage": 12, "User-Agent": UA}
+    if query:
+        params = {"query": query, "tags": "story", "hitsPerPage": 12,
+                  "numericFilters": f"created_at_i>{int(time.time()) - WEEK}"}
+    else:
+        params = {"tags": "front_page", "hitsPerPage": 12}
+    r = httpx.get("https://hn.algolia.com/api/v1/search", params=params,
                   headers={"User-Agent": UA}, timeout=TIMEOUT)
     r.raise_for_status()
     out = []
     for hit in r.json().get("hits", []):
+        if not (hit.get("title") or "").strip():
+            continue
         points = int(hit.get("points") or 0)
         comments = int(hit.get("num_comments") or 0)
         out.append({

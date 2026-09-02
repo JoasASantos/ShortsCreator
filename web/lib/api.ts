@@ -261,6 +261,12 @@ export interface TrendItem {
   heat_label: string;
 }
 
+export interface TrendSource {
+  source: string;
+  items: number;
+  age_seconds: number | null;
+}
+
 export interface ClipInfo {
   inicio: number;
   fim: number;
@@ -420,7 +426,8 @@ export const api = {
     req<{ briefing: string }>(`/api/metrics/insights?niche=${niche}`),
 
   trends: (niche: string, geo = "BR") =>
-    req<{ items: TrendItem[] }>(`/api/trends?niche=${niche}&geo=${geo}`),
+    req<{ items: TrendItem[]; sources: TrendSource[] }>(
+      `/api/trends?niche=${niche}&geo=${geo}`),
 
   clipPlans: () => req<ClipPlan[]>("/api/clips"),
   clipPlan: (id: string) => req<ClipPlan>(`/api/clips/${id}`),

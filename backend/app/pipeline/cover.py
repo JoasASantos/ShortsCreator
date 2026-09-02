@@ -17,12 +17,16 @@ from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
 from ..config import settings
 from . import broll
+from .captions import SAFE_BOTTOM
 from .overlays import _font
 
 W, H = settings.width, settings.height
 SAMPLE_EVERY = 0.7            # segundos entre frames candidatos
 SKIP_HEAD = 0.3               # o começo costuma ser fade-in ou fundo cru
 TITLE_BAND_TOP = int(H * 0.56)
+# O título respeita a MESMA safe area das legendas: os 340px de baixo somem
+# atrás da interface do app, e uma capa cortada é pior que uma capa sem graça.
+TITLE_BOTTOM = H - SAFE_BOTTOM - 40
 
 
 def build(video: Path, title: str, niche: str, out: Path, duration: float,
@@ -79,15 +83,11 @@ def _compose(image: Image.Image, title: str, niche: str) -> Image.Image:
     c0, _ = broll.palette(niche)
     accent = _hex(c0)
 
-    # leve desfoque + escurecimento só na faixa do título, pra ler sobre qualquer fundo
-    band = image.crop((0, TITLE_BAND_TOP, W, H)).filter(ImageFilter.GaussianBlur(6))
-    image.paste(band, (0, TITLE_BAND_TOP))
-    gradient = Image.new("L", (1, H - TITLE_BAND_TOP))
-    for y in range(gradient.height):
-        gradient.putpixel((0, y), int(200 * (y / gradient.height) ** 0.8))
-    shade = Image.new("RGB", (W, H - TITLE_BAND_TOP), (6, 8, 10))
-    image.paste(shade, (0, TITLE_BAND_TOP), gradient.resize((W, H - TITLE_BAND_TOP)))
-
+    # desfoque + escurecimento na faixa do título: sem isso o texto disputa
+    # atenção com o fundo e some em qualquer imagem clara
+    # 1. Onde o texto vai ficar. Precisa vir ANTES do escurecimento: senão o
+    # gradiente não sabe até onde subir e um título de 3 linhas nasce na parte
+    # clara da faixa, ilegível sobre fundo branco.
     draw = ImageDraw.Draw(image)
     clean = " ".join(title.split())
     size = 132
@@ -104,12 +104,31 @@ def _compose(image: Image.Image, title: str, niche: str) -> Image.Image:
 
     line_h = int(size * 1.08)
     total_h = line_h * len(lines)
-    y = H - 300 - total_h            # acima da barra de interface do app
+    # ancorado pelo RODAPÉ útil: com 1, 2 ou 3 linhas o texto nunca entra na
+    # faixa da interface do app
+    top = TITLE_BOTTOM - total_h
+
+    # 2. Desfoque e escurecimento: opaco de onde o texto começa para baixo,
+    # desbotando para cima ao longo de 220px.
+    fade_start = max(min(top - 220, TITLE_BAND_TOP), 0)
+    band_h = H - fade_start
+    band = image.crop((0, fade_start, W, H)).filter(ImageFilter.GaussianBlur(10))
+    image.paste(band, (0, fade_start))
+
+    solid_from = top - fade_start
+    gradient = Image.new("L", (1, band_h))
+    for y in range(band_h):
+        ratio = 1.0 if solid_from <= 0 else min(y / solid_from, 1.0)
+        gradient.putpixel((0, y), int(225 * ratio ** 1.4))
+    shade = Image.new("RGB", (W, band_h), (6, 8, 10))
+    image.paste(shade, (0, fade_start), gradient.resize((W, band_h)))
+
+    # 3. Título, com a faixa de cor do nicho à esquerda do bloco
     x_left = int(W * 0.06)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([x_left - 34, top + 8, x_left - 18, top + total_h - 8], fill=accent)
 
-    # faixa de cor do nicho, à esquerda do bloco de título
-    draw.rectangle([x_left - 34, y + 8, x_left - 18, y + total_h - 8], fill=accent)
-
+    y = top
     for line in lines:
         draw.text((x_left, y), line, font=font, fill=(255, 255, 255),
                   stroke_width=max(4, size // 22), stroke_fill=(0, 0, 0))
