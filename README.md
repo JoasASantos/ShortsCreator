@@ -80,13 +80,24 @@ make dev            # API em :8000, interface em :3000
 ### Modelo de linguagem
 
 O caminho mais barato usa uma assinatura que você já paga, em vez de chave
-cobrada por token — o backend chama a CLI local já autenticada:
+cobrada por token — o backend chama a CLI local já autenticada. O padrão é a
+cadeia: Fable como principal, Opus 5 como reserva e o Codex como último recurso.
 
 ```env
-LLM_PROVIDER=codex_cli     # ChatGPT Plus/Pro, via `codex login`
-CODEX_CLI_MODEL=gpt-5.6-sol
-# ou
-LLM_PROVIDER=claude_cli    # Claude Pro/Max, via Claude Code
+LLM_PROVIDER=chain
+LLM_CHAIN=claude_cli:claude-fable-5-1,claude_cli:claude-opus-5,codex_cli:gpt-5.6-sol
+```
+
+Cada elo é `provider:modelo` e o backend só passa para o próximo se o anterior
+falhar (limite da assinatura, CLI fora do PATH, resposta inválida). Os dois
+primeiros usam Claude Pro/Max via Claude Code; o terceiro usa ChatGPT Plus/Pro
+via `codex login`.
+
+Para fixar um único modelo, use o provider direto:
+
+```env
+LLM_PROVIDER=claude_cli
+CLAUDE_CLI_MODEL=claude-fable-5-1
 ```
 
 Também aceita `anthropic`, `openai` (chave por token) e `ollama` (local).

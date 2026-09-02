@@ -35,9 +35,8 @@ def startup() -> None:
     worker.start()
 
 
-def _llm_ready() -> bool:
+def _provider_ready(provider: str) -> bool:
     """Providers por CLI dependem do binário logado, não de chave de API."""
-    provider = settings.llm_provider
     if provider == "claude_cli":
         return bool(shutil.which(settings.claude_cli_bin))
     if provider == "codex_cli":
@@ -47,12 +46,35 @@ def _llm_ready() -> bool:
     return bool(settings.anthropic_api_key or settings.openai_api_key)
 
 
+def _llm_ready() -> bool:
+    if settings.llm_provider == "chain":
+        # basta um elo da cadeia estar utilizável
+        return any(_provider_ready(p) for p, _ in settings.llm_chain)
+    return _provider_ready(settings.llm_provider)
+
+
 def _llm_auth_mode() -> str:
-    if settings.llm_provider in ("claude_cli", "codex_cli"):
+    provider = settings.llm_provider
+    if provider == "chain":
+        providers = {p for p, _ in settings.llm_chain}
+        if providers <= {"claude_cli", "codex_cli"}:
+            return "assinatura"
+        return "misto"
+    if provider in ("claude_cli", "codex_cli"):
         return "assinatura"
-    if settings.llm_provider == "ollama":
+    if provider == "ollama":
         return "local"
     return "chave de API"
+
+
+def _llm_chain_status() -> list[dict]:
+    """Cada elo da cadeia com o modelo e se está disponível agora."""
+    if settings.llm_provider != "chain":
+        return []
+    return [
+        {"provider": p, "model": m or "padrão", "ready": _provider_ready(p)}
+        for p, m in settings.llm_chain
+    ]
 
 
 def _has_ytdlp() -> bool:
@@ -74,6 +96,7 @@ def health() -> dict:
         "llm_provider": settings.llm_provider,
         "llm_key_set": _llm_ready(),
         "llm_auth": _llm_auth_mode(),
+        "llm_chain": _llm_chain_status(),
         "tts_provider": settings.tts_provider,
         "broll_ready": bool(settings.pexels_api_key or settings.pixabay_api_key),
         "queue": worker.queue_size(),

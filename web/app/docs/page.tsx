@@ -46,18 +46,24 @@ cp .env.example .env             # preencha as chaves`}</code></pre>
             O caminho mais barato é usar uma assinatura que você já paga, em vez de uma chave de
             API cobrada por token. O backend chama a CLI local que já está autenticada:
           </p>
-          <pre><code>{`# Claude Pro/Max — requer o Claude Code logado (\`claude\`)
-LLM_PROVIDER=claude_cli
-
-# ou ChatGPT Plus/Pro — requer \`codex login\`
-# LLM_PROVIDER=codex_cli
+          <pre><code>{`# cadeia: cai pro próximo modelo se o anterior falhar
+LLM_PROVIDER=chain
+LLM_CHAIN=claude_cli:claude-fable-5-1,claude_cli:claude-opus-5,codex_cli:gpt-5.6-sol
 
 TTS_PROVIDER=edge                # gratuito, vozes neurais pt-BR
 EDGE_VOICE=pt-BR-AntonioNeural`}</code></pre>
           <p>
+            Cada elo é <code>provider:modelo</code>. Fable é o principal, Opus 5 é a reserva e o
+            Codex (GPT-5.6 Sol) entra por último. Os dois primeiros usam Claude Pro/Max pelo Claude
+            Code; o terceiro usa ChatGPT Plus/Pro por <code>codex login</code>. Para fixar um único
+            modelo, troque para <code>LLM_PROVIDER=claude_cli</code> com{" "}
+            <code>CLAUDE_CLI_MODEL=claude-fable-5-1</code>.
+          </p>
+          <p>
             Nenhuma chave entra no <code>.env</code> nesse modo. Confirme o login com{" "}
             <code>claude --version</code> ou <code>codex login status</code> — o indicador{" "}
-            <b>Auth</b> na barra lateral mostra <code>assinatura</code> quando está tudo certo.
+            <b>Auth</b> na barra lateral mostra <code>assinatura</code>, e cada elo da cadeia
+            aparece logo abaixo com o modelo e se está disponível.
           </p>
           <p>
             Cada chamada leva de 25 a 40 segundos porque roda um agente completo por baixo. Se

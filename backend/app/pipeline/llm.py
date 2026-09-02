@@ -34,20 +34,48 @@ def _extract_json(text: str) -> dict:
 def complete_json(system: str, prompt: str, schema: dict | None = None,
                   max_tokens: int = 8000) -> dict:
     provider = settings.llm_provider
+    if provider == "chain":
+        return _chain_json(system, prompt, schema, max_tokens)
+    return _dispatch(provider, None, system, prompt, schema, max_tokens)
+
+
+def _dispatch(provider: str, model: str | None, system: str, prompt: str,
+              schema: dict | None, max_tokens: int) -> dict:
     if provider == "anthropic":
-        return _anthropic_json(system, prompt, schema, max_tokens)
+        return _anthropic_json(system, prompt, schema, max_tokens, model)
     if provider == "openai":
         return _openai_json(system, prompt, max_tokens)
     if provider == "ollama":
         return _ollama_json(system, prompt, max_tokens)
     if provider == "claude_cli":
-        return _claude_cli_json(system, prompt)
+        return _claude_cli_json(system, prompt, model)
     if provider == "codex_cli":
-        return _codex_cli_json(system, prompt, schema)
+        return _codex_cli_json(system, prompt, schema, model)
     raise LLMError(f"LLM_PROVIDER desconhecido: {provider}")
 
 
-def _anthropic_json(system: str, prompt: str, schema: dict | None, max_tokens: int) -> dict:
+def _chain_json(system: str, prompt: str, schema: dict | None, max_tokens: int) -> dict:
+    """Tenta cada provider:model de LLM_CHAIN em ordem; cai pro próximo se falhar.
+
+    Padrão: Claude Fable (principal) -> Claude Opus 5 -> Codex GPT-5.6 Sol
+    (assinatura ChatGPT), sem precisar de chave de API.
+    """
+    steps = settings.llm_chain
+    if not steps:
+        raise LLMError("LLM_PROVIDER=chain requer LLM_CHAIN configurado no .env")
+
+    last_error: Exception | None = None
+    for provider, model in steps:
+        try:
+            return _dispatch(provider, model or None, system, prompt, schema, max_tokens)
+        except Exception as exc:  # noqa: BLE001 — tenta o próximo elo da cadeia
+            last_error = exc
+            continue
+    raise LLMError(f"Todos os modelos da chain falharam. Último erro: {last_error}")
+
+
+def _anthropic_json(system: str, prompt: str, schema: dict | None, max_tokens: int,
+                    model: str | None = None) -> dict:
     import anthropic
 
     if not settings.anthropic_api_key:
@@ -55,7 +83,7 @@ def _anthropic_json(system: str, prompt: str, schema: dict | None, max_tokens: i
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     kwargs: dict = {
-        "model": settings.anthropic_model,
+        "model": model or settings.anthropic_model,
         "max_tokens": max_tokens,
         "system": system,
         "messages": [{"role": "user", "content": prompt}],
@@ -147,7 +175,7 @@ def _run_cli(cmd: list[str], cwd: str, timeout: int) -> str:
     return proc.stdout
 
 
-def _claude_cli_json(system: str, prompt: str) -> dict:
+def _claude_cli_json(system: str, prompt: str, model: str | None = None) -> dict:
     """Claude Code em modo não interativo — consome a assinatura Pro/Max."""
     binary = _resolve(settings.claude_cli_bin, "Claude Code (`claude` login)")
 
@@ -159,8 +187,9 @@ def _claude_cli_json(system: str, prompt: str) -> dict:
         "--disallowed-tools", "Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,Task",
         "--strict-mcp-config",
     ]
-    if settings.claude_cli_model:
-        cmd += ["--model", settings.claude_cli_model]
+    chosen = model or settings.claude_cli_model
+    if chosen:
+        cmd += ["--model", chosen]
 
     with tempfile.TemporaryDirectory(prefix="shortscreator-llm-") as work:
         stdout = _run_cli(cmd, work, settings.llm_cli_timeout)
@@ -176,7 +205,8 @@ def _claude_cli_json(system: str, prompt: str) -> dict:
     return _extract_json(envelope.get("result") or "")
 
 
-def _codex_cli_json(system: str, prompt: str, schema: dict | None) -> dict:
+def _codex_cli_json(system: str, prompt: str, schema: dict | None,
+                    model: str | None = None) -> dict:
     """Codex CLI em modo não interativo — consome a assinatura ChatGPT."""
     binary = _resolve(settings.codex_cli_bin, "Codex (`codex login`)")
 
@@ -193,8 +223,9 @@ def _codex_cli_json(system: str, prompt: str, schema: dict | None) -> dict:
             "-o", str(answer),
             "-c", f"model_reasoning_effort={settings.codex_reasoning_effort}",
         ]
-        if settings.codex_cli_model:
-            cmd += ["--model", settings.codex_cli_model]
+        chosen = model or settings.codex_cli_model
+        if chosen:
+            cmd += ["--model", chosen]
         if schema:
             schema_file = work_dir / "schema.json"
             schema_file.write_text(json.dumps(schema), encoding="utf-8")

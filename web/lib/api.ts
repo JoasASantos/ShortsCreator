@@ -238,6 +238,12 @@ export interface Schedule {
   error: string | null;
 }
 
+export interface ChainStep {
+  provider: string;
+  model: string;
+  ready: boolean;
+}
+
 export interface Health {
   status: string;
   ffmpeg: boolean;
@@ -245,6 +251,7 @@ export interface Health {
   llm_provider: string;
   llm_key_set: boolean;
   llm_auth: string;
+  llm_chain: ChainStep[];
   tts_provider: string;
   broll_ready: boolean;
   queue: number;

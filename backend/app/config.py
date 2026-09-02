@@ -10,6 +10,20 @@ ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
 
 
+def _parse_chain(raw: str) -> list[tuple[str, str]]:
+    """"claude_cli:claude-fable-5-1,codex_cli" -> [("claude_cli", "claude-fable-5-1"), ("codex_cli", "")]"""
+    steps: list[tuple[str, str]] = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        provider, _, model = item.partition(":")
+        provider = provider.strip()
+        if provider:
+            steps.append((provider, model.strip()))
+    return steps
+
+
 class Settings:
     """Configuração lida de .env. Sem pydantic-settings para evitar acoplamento."""
 
@@ -33,7 +47,7 @@ class Settings:
         self.db_path = self.data_dir / "shortscreator.db"
 
         # LLM
-        self.llm_provider = os.getenv("LLM_PROVIDER", "anthropic")
+        self.llm_provider = os.getenv("LLM_PROVIDER", "chain")
         self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
         self.anthropic_model = os.getenv("ANTHROPIC_MODEL", "claude-opus-5")
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
@@ -49,6 +63,15 @@ class Settings:
         self.codex_cli_model = os.getenv("CODEX_CLI_MODEL", "")
         self.codex_reasoning_effort = os.getenv("CODEX_REASONING_EFFORT", "medium")
         self.llm_cli_timeout = int(os.getenv("LLM_CLI_TIMEOUT", "420"))
+
+        # Cadeia de fallback usada quando LLM_PROVIDER=chain. Formato:
+        # "provider:modelo,provider:modelo" — o modelo é opcional.
+        self.llm_chain = _parse_chain(os.getenv(
+            "LLM_CHAIN",
+            "claude_cli:claude-fable-5-1,"
+            "claude_cli:claude-opus-5,"
+            "codex_cli:gpt-5.6-sol",
+        ))
 
         # TTS
         self.tts_provider = os.getenv("TTS_PROVIDER", "edge")

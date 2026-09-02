@@ -52,6 +52,14 @@ export function Rail() {
         <Stat label="FFmpeg" ok={health?.ffmpeg} />
         <Stat label="yt-dlp" ok={health?.ytdlp} />
         <Stat label="LLM" ok={health?.llm_key_set} value={health?.llm_provider} />
+        {health?.llm_chain?.map((step, i) => (
+          <Stat
+            key={`${step.provider}:${step.model}`}
+            label={i === 0 ? "↳ principal" : `↳ reserva ${i}`}
+            ok={step.ready}
+            value={step.model}
+          />
+        ))}
         <Stat label="Auth" ok={health?.llm_key_set} value={health?.llm_auth} />
         <Stat label="TTS" ok={!!health?.tts_provider} value={health?.tts_provider} />
         <Stat label="B-roll" ok={health?.broll_ready} />
