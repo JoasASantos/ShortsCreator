@@ -14,7 +14,8 @@ import { QAPanel } from "@/components/QAPanel";
 import { Chips, Field, StatusTag, Topbar, useToast } from "@/components/ui";
 
 const STAGES = ["ingest", "roteiro", "voz", "legendas", "fundo", "render", "qa"];
-const RESUMABLE = ["voz", "legendas", "fundo", "render"];
+// mesma ordem de RESUME_STAGES no backend: o menu fatia daqui para frente
+const RESUMABLE = ["voz", "fundo", "legendas", "render"];
 
 export default function JobPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);

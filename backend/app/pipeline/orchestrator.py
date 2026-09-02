@@ -38,12 +38,13 @@ CASCADE = {
     "render": {"render"},
 }
 
-# nome da etapa na UI -> raiz da cascata a refazer quando se retoma dali
+# nome da etapa na UI -> raiz da cascata a refazer quando se retoma dali.
+# A ordem importa: RESUMABLE no frontend fatia esta lista.
 RESUME_STAGES = {
     "roteiro": "script",
     "voz": "voz",
-    "legendas": "legendas",
     "fundo": "fundo",
+    "legendas": "legendas",
     "render": "render",
 }
 
@@ -62,18 +63,20 @@ def resumable_stage(job_dir: Path) -> str | None:
     """A etapa mais avançada da qual dá para retomar com o que está no disco."""
     has_script = (job_dir / "script.json").exists() or (job_dir / "script_override.json").exists()
     has_voice = (job_dir / "narration.json").exists() and (job_dir / "narration.mp3").exists()
-    if has_script and has_voice:
-        return "legendas"
-    if has_script:
+    if not has_script:
+        return None
+    if not has_voice:
         return "voz"
-    return None
+    # sem o fundo no disco, retomar de legendas deixaria o render sem imagem
+    return "legendas" if saved_background(job_dir) is not None else "fundo"
 
 
 def _load_resume(job_id: str, job_dir: Path, log) -> tuple[set[str], ShortScript | None,
-                                                          tts.Narration | None]:
-    """Lê resume.json e devolve (etapas sujas, roteiro, narração) já carregados.
-    Sem pedido de retomada, ou sem artefatos suficientes, devolve tudo sujo."""
-    everything = (set(CASCADE["script"]), None, None)
+                                                          tts.Narration | None, Path | None]:
+    """Lê resume.json e devolve (etapas sujas, roteiro, narração, fundo) já
+    carregados do disco. Sem pedido de retomada, ou sem artefatos suficientes
+    para a etapa pedida, devolve tudo sujo e o pipeline roda inteiro."""
+    everything = (set(CASCADE["script"]), None, None, None)
     marker = job_dir / "resume.json"
     if not marker.exists():
         return everything
@@ -99,12 +102,40 @@ def _load_resume(job_id: str, job_dir: Path, log) -> tuple[set[str], ShortScript
         audio = job_dir / "narration.mp3"
         if not (meta.exists() and audio.exists()):
             log("Retomada pedida sem narração salva — refazendo a partir da voz", "warn")
-            return set(CASCADE["voz"]), short, None
+            return set(CASCADE["voz"]), short, None, None
         data = json.loads(meta.read_text(encoding="utf-8"))
         narration = tts.Narration(audio, float(data["duration"]), data["words"])
 
+    # Retomar de "legendas" ou "render" não reconstrói o fundo, mas o render
+    # precisa dele: sem recuperar o arquivo, a composição recebia None.
+    background = None
+    if root in ("legendas", "render"):
+        background = saved_background(job_dir)
+        if background is None:
+            log("Retomada pedida sem fundo salvo — refazendo a partir do fundo", "warn")
+            return set(CASCADE["fundo"]), short, narration, None
+
     log(f"Retomando a partir de: {stage}")
-    return set(CASCADE[root]), short, narration
+    return set(CASCADE[root]), short, narration, background
+
+
+def saved_background(job_dir: Path) -> Path | None:
+    """Fundo da renderização anterior. O nome varia (scroll, padding), então o
+    caminho efetivo é anotado em background.json quando a etapa roda."""
+    meta = job_dir / "background.json"
+    if meta.exists():
+        try:
+            candidate = Path(json.loads(meta.read_text(encoding="utf-8"))["path"])
+        except (json.JSONDecodeError, KeyError, TypeError):
+            candidate = None
+        if candidate is not None and candidate.exists():
+            return candidate
+    # jobs renderizados antes deste registro existir: procura os nomes conhecidos
+    for name in ("background_scroll_padded.mp4", "background_scroll.mp4",
+                 "background_padded.mp4", "background.mp4"):
+        if (job_dir / name).exists():
+            return job_dir / name
+    return None
 
 
 def run_job(job_id: str) -> dict:
@@ -141,13 +172,12 @@ def run_job(job_id: str) -> dict:
 
         ass_path = None
         overlays_list: list = []
-        background = None
         final = job_dir / "short.mp4"
         duration = 0.0
         report: qa.QAReport | None = None
         attempts: list[dict] = []
         # primeira passada: tudo precisa rodar — salvo retomada com artefatos
-        dirty, short, narration = _load_resume(job_id, job_dir, log)
+        dirty, short, narration, background = _load_resume(job_id, job_dir, log)
 
         attempt = 1
         while True:
@@ -217,9 +247,16 @@ def run_job(job_id: str) -> dict:
                 stage("fundo")
                 background = _build_background(job, short, narration, material,
                                                job_dir, duration, log)
+                # o nome final varia (scroll, padding): anotado para a retomada
+                (job_dir / "background.json").write_text(
+                    json.dumps({"path": str(background)}), encoding="utf-8")
 
             if "render" in dirty:
                 stage("render")
+                if background is None:
+                    raise RuntimeError(
+                        "Fundo indisponível para a composição. Reprocesse o job "
+                        "do início ou a partir da etapa 'fundo'.")
                 render.compose(job_dir, background, job_dir / "narration.mp3",
                                final, job, duration, overlays=overlays_list,
                                subtitles=ass_path)
