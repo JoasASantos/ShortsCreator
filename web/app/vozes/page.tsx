@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api, type Voice, type VoicePreset } from "@/lib/api";
 import { Chips, Field, Topbar, useToast } from "@/components/ui";
+import { VoiceBrowser } from "@/components/VoiceBrowser";
 
 export default function Vozes() {
   const { toast, node } = useToast();
@@ -93,9 +94,14 @@ export default function Vozes() {
                   </div>
                 </div>
                 <div className="row" style={{ gap: 6 }}>
-                  <form action={`/api/voices/${voice.id}/preview`} method="post" target="_blank">
-                    <button className="btn sm ghost" type="submit">Ouvir</button>
-                  </form>
+                  {voice.provider === "fishaudio" && voice.provider_voice_id ? (
+                    <audio controls preload="none" style={{ height: 30, maxWidth: 210 }}
+                           src={api.sampleUrl(voice.provider_voice_id)} />
+                  ) : (
+                    <form action={`/api/voices/${voice.id}/preview`} method="post" target="_blank">
+                      <button className="btn sm ghost" type="submit">Ouvir</button>
+                    </form>
+                  )}
                   <button
                     className="btn sm danger"
                     onClick={() => api.deleteVoice(voice.id).then(pull)}
@@ -106,6 +112,17 @@ export default function Vozes() {
               </div>
             ))
           )}
+
+          <section className="panel">
+            <div className="panel-head">
+              <span className="label">Buscar no catálogo</span>
+              <div className="grow" />
+              <span className="label">ouça antes de adicionar</span>
+            </div>
+            <div className="panel-body">
+              <VoiceBrowser toast={toast} onInstalled={() => { pull(); pullPresets(); }} />
+            </div>
+          </section>
 
           {Object.entries(groups).map(([label, items]) => (
             <section className="panel" key={label}>

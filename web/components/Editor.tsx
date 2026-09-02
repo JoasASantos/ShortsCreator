@@ -6,6 +6,7 @@ import {
   api, type Job, type MusicTrack, type ScriptEdit, type ScriptSegment, type Voice,
 } from "@/lib/api";
 import { Chips, Field } from "@/components/ui";
+import { VoiceBrowser } from "@/components/VoiceBrowser";
 
 const KINDS = ["hook", "corpo", "cta"];
 
@@ -29,7 +30,9 @@ export function Editor({ job, onApplied, toast }: {
   const [busy, setBusy] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [refining, setRefining] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const musicInput = useRef<HTMLInputElement>(null);
+  const voiceAudio = useRef<HTMLAudioElement | null>(null);
 
   const loadTracks = () => api.music().then(setTracks).catch(() => setTracks([]));
 
@@ -123,6 +126,24 @@ export function Editor({ job, onApplied, toast }: {
     } finally {
       setRefining(false);
     }
+  };
+
+  const selectedVoice = voices.find((v) => v.id === voiceId);
+
+  /** Toca a amostra da voz escolhida direto do catálogo, sem gastar síntese. */
+  const previewVoice = () => {
+    voiceAudio.current?.pause();
+    if (previewing) { setPreviewing(false); return; }
+    if (!selectedVoice?.provider_voice_id) {
+      toast("Esta voz não tem amostra publicada.");
+      return;
+    }
+    const audio = new Audio(api.sampleUrl(selectedVoice.provider_voice_id));
+    audio.onended = () => setPreviewing(false);
+    audio.onerror = () => { setPreviewing(false); toast("Amostra indisponível."); };
+    audio.play().catch(() => { setPreviewing(false); toast("Não foi possível tocar."); });
+    voiceAudio.current = audio;
+    setPreviewing(true);
   };
 
   const uploadMusic = async (files: FileList | null) => {
@@ -247,16 +268,41 @@ export function Editor({ job, onApplied, toast }: {
           <span className="label">Áudio</span>
         </div>
         <div className="panel-body grid" style={{ gap: 13 }}>
-          <Field label="Voz da narração">
-            <select className="select" value={voiceId}
-                    onChange={(e) => setVoiceId(e.target.value)}>
-              <option value="">Padrão do sistema (edge-tts pt-BR)</option>
-              {voices.map((voice) => (
-                <option key={voice.id} value={voice.id}>
-                  {voice.name} · {voice.provider}
-                </option>
-              ))}
-            </select>
+          <Field label="Voz da narração" hint={`${voices.length} salva(s)`}>
+            <div className="grid" style={{ gap: 8 }}>
+              <div className="row" style={{ gap: 8 }}>
+                <select className="select grow" value={voiceId}
+                        onChange={(e) => setVoiceId(e.target.value)}>
+                  <option value="">Padrão do sistema (edge-tts pt-BR)</option>
+                  {voices.map((voice) => (
+                    <option key={voice.id} value={voice.id}>
+                      {voice.name} · {voice.provider}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="btn sm ghost"
+                  onClick={previewVoice}
+                  disabled={!selectedVoice?.provider_voice_id}
+                  title={selectedVoice?.provider_voice_id
+                    ? "Ouvir amostra desta voz"
+                    : "A voz padrão do sistema não tem amostra"}
+                >
+                  {previewing ? "■ parar" : "▶ ouvir"}
+                </button>
+              </div>
+
+              <VoiceBrowser
+                toast={toast}
+                onInstalled={(id) => {
+                  // já deixa selecionada a voz recém-salva
+                  api.voices().then((list) => {
+                    setVoices(list);
+                    setVoiceId(id);
+                  }).catch(() => undefined);
+                }}
+              />
+            </div>
           </Field>
 
           <Field label="Trilha de fundo" hint={`${tracks.length} na biblioteca`}>

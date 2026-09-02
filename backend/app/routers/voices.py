@@ -19,6 +19,28 @@ def edge_catalog(locale: str = "pt-BR"):
     return list_edge_voices(locale)
 
 
+@router.get("/catalog/fish/{reference_id}/sample")
+def fish_sample(reference_id: str):
+    """Faz proxy da amostra de áudio do fish.audio.
+
+    A URL original é assinada e vem de outro domínio; servir por aqui evita
+    problema de CORS no player e esconde a chave da API do navegador.
+    """
+    import httpx as _httpx
+    from fastapi.responses import StreamingResponse
+
+    from ..pipeline.tts import fish_sample_url
+
+    url = fish_sample_url(reference_id)
+    if not url:
+        raise HTTPException(404, "Esta voz não tem amostra publicada.")
+
+    upstream = _httpx.get(url, timeout=60, follow_redirects=True)
+    if upstream.status_code != 200:
+        raise HTTPException(502, "Não foi possível baixar a amostra.")
+    return StreamingResponse(iter([upstream.content]), media_type="audio/mpeg")
+
+
 @router.get("/presets")
 def voice_presets():
     """Catálogo curado por uso: narração, cinema, personagens e vozes gerais."""

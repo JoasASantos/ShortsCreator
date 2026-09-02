@@ -62,6 +62,17 @@ export interface MusicTrack {
   size_bytes: number;
 }
 
+export interface CatalogVoice {
+  id: string;
+  name: string;
+  languages: string[];
+  likes: number;
+  author: string;
+  description: string;
+  sample_text: string;
+  has_sample: boolean;
+}
+
 export interface VoicePreset {
   id: string;
   name: string;
@@ -281,6 +292,14 @@ export const api = {
 
   voices: () => req<Voice[]>("/api/voices"),
   voicePresets: () => req<VoicePreset[]>("/api/voices/presets"),
+  searchVoices: (query: string, language = "pt", pageSize = 20) =>
+    req<CatalogVoice[]>(
+      `/api/voices/catalog/fish?query=${encodeURIComponent(query)}` +
+      `&language=${language}&page_size=${pageSize}`),
+  addCatalogVoice: (form: FormData) =>
+    req<Voice>("/api/voices", { method: "POST", body: form }),
+  sampleUrl: (referenceId: string) =>
+    `/api/voices/catalog/fish/${referenceId}/sample`,
   installPreset: (referenceId: string) =>
     req<Voice>(`/api/voices/presets/${referenceId}/install`, { method: "POST" }),
   edgeCatalog: (locale = "pt-BR") =>

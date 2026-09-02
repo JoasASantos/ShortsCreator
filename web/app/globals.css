@@ -874,3 +874,22 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(330%); }
 }
+
+.voice-results {
+  max-height: 340px;
+  overflow-y: auto;
+  display: grid;
+  gap: 2px;
+}
+
+.voice-results::-webkit-scrollbar { width: 8px; }
+.voice-results::-webkit-scrollbar-thumb { background: var(--rail); border-radius: 4px; }
+
+.voice-row {
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  gap: 12px;
+}
+
+.voice-row:hover { background: var(--panel); border-color: var(--line); }

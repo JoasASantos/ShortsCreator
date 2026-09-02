@@ -386,14 +386,40 @@ def list_fish_voices(query: str = "", language: str = "pt",
     resp.raise_for_status()
     payload = resp.json()
     items = payload.get("items", payload if isinstance(payload, list) else [])
-    return [{
+    return [_fish_voice_summary(item) for item in items
+            if item.get("_id") or item.get("id")]
+
+
+def _fish_voice_summary(item: dict) -> dict:
+    """Resume um modelo do fish.audio para a interface.
+
+    `samples[0].audio` é uma amostra pronta hospedada por eles — dá para ouvir
+    a voz antes de instalar, sem gastar crédito de API sintetizando.
+    """
+    samples = item.get("samples") or []
+    sample = samples[0] if samples else {}
+    return {
         "id": item.get("_id") or item.get("id"),
         "name": item.get("title") or item.get("name") or "(sem nome)",
         "languages": item.get("languages", []),
         "likes": item.get("like_count", 0),
         "author": (item.get("author") or {}).get("nickname", ""),
-        "description": (item.get("description") or "")[:120],
-    } for item in items if item.get("_id") or item.get("id")]
+        "description": (item.get("description") or "")[:160],
+        "sample_text": (sample.get("text") or item.get("default_text") or "")[:120],
+        "has_sample": bool(sample.get("audio")),
+    }
+
+
+def fish_sample_url(reference_id: str) -> str | None:
+    """URL do áudio de amostra de uma voz (some depois de um tempo, por isso
+    é buscada na hora em vez de guardada)."""
+    headers = ({"Authorization": f"Bearer {settings.fishaudio_api_key}"}
+               if settings.fishaudio_api_key else {})
+    resp = httpx.get(f"{FISH_BASE}/model/{reference_id}", headers=headers, timeout=45)
+    if resp.status_code != 200:
+        return None
+    samples = resp.json().get("samples") or []
+    return samples[0].get("audio") if samples else None
 
 
 # ---------------- utilidades compartilhadas de síntese ----------------
