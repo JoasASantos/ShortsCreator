@@ -34,7 +34,10 @@ def youtube_auth():
     from ..pipeline.publishers import youtube
 
     redirect = f"{settings.public_api_url}/api/publish/youtube/callback"
-    url, _ = youtube.auth_url_flow(redirect)
+    try:
+        url, _ = youtube.auth_url_flow(redirect)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc))
     return {"auth_url": url}
 
 
@@ -43,8 +46,12 @@ def youtube_callback(code: str = Query(...)):
     from ..pipeline.publishers import youtube
 
     redirect = f"{settings.public_api_url}/api/publish/youtube/callback"
-    credentials = youtube.exchange_code(code, redirect)
-    name = youtube.channel_name(credentials)
+    try:
+        credentials = youtube.exchange_code(code, redirect)
+        name = youtube.channel_name(credentials)
+    except Exception as exc:
+        return RedirectResponse(
+            f"http://localhost:3000/contas?error={str(exc)[:200]}")
     db.create_account("youtube", name, credentials)
     return RedirectResponse("http://localhost:3000/contas?connected=youtube")
 

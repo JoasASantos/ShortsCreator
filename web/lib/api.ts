@@ -259,8 +259,14 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
   });
   if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(detail.slice(0, 400) || `HTTP ${res.status}`);
+    const raw = await res.text();
+    // FastAPI devolve {"detail": "..."} — sem isso o toast mostrava o JSON cru.
+    let message = raw;
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.detail === "string") message = parsed.detail;
+    } catch { /* corpo não era JSON, usa o texto puro */ }
+    throw new Error(message.slice(0, 400) || `HTTP ${res.status}`);
   }
   return res.status === 204 ? (null as T) : res.json();
 }

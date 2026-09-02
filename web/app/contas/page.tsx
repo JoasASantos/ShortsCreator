@@ -29,6 +29,17 @@ export default function Contas() {
   };
   useEffect(() => { pull(); }, []);
 
+  // callback OAuth do YouTube/TikTok volta pra cá com ?connected= ou ?error=
+  // — sem isso, uma falha na troca do code por token passava em silêncio.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("connected");
+    const error = params.get("error");
+    if (connected) toast(`Conta ${connected === "youtube" ? "YouTube" : "TikTok"} conectada.`);
+    if (error) toast(`Falha ao conectar: ${error}`);
+    if (connected || error) window.history.replaceState({}, "", "/contas");
+  }, []);
+
   const connect = async (platform: "youtube" | "tiktok") => {
     try {
       const { auth_url } =
