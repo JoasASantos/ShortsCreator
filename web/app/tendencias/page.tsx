@@ -40,11 +40,14 @@ export default function Tendencias() {
   const [source, setSource] = useState("todas");
 
   useEffect(() => {
+    let vivo = true;
     setLoading(true);
     api.trends(niche, geo)
-      .then((r) => { setItems(r.items); setFeeds(r.sources); })
-      .catch(() => { setItems([]); setFeeds([]); })
-      .finally(() => setLoading(false));
+      .then((r) => { if (vivo) { setItems(r.items); setFeeds(r.sources); } })
+      .catch(() => { if (vivo) { setItems([]); setFeeds([]); } })
+      .finally(() => { if (vivo) setLoading(false); });
+    // troca rápida de nicho: descarta a resposta da consulta abandonada
+    return () => { vivo = false; };
   }, [niche, geo]);
 
   const sources = ["todas", ...Array.from(new Set(items.map((i) => i.source)))];
@@ -54,6 +57,7 @@ export default function Tendencias() {
   return (
     <>
       <Topbar title="Tendências">
+        {loading ? <i className="dot pulse" style={{ color: "var(--cyan)" }} /> : null}
         <span className="label">{items.length} assunto(s) em alta · cache 30 min</span>
       </Topbar>
 
@@ -88,7 +92,9 @@ export default function Tendencias() {
           </div>
         </section>
 
-        {loading ? (
+        {/* com itens em tela, uma nova consulta não apaga a lista: só o ponto
+            pulsando na barra de título indica que está atualizando */}
+        {loading && items.length === 0 ? (
           <div className="empty">consultando Google Trends, Reddit, Hacker News e YouTube…</div>
         ) : visible.length === 0 ? (
           <div className="empty">

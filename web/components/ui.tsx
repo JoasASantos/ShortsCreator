@@ -21,6 +21,10 @@ export function StatusTag({ status }: { status: string }) {
     pending: { tone: "amber", text: "agendado" },
     publishing: { tone: "run", text: "enviando" },
     published: { tone: "ok", text: "publicado" },
+    // planos de lote: analisar é demorado e "rendered" não é "publicado"
+    analisando: { tone: "run", text: "transcrevendo" },
+    ready: { tone: "amber", text: "trechos prontos" },
+    rendered: { tone: "ok", text: "shorts gerados" },
   };
   const item = map[status] ?? { tone: "", text: status };
   return (

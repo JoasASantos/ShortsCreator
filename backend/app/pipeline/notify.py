@@ -104,20 +104,29 @@ def _job_url(job_id: str) -> str:
 # ------------------------------------------------------------- checagens
 
 def check_telegram(creds: dict) -> str:
+    """O Telegram responde 404 (não 401) a token inválido — sem tratar, o
+    usuário via um HTTPStatusError cru com o token dentro da URL."""
     r = httpx.get(f"https://api.telegram.org/bot{creds.get('bot_token', '')}/getMe",
                   timeout=TIMEOUT)
-    if r.status_code == 401:
-        raise RuntimeError("Token do bot recusado pelo Telegram (401)")
-    r.raise_for_status()
+    if r.status_code in (401, 404):
+        raise RuntimeError("Token do bot recusado pelo Telegram. Confira o valor "
+                           "que o @BotFather devolveu.")
+    if r.status_code >= 400:
+        raise RuntimeError(f"Telegram respondeu {r.status_code}")
     name = (r.json().get("result") or {}).get("username", "?")
-    return f"Bot @{name} válido — manda /start pra ele antes do primeiro aviso"
+    if not str(creds.get("chat_id", "")).strip():
+        raise RuntimeError(f"Bot @{name} válido, mas falta o chat_id (@userinfobot)")
+    return f"Bot @{name} válido — mande /start para ele antes do primeiro aviso"
 
 
 def check_discord(creds: dict) -> str:
-    r = httpx.get(creds.get("webhook_url", ""), timeout=TIMEOUT)
-    if r.status_code in (401, 404):
-        raise RuntimeError("Webhook do Discord inválido")
-    r.raise_for_status()
+    url = creds.get("webhook_url", "")
+    if not url.startswith("https://"):
+        raise RuntimeError("URL do webhook inválida")
+    r = httpx.get(url, timeout=TIMEOUT)
+    if r.status_code >= 400:
+        raise RuntimeError("Webhook do Discord recusado — a URL pode ter sido "
+                           "revogada no canal")
     return f"Webhook do canal #{r.json().get('name', '?')} respondendo"
 
 
@@ -125,7 +134,11 @@ def check_webhook(creds: dict) -> str:
     url = creds.get("url", "")
     if not url.startswith("http"):
         raise RuntimeError("URL inválida")
-    r = httpx.post(url, json={"title": "ShortsCreator", "body": "teste de webhook",
-                              "level": "info"}, timeout=TIMEOUT)
-    r.raise_for_status()
+    try:
+        r = httpx.post(url, json={"title": "ShortsCreator", "body": "teste de webhook",
+                                  "level": "info"}, timeout=TIMEOUT)
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"Não foi possível alcançar a URL: {type(exc).__name__}")
+    if r.status_code >= 400:
+        raise RuntimeError(f"A URL respondeu {r.status_code}")
     return f"Webhook respondeu {r.status_code}"

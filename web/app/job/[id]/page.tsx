@@ -420,13 +420,27 @@ function CoverPanel({ jobId, job, toast, onChanged }: {
   const [title, setTitle] = useState(job.result?.title ?? "");
   const [at, setAt] = useState<number>(job.result?.cover_at ?? 1);
   const [busy, setBusy] = useState(false);
+  const [tocado, setTocado] = useState(false);
   const duration = job.result?.duration ?? 10;
+  const coverAt = job.result?.cover_at ?? null;
+
+  // A página recarrega o job a cada 2,5s. Sem sincronizar, o estado local fica
+  // congelado no valor da primeira montagem e o slider passa a mentir sobre
+  // qual frame a capa realmente usa. Só sincroniza enquanto o usuário não
+  // mexeu, para não sobrescrever o que ele está ajustando.
+  useEffect(() => {
+    if (!tocado && coverAt != null) setAt(coverAt);
+  }, [coverAt, tocado]);
+  useEffect(() => {
+    if (!tocado && job.result?.title) setTitle(job.result.title);
+  }, [job.result?.title, tocado]);
 
   const rebuild = async (auto: boolean) => {
     setBusy(true);
     try {
       const r = await api.rebuildCover(jobId, title, auto ? null : at);
       setAt(r.at);
+      setTocado(false);   // voltou a refletir o que está no disco
       onChanged();
       toast(`Capa refeita (frame em ${r.at.toFixed(1)}s).`);
     } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
@@ -437,7 +451,9 @@ function CoverPanel({ jobId, job, toast, onChanged }: {
       <div className="panel-head">
         <span className="label">Capa</span>
         <div className="grow" />
-        <span className="tag">frame {at.toFixed(1)}s</span>
+        <span className="tag" data-tone={tocado ? "amber" : ""}>
+          frame {(coverAt ?? at).toFixed(1)}s
+        </span>
       </div>
       <div className="panel-body" style={{ display: "grid", gridTemplateColumns: "96px 1fr", gap: 12 }}>
         <img src={`/api/jobs/${jobId}/file/cover.jpg?v=${job.updated_at}`} alt="capa"
@@ -445,11 +461,14 @@ function CoverPanel({ jobId, job, toast, onChanged }: {
                       borderRadius: "var(--r)", border: "1px solid var(--line)" }} />
         <div className="grid" style={{ gap: 8 }}>
           <Field label="Título na capa">
-            <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <input className="input" value={title}
+                   onChange={(e) => { setTocado(true); setTitle(e.target.value); }} />
           </Field>
-          <Field label="Instante do frame" hint={`${at.toFixed(1)}s`}>
+          <Field label="Instante do frame"
+                 hint={`${at.toFixed(1)}s${tocado ? " · não aplicado" : ""}`}>
             <input type="range" min={0.3} max={Math.max(duration - 0.5, 1)} step={0.1}
-                   value={at} onChange={(e) => setAt(Number(e.target.value))} />
+                   value={at}
+                   onChange={(e) => { setTocado(true); setAt(Number(e.target.value)); }} />
           </Field>
           <div className="row" style={{ gap: 6 }}>
             <button className="btn sm" disabled={busy} onClick={() => rebuild(false)}>

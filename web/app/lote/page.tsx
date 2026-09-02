@@ -133,7 +133,7 @@ export default function Lote() {
                       onClick={() => setActive(p.id)}>
                 <div className="panel-body grid" style={{ gap: 6 }}>
                   <div className="row spread">
-                    <StatusTag status={p.status === "analisando" ? "running" : p.status === "ready" ? "done" : p.status === "rendered" ? "published" : p.status} />
+                    <StatusTag status={p.status} />
                     <span className="mono dimmer" style={{ fontSize: 11 }}>
                       {new Date(p.created_at).toLocaleDateString("pt-BR")}
                     </span>
@@ -201,7 +201,7 @@ function PlanPanel({ plan, toast, onChanged }: {
       <div className="panel-head">
         <span className="label">02 · Momentos encontrados</span>
         <div className="grow" />
-        <StatusTag status={plan.status === "analisando" ? "running" : plan.status === "ready" ? "done" : plan.status === "rendered" ? "published" : plan.status} />
+        <StatusTag status={plan.status} />
         <button className="btn sm ghost" onClick={() => api.deleteClipPlan(plan.id).then(onChanged)}>Remover</button>
       </div>
       <div className="panel-body grid" style={{ gap: 12 }}>
