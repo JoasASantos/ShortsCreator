@@ -4,11 +4,15 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { api, type Job } from "@/lib/api";
-import { StatusTag, Topbar } from "@/components/ui";
+import { StatusTag, Topbar, useToast } from "@/components/ui";
 
 export default function Painel() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+  // exclusão apaga arquivos e histórico: pede confirmação no próprio botão
+  const [confirming, setConfirming] = useState("");
+  const [deleting, setDeleting] = useState("");
+  const { toast, node } = useToast();
 
   useEffect(() => {
     const pull = () =>
@@ -17,6 +21,20 @@ export default function Painel() {
     const id = setInterval(pull, 3000);
     return () => clearInterval(id);
   }, []);
+
+  const remove = async (job: Job) => {
+    setDeleting(job.id);
+    try {
+      await api.deleteJob(job.id);
+      setJobs((prev) => prev.filter((j) => j.id !== job.id));
+      toast(`"${job.title || "Short"}" excluído.`);
+    } catch (error) {
+      toast((error as Error).message);
+    } finally {
+      setDeleting("");
+      setConfirming("");
+    }
+  };
 
   const running = jobs.filter((j) => j.status === "running" || j.status === "queued").length;
   const approved = jobs.filter((j) => j.qa?.passed).length;
@@ -98,13 +116,41 @@ export default function Painel() {
                       </div>
                     )}
                   </div>
-                  <span className="label">{job.stage ?? ""}</span>
+                  <div className="row job-actions" style={{ gap: 6 }}>
+                    <span className="label">{job.stage ?? ""}</span>
+                    {confirming === job.id ? (
+                      <>
+                        <button
+                          className="btn sm danger"
+                          disabled={deleting === job.id}
+                          onClick={(e) => { e.preventDefault(); remove(job); }}
+                        >
+                          {deleting === job.id ? "Excluindo…" : "Confirmar"}
+                        </button>
+                        <button
+                          className="btn sm ghost"
+                          onClick={(e) => { e.preventDefault(); setConfirming(""); }}
+                        >
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        className="btn sm ghost job-delete"
+                        title="Excluir este short"
+                        onClick={(e) => { e.preventDefault(); setConfirming(job.id); }}
+                      >
+                        Excluir
+                      </button>
+                    )}
+                  </div>
                 </Link>
               ))}
             </div>
           )}
         </section>
       </div>
+      {node}
     </>
   );
 }

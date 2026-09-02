@@ -893,3 +893,15 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 }
 
 .voice-row:hover { background: var(--panel); border-color: var(--line); }
+
+/* ações da linha: o botão de excluir só aparece no hover, para não
+   competir com o conteúdo nem convidar ao clique acidental */
+.job-actions { flex-shrink: 0; }
+
+.job-delete {
+  opacity: 0;
+  transition: opacity 0.14s;
+}
+
+.job:hover .job-delete { opacity: 1; }
+.job-delete:focus-visible { opacity: 1; }
