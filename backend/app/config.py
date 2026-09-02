@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+import os
+from functools import lru_cache
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(ROOT / ".env")
+
+
+class Settings:
+    """Configuração lida de .env. Sem pydantic-settings para evitar acoplamento."""
+
+    def __init__(self) -> None:
+        self.root = ROOT
+        self.data_dir = Path(os.getenv("DATA_DIR", ROOT / "data")).resolve()
+        self.assets_dir = ROOT / "assets"
+
+        self.jobs_dir = self.data_dir / "jobs"
+        self.cache_dir = self.data_dir / "cache"
+        self.voices_dir = self.data_dir / "voices"
+        self.outputs_dir = self.data_dir / "outputs"
+        self.secrets_dir = self.data_dir / "secrets"
+        self.uploads_dir = self.data_dir / "uploads"
+        self.repos_dir = self.cache_dir / "repos"
+        for d in (self.jobs_dir, self.cache_dir, self.voices_dir,
+                  self.outputs_dir, self.secrets_dir, self.uploads_dir,
+                  self.repos_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        self.db_path = self.data_dir / "shortscreator.db"
+
+        # LLM
+        self.llm_provider = os.getenv("LLM_PROVIDER", "anthropic")
+        self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        self.anthropic_model = os.getenv("ANTHROPIC_MODEL", "claude-opus-5")
+        self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
+        self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o")
+        self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        self.ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1")
+
+        # Providers por CLI: usam a assinatura já logada na máquina,
+        # sem chave de API e sem cobrança por token.
+        self.claude_cli_bin = os.getenv("CLAUDE_CLI_BIN", "claude")
+        self.claude_cli_model = os.getenv("CLAUDE_CLI_MODEL", "")
+        self.codex_cli_bin = os.getenv("CODEX_CLI_BIN", "codex")
+        self.codex_cli_model = os.getenv("CODEX_CLI_MODEL", "")
+        self.codex_reasoning_effort = os.getenv("CODEX_REASONING_EFFORT", "medium")
+        self.llm_cli_timeout = int(os.getenv("LLM_CLI_TIMEOUT", "420"))
+
+        # TTS
+        self.tts_provider = os.getenv("TTS_PROVIDER", "edge")
+        self.edge_voice = os.getenv("EDGE_VOICE", "pt-BR-AntonioNeural")
+        self.elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY", "")
+        self.elevenlabs_model = os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
+        self.xtts_server = os.getenv("XTTS_SERVER", "http://localhost:8020")
+        self.fishaudio_api_key = os.getenv("FISHAUDIO_API_KEY", "")
+        # família do modelo: s1 | s2-pro | s2.1-pro | s2.1-pro-free
+        self.fishaudio_backend = os.getenv("FISHAUDIO_BACKEND", "s2.1-pro-free")
+        self.fishaudio_model = os.getenv("FISHAUDIO_MODEL", "")
+
+        # B-roll
+        self.pexels_api_key = os.getenv("PEXELS_API_KEY", "")
+        self.pixabay_api_key = os.getenv("PIXABAY_API_KEY", "")
+
+        # Publish
+        self.youtube_client_secrets = os.getenv(
+            "YOUTUBE_CLIENT_SECRETS", str(self.secrets_dir / "youtube_client_secret.json")
+        )
+        self.tiktok_client_key = os.getenv("TIKTOK_CLIENT_KEY", "")
+        self.tiktok_client_secret = os.getenv("TIKTOK_CLIENT_SECRET", "")
+        self.tiktok_redirect_uri = os.getenv(
+            "TIKTOK_REDIRECT_URI", "http://localhost:8000/api/publish/tiktok/callback"
+        )
+
+        # App
+        self.public_api_url = os.getenv("PUBLIC_API_URL", "http://localhost:8000")
+        self.whisper_model = os.getenv("WHISPER_MODEL", "base")
+        self.max_short_seconds = int(os.getenv("MAX_SHORT_SECONDS", "90"))
+        self.min_short_seconds = int(os.getenv("MIN_SHORT_SECONDS", "15"))
+        self.videogen_provider = os.getenv("VIDEOGEN_PROVIDER", "")
+        self.max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "300"))
+        self.github_max_files = int(os.getenv("GITHUB_MAX_FILES", "12"))
+        self.github_max_file_chars = int(os.getenv("GITHUB_MAX_FILE_CHARS", "6000"))
+
+        # Formato fixo do short
+        self.width = 1080
+        self.height = 1920
+        self.fps = 30
+
+    def job_dir(self, job_id: str) -> Path:
+        d = self.jobs_dir / job_id
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

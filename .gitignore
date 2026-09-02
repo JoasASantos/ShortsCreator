@@ -1,0 +1,29 @@
+.env
+data/
+!data/.gitkeep
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+web/.next/
+web/out/
+*.mp4
+*.mp3
+*.wav
+*.log
+
+# segredos e credenciais
+.env.*
+!.env.example
+data/secrets/
+*.pem
+*client_secret*.json
+
+# artefatos de build e midia
+web/tsconfig.tsbuildinfo
+assets/music/*
+!assets/music/.gitkeep
+assets/fonts/*
+!assets/fonts/.gitkeep
+.DS_Store
