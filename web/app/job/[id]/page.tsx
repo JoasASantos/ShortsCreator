@@ -3,7 +3,9 @@
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { api, type Account, type Job } from "@/lib/api";
+import { api, PLATFORM_LABEL, type Account, type HookOption, type Job,
+         type LLMCall, type MetricRow } from "@/lib/api";
+import { formatCount } from "@/lib/format";
 import { Editor } from "@/components/Editor";
 import { TimelineEditor } from "@/components/TimelineEditor";
 import { LogStream } from "@/components/LogStream";
@@ -12,6 +14,7 @@ import { QAPanel } from "@/components/QAPanel";
 import { Chips, Field, StatusTag, Topbar, useToast } from "@/components/ui";
 
 const STAGES = ["ingest", "roteiro", "voz", "legendas", "fundo", "render", "qa"];
+const RESUMABLE = ["voz", "legendas", "fundo", "render"];
 
 export default function JobPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -46,10 +49,10 @@ export default function JobPage({ params }: { params: Promise<{ id: string }> })
     <>
       <Topbar title={job.title || "Short"}>
         <StatusTag status={job.status} />
-        {job.status === "error" ? (
-          <button className="btn sm" onClick={() => api.retryJob(id).then(() => toast("Refilado."))}>
-            Reprocessar
-          </button>
+        {job.status === "error" || job.status === "done" ? (
+          <RetryMenu job={job} onRetry={(from) =>
+            api.retryJob(id, from).then(() => toast(from ? `Retomando de ${from}.` : "Refilado."))
+              .catch((e) => toast((e as Error).message))} />
         ) : null}
         <button
           className="btn sm danger"
@@ -157,6 +160,11 @@ export default function JobPage({ params }: { params: Promise<{ id: string }> })
               </div>
             )}
 
+            {job.result && tab === "preview" && !live ? (
+              <HooksPanel jobId={id} job={job} toast={toast}
+                          onChanged={() => api.job(id).then(setJob).catch(() => undefined)} />
+            ) : null}
+
             {job.qa && tab === "preview" ? (
               <QAPanel
                 report={job.qa}
@@ -223,9 +231,18 @@ export default function JobPage({ params }: { params: Promise<{ id: string }> })
           </div>
 
           <div className="grid" style={{ gap: 16 }}>
+            {job.result?.cover && !live ? (
+              <CoverPanel jobId={id} job={job} toast={toast}
+                          onChanged={() => api.job(id).then(setJob).catch(() => undefined)} />
+            ) : null}
+
             {job.result ? (
               <PublishBox jobId={id} job={job} accounts={accounts} toast={toast}
                           onCaption={() => api.job(id).then(setJob).catch(() => undefined)} />
+            ) : null}
+
+            {Array.isArray(job.metrics) && job.metrics.length ? (
+              <MetricsPanel rows={job.metrics} />
             ) : null}
 
             <section className="panel">
@@ -237,6 +254,8 @@ export default function JobPage({ params }: { params: Promise<{ id: string }> })
                 <LogStream jobId={id} live={live} />
               </div>
             </section>
+
+            {job.llm_calls?.length ? <LLMPanel calls={job.llm_calls} /> : null}
 
             <section className="panel">
               <div className="panel-head">
@@ -259,6 +278,251 @@ export default function JobPage({ params }: { params: Promise<{ id: string }> })
       </div>
       {node}
     </>
+  );
+}
+
+function RetryMenu({ job, onRetry }: { job: Job; onRetry: (from: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const resumable = job.resumable_from;
+  const allowed = resumable ? RESUMABLE.slice(RESUMABLE.indexOf(resumable)) : [];
+  if (!allowed.length) {
+    return (
+      <button className="btn sm" onClick={() => onRetry("")}>Reprocessar</button>
+    );
+  }
+  return (
+    <div style={{ position: "relative" }}>
+      <button className="btn sm" onClick={() => setOpen((v) => !v)}>
+        Reprocessar {open ? "▴" : "▾"}
+      </button>
+      {open ? (
+        <div className="panel" style={{ position: "absolute", right: 0, top: "110%", zIndex: 20,
+                                        minWidth: 240, boxShadow: "var(--shadow)" }}>
+          <div className="panel-body grid" style={{ gap: 4, padding: 8 }}>
+            <span className="label" style={{ padding: "4px 6px" }}>retomar sem gastar LLM/TTS</span>
+            {allowed.map((stage) => (
+              <button key={stage} className="btn sm ghost" style={{ justifyContent: "flex-start" }}
+                      onClick={() => { setOpen(false); onRetry(stage); }}>
+                a partir de <b style={{ marginLeft: 4 }}>{stage}</b>
+              </button>
+            ))}
+            <hr className="rule" style={{ margin: "4px 0" }} />
+            <button className="btn sm ghost" style={{ justifyContent: "flex-start" }}
+                    onClick={() => { setOpen(false); onRetry(""); }}>
+              do início (roteiro novo)
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Ganchos alternativos: ouve cada um na voz do job, troca no lugar ou cria o
+// par A/B como um job novo para publicar os dois e comparar em Desempenho.
+function HooksPanel({ jobId, job, toast, onChanged }: {
+  jobId: string; job: Job; toast: (m: string) => void; onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [acting, setActing] = useState("");
+  const variants = job.result?.hook_variants;
+
+  const generate = async () => {
+    setBusy(true);
+    try {
+      await api.buildHooks(jobId, 3);
+      onChanged();
+      toast("Ganchos alternativos prontos.");
+    } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
+  };
+
+  const apply = async (hook: HookOption) => {
+    setActing(`apply-${hook.index}`);
+    try {
+      await api.applyHook(jobId, hook.text);
+      toast("Gancho trocado — re-renderizando só voz, legenda e vídeo.");
+      onChanged();
+    } catch (e) { toast((e as Error).message); } finally { setActing(""); }
+  };
+
+  const fork = async (hook: HookOption) => {
+    setActing(`fork-${hook.index}`);
+    try {
+      const { job_id } = await api.forkHook(jobId, hook.text);
+      toast(`Variante B criada: ${job_id.slice(0, 12)}. Publique as duas e compare.`);
+    } catch (e) { toast((e as Error).message); } finally { setActing(""); }
+  };
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <span className="label">Teste de gancho (A/B)</span>
+        <div className="grow" />
+        <button className="btn sm ghost" onClick={generate} disabled={busy}>
+          {busy ? "Gerando…" : variants ? "Gerar outros" : "Gerar 3 ganchos"}
+        </button>
+      </div>
+      <div className="panel-body grid" style={{ gap: 10 }}>
+        {!variants ? (
+          <p className="dimmer" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6 }}>
+            O gancho decide os primeiros 2 segundos. Gere alternativas com mecanismos
+            diferentes, ouça cada uma e troque — ou crie a variante B como outro short
+            para publicar os dois.
+          </p>
+        ) : (
+          <>
+            <div className="issue" data-sev="info">
+              <span className="label" style={{ minWidth: 52, paddingTop: 2 }}>atual</span>
+              <div style={{ lineHeight: 1.5 }}>{variants.current}</div>
+            </div>
+            {variants.options.map((hook) => (
+              <div className="issue" data-sev="aviso" key={hook.index} style={{ alignItems: "start" }}>
+                <span className="label" style={{ minWidth: 52, paddingTop: 2 }}>
+                  {String.fromCharCode(66 + hook.index)}
+                </span>
+                <div className="grow grid" style={{ gap: 6 }}>
+                  <div style={{ lineHeight: 1.5 }}>{hook.text}</div>
+                  <div className="mono dimmer" style={{ fontSize: 11 }}>
+                    {hook.mechanism} — {hook.why}
+                  </div>
+                  {hook.audio ? (
+                    <audio controls preload="none" src={`${hook.audio}?v=${job.updated_at}`}
+                           style={{ width: "100%", height: 30 }} />
+                  ) : hook.audio_error ? (
+                    <span className="mono" style={{ fontSize: 11, color: "var(--warn)" }}>
+                      prévia indisponível: {hook.audio_error}
+                    </span>
+                  ) : null}
+                  <div className="row" style={{ gap: 6 }}>
+                    <button className="btn sm" disabled={!!acting}
+                            onClick={() => apply(hook)}>
+                      {acting === `apply-${hook.index}` ? "Aplicando…" : "Usar este"}
+                    </button>
+                    <button className="btn sm ghost" disabled={!!acting}
+                            onClick={() => fork(hook)}>
+                      {acting === `fork-${hook.index}` ? "Criando…" : "Criar variante B"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function CoverPanel({ jobId, job, toast, onChanged }: {
+  jobId: string; job: Job; toast: (m: string) => void; onChanged: () => void;
+}) {
+  const [title, setTitle] = useState(job.result?.title ?? "");
+  const [at, setAt] = useState<number>(job.result?.cover_at ?? 1);
+  const [busy, setBusy] = useState(false);
+  const duration = job.result?.duration ?? 10;
+
+  const rebuild = async (auto: boolean) => {
+    setBusy(true);
+    try {
+      const r = await api.rebuildCover(jobId, title, auto ? null : at);
+      setAt(r.at);
+      onChanged();
+      toast(`Capa refeita (frame em ${r.at.toFixed(1)}s).`);
+    } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
+  };
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <span className="label">Capa</span>
+        <div className="grow" />
+        <span className="tag">frame {at.toFixed(1)}s</span>
+      </div>
+      <div className="panel-body" style={{ display: "grid", gridTemplateColumns: "96px 1fr", gap: 12 }}>
+        <img src={`/api/jobs/${jobId}/file/cover.jpg?v=${job.updated_at}`} alt="capa"
+             style={{ width: 96, aspectRatio: "9/16", objectFit: "cover",
+                      borderRadius: "var(--r)", border: "1px solid var(--line)" }} />
+        <div className="grid" style={{ gap: 8 }}>
+          <Field label="Título na capa">
+            <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </Field>
+          <Field label="Instante do frame" hint={`${at.toFixed(1)}s`}>
+            <input type="range" min={0.3} max={Math.max(duration - 0.5, 1)} step={0.1}
+                   value={at} onChange={(e) => setAt(Number(e.target.value))} />
+          </Field>
+          <div className="row" style={{ gap: 6 }}>
+            <button className="btn sm" disabled={busy} onClick={() => rebuild(false)}>
+              {busy ? "Gerando…" : "Refazer neste frame"}
+            </button>
+            <button className="btn sm ghost" disabled={busy} onClick={() => rebuild(true)}>
+              Escolher automático
+            </button>
+          </div>
+          <p className="dimmer" style={{ margin: 0, fontSize: 11.5, lineHeight: 1.5 }}>
+            Sobe como thumbnail no YouTube (canal precisa estar verificado) e define o
+            frame de capa no TikTok e no Instagram.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MetricsPanel({ rows }: { rows: MetricRow[] }) {
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <span className="label">Desempenho</span>
+        <div className="grow" />
+        <span className="label">atualizado {new Date(rows[0].fetched_at).toLocaleString("pt-BR")}</span>
+      </div>
+      <table className="table">
+        <thead>
+          <tr><th>Plataforma</th><th>Views</th><th>Likes</th><th>Coment.</th><th>Retenção</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.schedule_id}>
+              <td>
+                {r.url ? <a href={r.url} target="_blank" rel="noreferrer" style={{ color: "var(--amber)" }}>
+                  {PLATFORM_LABEL[r.platform] ?? r.platform}</a> : PLATFORM_LABEL[r.platform] ?? r.platform}
+                {r.error ? <div className="mono" style={{ fontSize: 10.5, color: "var(--err)" }}>{r.error.slice(0, 60)}</div> : null}
+              </td>
+              <td className="mono">{formatCount(r.views)}</td>
+              <td className="mono">{formatCount(r.likes)}</td>
+              <td className="mono">{formatCount(r.comments)}</td>
+              <td className="mono">{r.avg_view_pct != null ? `${r.avg_view_pct.toFixed(0)}%` : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function LLMPanel({ calls }: { calls: LLMCall[] }) {
+  const total = calls.reduce((s, c) => s + c.seconds, 0);
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <span className="label">Chamadas de IA</span>
+        <div className="grow" />
+        <span className="tag">{calls.length} · {total.toFixed(0)}s</span>
+      </div>
+      <div className="panel-body grid" style={{ gap: 6 }}>
+        {calls.map((c) => (
+          <div className="row spread" key={c.id} style={{ gap: 8 }}>
+            <span className="mono" style={{ fontSize: 11.5 }}>
+              <i className="dot" style={{ color: c.ok ? "var(--ok)" : "var(--err)", marginRight: 6 }} />
+              {c.purpose} · {c.provider}{c.model ? `:${c.model}` : ""}
+            </span>
+            <span className="mono dim" style={{ fontSize: 11.5 }} title={c.error ?? ""}>
+              {c.ok ? `${c.seconds.toFixed(1)}s` : "falhou → próximo"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -285,7 +549,9 @@ function PublishBox({ jobId, job, accounts, toast, onCaption }: {
   useEffect(() => {
     if (!caption) return;
     setTitle(caption.youtube_titulo);
-    setBody(platform === "tiktok" ? caption.tiktok_legenda : caption.youtube_descricao);
+    setBody(platform === "tiktok" ? caption.tiktok_legenda
+      : platform === "instagram" ? caption.instagram_legenda
+      : caption.youtube_descricao);
   }, [caption, platform]);
 
   const generate = async () => {
@@ -363,7 +629,8 @@ function PublishBox({ jobId, job, accounts, toast, onCaption }: {
 
         {accounts.length === 0 ? (
           <p className="dimmer" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6 }}>
-            Nenhuma conta conectada. Vá em <b>Contas</b> para autorizar YouTube ou TikTok.
+            Nenhuma conta conectada. Vá em <b>Contas</b> para autorizar YouTube, TikTok,
+            Instagram ou LinkedIn.
           </p>
         ) : (
           <>
@@ -373,13 +640,13 @@ function PublishBox({ jobId, job, accounts, toast, onCaption }: {
                 <option value="">Selecione…</option>
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.platform === "youtube" ? "YouTube" : "TikTok"} · {a.display_name}
+                    {PLATFORM_LABEL[a.platform] ?? a.platform} · {a.display_name}
                   </option>
                 ))}
               </select>
             </Field>
 
-            {platform !== "tiktok" ? (
+            {platform !== "tiktok" && platform !== "instagram" ? (
               <Field label="Título" hint={`${title.length}/100`}>
                 <input className="input" value={title} maxLength={100}
                        onChange={(e) => setTitle(e.target.value)} />
@@ -387,7 +654,7 @@ function PublishBox({ jobId, job, accounts, toast, onCaption }: {
             ) : null}
 
             <Field
-              label={platform === "tiktok" ? "Legenda" : "Descrição"}
+              label={platform === "tiktok" || platform === "instagram" ? "Legenda" : "Descrição"}
               hint={`${body.length} caracteres`}
             >
               <textarea className="textarea" style={{ minHeight: 96 }} value={body}

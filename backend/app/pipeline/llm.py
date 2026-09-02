@@ -1,21 +1,40 @@
-"""Cliente LLM com abstração de provider. Padrão: Anthropic Claude Opus 5."""
+"""Cliente LLM com abstração de provider. Padrão: cadeia Fable -> Opus 5 -> Codex."""
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import httpx
 
+from .. import db
 from ..config import settings
+
+# Job dono da chamada atual — o orquestrador seta antes de rodar o pipeline e
+# cada chamada fica registrada com custo/latência em `llm_calls`.
+current_job: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "llm_current_job", default=None)
+current_purpose: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "llm_current_purpose", default="geral")
 
 
 class LLMError(RuntimeError):
     pass
+
+
+def _record(provider: str, model: str | None, started: float, ok: bool,
+            error: str = "") -> None:
+    try:
+        db.log_llm_call(current_job.get(), current_purpose.get(), provider,
+                        model or "", time.monotonic() - started, ok, error)
+    except Exception:  # noqa: BLE001 — telemetria nunca derruba a geração
+        pass
 
 
 def _extract_json(text: str) -> dict:
@@ -32,15 +51,42 @@ def _extract_json(text: str) -> dict:
 
 
 def complete_json(system: str, prompt: str, schema: dict | None = None,
-                  max_tokens: int = 8000) -> dict:
-    provider = settings.llm_provider
-    if provider == "chain":
-        return _chain_json(system, prompt, schema, max_tokens)
-    return _dispatch(provider, None, system, prompt, schema, max_tokens)
+                  max_tokens: int = 8000, purpose: str = "") -> dict:
+    token = current_purpose.set(purpose) if purpose else None
+    try:
+        provider = settings.llm_provider
+        if provider == "chain":
+            return _chain_json(system, prompt, schema, max_tokens)
+        return _dispatch(provider, None, system, prompt, schema, max_tokens)
+    finally:
+        if token is not None:
+            current_purpose.reset(token)
 
 
 def _dispatch(provider: str, model: str | None, system: str, prompt: str,
               schema: dict | None, max_tokens: int) -> dict:
+    started = time.monotonic()
+    try:
+        result = _dispatch_raw(provider, model, system, prompt, schema, max_tokens)
+    except Exception as exc:
+        _record(provider, model or _default_model(provider), started, False, str(exc))
+        raise
+    _record(provider, model or _default_model(provider), started, True)
+    return result
+
+
+def _default_model(provider: str) -> str:
+    return {
+        "anthropic": settings.anthropic_model,
+        "openai": settings.openai_model,
+        "ollama": settings.ollama_model,
+        "claude_cli": settings.claude_cli_model or "sessão",
+        "codex_cli": settings.codex_cli_model or "sessão",
+    }.get(provider, "")
+
+
+def _dispatch_raw(provider: str, model: str | None, system: str, prompt: str,
+                  schema: dict | None, max_tokens: int) -> dict:
     if provider == "anthropic":
         return _anthropic_json(system, prompt, schema, max_tokens, model)
     if provider == "openai":

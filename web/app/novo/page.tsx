@@ -91,6 +91,20 @@ export default function NovoShort() {
 
   useEffect(() => {
     api.voices().then(setVoices).catch(() => setVoices([]));
+    // vindo de Tendências: ?tema=...&niche=...&url=... já preenchidos
+    const params = new URLSearchParams(window.location.search);
+    const tema = params.get("tema");
+    const url = params.get("url");
+    const niche = params.get("niche");
+    if (tema || url) {
+      setForm((prev) => ({
+        ...prev,
+        source_type: url ? "url" : "tema",
+        source: url || tema || "",
+        instruction: url && tema ? `Fale sobre: ${tema}` : prev.instruction,
+        niche: (niche as JobInput["niche"]) || prev.niche,
+      }));
+    }
   }, []);
 
   const set = <K extends keyof JobInput>(key: K, value: JobInput[K]) =>
@@ -98,6 +112,7 @@ export default function NovoShort() {
 
   const acceptsFiles = form.source_type === "imagem" || form.source_type === "video";
   const isLongForm = form.source_type === "video";
+  const hasVideoUpload = isLongForm && uploads.length > 0;
 
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -252,6 +267,15 @@ export default function NovoShort() {
                         { value: "resumo", label: "Resumir e cortar destaques" },
                       ]}
                     />
+                    {hasVideoUpload ? (
+                      <p className="dimmer" style={{ margin: "8px 0 0", fontSize: 12 }}>
+                        Quer vários shorts desse vídeo?{" "}
+                        <a href={`/lote?attachment=${uploads[0].id}&name=${encodeURIComponent(uploads[0].filename)}`}
+                           style={{ color: "var(--amber)" }}>
+                          Fatiar em lote →
+                        </a>
+                      </p>
+                    ) : null}
                   </Field>
                 ) : null}
 

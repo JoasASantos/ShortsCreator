@@ -74,7 +74,7 @@ TRANSCRIÇÃO (com marcações de tempo quando disponíveis):
 
 Selecione os melhores momentos."""
 
-    data = llm.complete_json(SYSTEM, prompt, SCHEMA)
+    data = llm.complete_json(SYSTEM, prompt, SCHEMA, purpose="clipes")
     clips = data.get("clipes", [])
 
     valid: list[dict] = []

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { api, type Job } from "@/lib/api";
+import { api, type Job, type JobMetricsSummary } from "@/lib/api";
+import { formatCount } from "@/lib/format";
 import { StatusTag, Topbar, useToast } from "@/components/ui";
 
 export default function Painel() {
@@ -82,14 +83,7 @@ export default function Painel() {
                   className="job"
                   style={{ animationDelay: `${Math.min(index, 12) * 28}ms` }}
                 >
-                  <div
-                    className="thumb"
-                    style={{
-                      backgroundImage: job.result
-                        ? `url(/api/jobs/${job.id}/file/thumb.jpg)`
-                        : undefined,
-                    }}
-                  />
+                  <Thumb job={job} />
                   <div className="grow" style={{ minWidth: 0 }}>
                     <h3>{job.title || job.input.source.slice(0, 70) || "Sem título"}</h3>
                     <div className="row" style={{ gap: 8, marginBottom: 8 }}>
@@ -102,6 +96,12 @@ export default function Painel() {
                       ) : null}
                       {job.result ? (
                         <span className="tag">{job.result.duration.toFixed(0)}s</span>
+                      ) : null}
+                      {metricsOf(job) ? (
+                        <span className="tag" data-tone="amber" title="views somadas nas plataformas">
+                          {formatCount(metricsOf(job)!.views)} views
+                          {metricsOf(job)!.avg_view_pct ? ` · ${metricsOf(job)!.avg_view_pct!.toFixed(0)}% ret.` : ""}
+                        </span>
                       ) : null}
                     </div>
                     {job.status === "running" || job.status === "queued" ? (
@@ -152,6 +152,29 @@ export default function Painel() {
       </div>
       {node}
     </>
+  );
+}
+
+function metricsOf(job: Job): JobMetricsSummary | null {
+  const m = job.metrics;
+  if (!m || Array.isArray(m)) return null;
+  return m.views || m.likes ? m : null;
+}
+
+// Miniatura estática; ao passar o mouse troca pelo GIF dos 3 primeiros
+// segundos — o hook em movimento, sem abrir o job.
+function Thumb({ job }: { job: Job }) {
+  const [hover, setHover] = useState(false);
+  const base = `/api/jobs/${job.id}/file/`;
+  const still = job.result ? `url(${base}thumb.jpg?v=${job.updated_at})` : undefined;
+  const gif = job.result?.preview_gif ? `url(${base}preview.gif?v=${job.updated_at})` : null;
+  return (
+    <div
+      className="thumb"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{ backgroundImage: hover && gif ? gif : still }}
+    />
   );
 }
 

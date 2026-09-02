@@ -9,10 +9,13 @@ import { api, type Health } from "@/lib/api";
 const LINKS = [
   { href: "/", label: "Painel", key: "01" },
   { href: "/novo", label: "Novo short", key: "02" },
-  { href: "/agenda", label: "Agenda", key: "03" },
-  { href: "/vozes", label: "Vozes", key: "04" },
-  { href: "/contas", label: "Contas", key: "05" },
-  { href: "/docs", label: "Instalação", key: "06" },
+  { href: "/lote", label: "Lote", key: "03" },
+  { href: "/tendencias", label: "Tendências", key: "04" },
+  { href: "/agenda", label: "Agenda", key: "05" },
+  { href: "/desempenho", label: "Desempenho", key: "06" },
+  { href: "/vozes", label: "Vozes", key: "07" },
+  { href: "/contas", label: "Contas", key: "08" },
+  { href: "/docs", label: "Instalação", key: "09" },
 ];
 
 export function Rail() {

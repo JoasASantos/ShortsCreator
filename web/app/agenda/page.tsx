@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { api, type Account, type Schedule } from "@/lib/api";
+import { api, PLATFORM_LABEL, type Account, type Schedule } from "@/lib/api";
 import { StatusTag, Topbar, useToast } from "@/components/ui";
 
 export default function Agenda() {
@@ -68,7 +68,7 @@ export default function Agenda() {
                           hour: "2-digit", minute: "2-digit",
                         })}
                       </td>
-                      <td>{item.platform === "youtube" ? "YouTube Shorts" : "TikTok"}</td>
+                      <td>{PLATFORM_LABEL[item.platform] ?? item.platform}</td>
                       <td className="dim">
                         {accounts.find((a) => a.id === item.account_id)?.display_name ?? "—"}
                       </td>

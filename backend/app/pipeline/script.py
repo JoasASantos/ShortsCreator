@@ -163,6 +163,15 @@ def build_script(job: JobInput, material: SourceMaterial) -> ShortScript:
     briefing = (f"INSTRUÇÃO DO USUÁRIO PARA ESTE VÍDEO (prioridade máxima):\n"
                 f"{job.instruction.strip()}\n" if job.instruction.strip() else "")
 
+    # O que já funcionou no canal do usuário entra como referência de gancho.
+    # Vazio até existir publicação medida — o prompt fica igual ao de sempre.
+    from . import metrics as metrics_mod
+
+    try:
+        channel_insights = metrics_mod.insights(job.niche)
+    except Exception:  # noqa: BLE001 — briefing é bônus, nunca bloqueia
+        channel_insights = ""
+
     prompt = f"""{briefing}Nicho: {job.niche}
 Diretriz do nicho: {guide}
 Idioma: {job.language}
@@ -170,6 +179,7 @@ Duração alvo: {job.duration} segundos (~{words_target} palavras narradas no to
 CTA desejado: {job.cta or "livre"}
 Hook agressivo: {"sim" if job.hook_hard else "moderado"}
 {duration_note}
+{channel_insights}
 
 MATERIAL DE ORIGEM ({material.kind}):
 ---
@@ -178,7 +188,7 @@ MATERIAL DE ORIGEM ({material.kind}):
 
 Gere o roteiro do short."""
 
-    data = llm.complete_json(system, prompt, SCHEMA)
+    data = llm.complete_json(system, prompt, SCHEMA, purpose="roteiro")
 
     segments = [ScriptSegment(**s) for s in data.get("segments", []) if s.get("text")]
     if not segments:
@@ -311,7 +321,7 @@ MATERIAL DE ORIGEM (para checar fatos, não copie literalmente):
 """ if context else "") + """
 Reescreva o roteiro aplicando a instrução."""
 
-    data = llm.complete_json(REFINE_SYSTEM, prompt, SCHEMA)
+    data = llm.complete_json(REFINE_SYSTEM, prompt, SCHEMA, purpose="refinar")
     segments = [ScriptSegment(**s) for s in data.get("segments", []) if s.get("text")]
     if not segments:
         raise RuntimeError("O modelo não devolveu segmentos ao refinar o roteiro.")
@@ -375,7 +385,85 @@ ROTEIRO NARRADO NO VÍDEO:
 
 Escreva o texto de publicação."""
 
-    data = llm.complete_json(CAPTION_SYSTEM, prompt, CAPTION_SCHEMA)
+    data = llm.complete_json(CAPTION_SYSTEM, prompt, CAPTION_SCHEMA, purpose="legenda_post")
     hashtags = [h if h.startswith("#") else f"#{h}" for h in data.get("hashtags", [])]
     data["hashtags"] = hashtags[:10]
     return data
+
+
+HOOKS_SYSTEM = """Você escreve GANCHOS (a primeira frase falada) de vídeos curtos verticais em português do Brasil.
+
+O gancho decide se a pessoa fica ou desliza. Ele precisa:
+- Ter no máximo 12 palavras, faladas, sem "olá" nem "hoje eu vou".
+- Ser específico ao conteúdo do roteiro — nada genérico que serviria pra qualquer vídeo.
+- Cada variante usa um MECANISMO diferente. Escolha entre: pergunta direta, número
+  ou dado concreto, contradição/quebra de expectativa, promessa de resultado,
+  cena in medias res, afirmação polêmica, "a maioria erra isso".
+- Não repita o mecanismo do gancho atual.
+- Não invente fatos que não estão no roteiro.
+
+Responda APENAS com JSON válido no formato:
+{"hooks": [{"text": str, "mechanism": str, "why": str}]}"""
+
+HOOKS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "hooks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "mechanism": {"type": "string"},
+                    "why": {"type": "string"},
+                },
+                "required": ["text", "mechanism", "why"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["hooks"],
+    "additionalProperties": False,
+}
+
+
+def build_hook_variants(script: ShortScript, job: JobInput, count: int = 3) -> list[dict]:
+    """Alternativas de gancho para o mesmo roteiro — base do teste A/B."""
+    current = next((s.text for s in script.segments if s.kind == "hook"),
+                   script.segments[0].text if script.segments else "")
+    body = " ".join(s.text for s in script.segments if s.kind != "hook")
+
+    from . import metrics as metrics_mod
+
+    try:
+        channel_insights = metrics_mod.insights(job.niche)
+    except Exception:  # noqa: BLE001
+        channel_insights = ""
+
+    prompt = f"""Nicho: {job.niche}
+Título: {script.title}
+Gancho atual: "{current}"
+{channel_insights}
+
+RESTO DO ROTEIRO (o gancho precisa levar pra isso):
+---
+{body}
+---
+
+Escreva {count} ganchos alternativos, cada um com um mecanismo diferente."""
+
+    data = llm.complete_json(HOOKS_SYSTEM, prompt, HOOKS_SCHEMA, purpose="hooks")
+    hooks = [h for h in data.get("hooks", []) if h.get("text", "").strip()]
+    if not hooks:
+        raise RuntimeError("O modelo não devolveu ganchos alternativos.")
+    return hooks[:count]
+
+
+def with_hook(script: ShortScript, hook_text: str) -> ShortScript:
+    """Cópia do roteiro com o primeiro segmento trocado pelo gancho escolhido."""
+    segments = [s.model_copy() for s in script.segments]
+    idx = next((i for i, s in enumerate(segments) if s.kind == "hook"), 0)
+    if segments:
+        segments[idx].text = hook_text.strip()
+        segments[idx].kind = "hook"
+    return script.model_copy(update={"segments": segments})

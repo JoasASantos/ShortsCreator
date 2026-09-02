@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 
-import { api, type Account, type Connector } from "@/lib/api";
+import { api, PLATFORM_LABEL, type Account, type Connector } from "@/lib/api";
 import { Topbar, useToast } from "@/components/ui";
 
 const CATEGORY_LABEL: Record<Connector["category"], string> = {
   publicacao: "Publicação",
+  notificacao: "Avisos",
   video: "Geração de vídeo",
   avatar: "Avatar falante",
   voz: "Voz",
@@ -14,7 +15,7 @@ const CATEGORY_LABEL: Record<Connector["category"], string> = {
 };
 
 const CATEGORY_ORDER: Connector["category"][] = [
-  "publicacao", "video", "avatar", "voz", "broll",
+  "publicacao", "notificacao", "video", "avatar", "voz", "broll",
 ];
 
 export default function Contas() {
@@ -35,7 +36,7 @@ export default function Contas() {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
     const error = params.get("error");
-    if (connected) toast(`Conta ${connected === "youtube" ? "YouTube" : "TikTok"} conectada.`);
+    if (connected) toast(`Conta ${PLATFORM_LABEL[connected] ?? connected} conectada.`);
     if (error) toast(`Falha ao conectar: ${error}`);
     if (connected || error) window.history.replaceState({}, "", "/contas");
   }, []);
@@ -104,7 +105,7 @@ export default function Contas() {
                   <tr key={account.id}>
                     <td>
                       <span className="tag" data-tone="amber">
-                        {account.platform === "youtube" ? "YouTube" : "TikTok"}
+                        {PLATFORM_LABEL[account.platform] ?? account.platform}
                       </span>
                     </td>
                     <td>{account.display_name}</td>

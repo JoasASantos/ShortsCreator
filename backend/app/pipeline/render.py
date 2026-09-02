@@ -338,3 +338,15 @@ def make_thumbnail(video: Path, out: Path, at: float = 1.0) -> Path:
     _run(["ffmpeg", "-y", "-ss", f"{at:.2f}", "-i", str(video), "-frames:v", "1",
           "-vf", f"scale={W}:{H}", str(out)])
     return out
+
+
+def make_preview_gif(video: Path, out: Path, seconds: float = 3.0,
+                     width: int = 270, fps: int = 10) -> Path:
+    """GIF dos primeiros segundos — é o hook em movimento na lista do painel.
+    Paleta em duas passadas para não ficar com banding em gradiente."""
+    filters = (f"fps={fps},scale={width}:-2:flags=lanczos,"
+               f"split[a][b];[a]palettegen=max_colors=96:stats_mode=diff[p];"
+               f"[b][p]paletteuse=dither=bayer:bayer_scale=4")
+    _run(["ffmpeg", "-y", "-t", f"{seconds:.2f}", "-i", str(video),
+          "-vf", filters, "-loop", "0", str(out)])
+    return out

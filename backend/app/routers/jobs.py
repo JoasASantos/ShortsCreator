@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from fastapi.responses import FileResponse
 
 from .. import db, worker
 from ..config import settings
+from ..pipeline import llm, orchestrator
 from ..schemas import JobInput, ScriptEdit, ShortScript
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -17,6 +19,8 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 ALLOWED_FILES = {
     "short.mp4": "video/mp4",
     "thumb.jpg": "image/jpeg",
+    "cover.jpg": "image/jpeg",
+    "preview.gif": "image/gif",
     "captions.srt": "text/plain; charset=utf-8",
     "captions.ass": "text/plain; charset=utf-8",
     "narration.mp3": "audio/mpeg",
@@ -24,12 +28,17 @@ ALLOWED_FILES = {
     "background.mp4": "video/mp4",
 }
 
+# prévias de gancho: hook_0.mp3, hook_1.mp3...
+_HOOK_FILE = re.compile(r"^hook_\d\.mp3$")
 
-def _serialize(row: dict) -> dict:
+
+def _serialize(row: dict, with_metrics: dict | None = None) -> dict:
     out = dict(row)
     for key in ("input_json", "result_json", "qa_json"):
         raw = out.pop(key, None)
         out[key.replace("_json", "")] = json.loads(raw) if raw else None
+    if with_metrics is not None:
+        out["metrics"] = with_metrics.get(row["id"])
     return out
 
 
@@ -47,7 +56,9 @@ def create_job(job: JobInput):
 
 @router.get("")
 def list_jobs(limit: int = Query(100, le=500)):
-    return [_serialize(row) for row in db.list_jobs(limit)]
+    rows = db.list_jobs(limit)
+    metrics = db.metrics_by_jobs([r["id"] for r in rows])
+    return [_serialize(row, metrics) for row in rows]
 
 
 @router.get("/{job_id}")
@@ -55,7 +66,13 @@ def get_job(job_id: str):
     row = db.get_job(job_id)
     if row is None:
         raise HTTPException(404, "Job não encontrado")
-    return _serialize(row)
+    out = _serialize(row)
+    out["metrics"] = db.metrics_for_job(job_id)
+    out["llm_calls"] = db.llm_calls_for_job(job_id)
+    job_dir = settings.jobs_dir / job_id
+    out["resumable_from"] = (orchestrator.resumable_stage(job_dir)
+                             if job_dir.exists() else None)
+    return out
 
 
 @router.get("/{job_id}/events")
@@ -64,12 +81,23 @@ def get_events(job_id: str, after: int = 0):
 
 
 @router.post("/{job_id}/retry")
-def retry_job(job_id: str):
+def retry_job(job_id: str, from_stage: str = Query("", alias="from")):
+    """Reprocessa. Com `?from=voz|legendas|fundo|render` retoma da etapa
+    indicada reaproveitando roteiro/narração já no disco — sem gastar LLM
+    nem TTS de novo."""
     if db.get_job(job_id) is None:
         raise HTTPException(404, "Job não encontrado")
-    db.update_job(job_id, error=None, result_json=None, qa_json=None)
+    if from_stage:
+        try:
+            orchestrator.request_resume(job_id, from_stage)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        db.update_job(job_id, error=None, qa_json=None)
+    else:
+        (settings.jobs_dir / job_id / "resume.json").unlink(missing_ok=True)
+        db.update_job(job_id, error=None, result_json=None, qa_json=None)
     worker.enqueue(job_id)
-    return {"job_id": job_id, "status": "queued"}
+    return {"job_id": job_id, "status": "queued", "from": from_stage or "início"}
 
 
 @router.delete("/{job_id}")
@@ -85,13 +113,176 @@ def delete_job(job_id: str):
 
 @router.get("/{job_id}/file/{filename}")
 def get_file(job_id: str, filename: str):
-    if filename not in ALLOWED_FILES:
+    if filename in ALLOWED_FILES:
+        media = ALLOWED_FILES[filename]
+    elif _HOOK_FILE.match(filename):
+        media = "audio/mpeg"
+    else:
         raise HTTPException(404, "Arquivo não disponível")
     path: Path = settings.jobs_dir / job_id / filename
     if not path.exists():
         raise HTTPException(404, "Arquivo ainda não gerado")
-    return FileResponse(path, media_type=ALLOWED_FILES[filename],
-                        filename=f"{job_id}_{filename}")
+    return FileResponse(path, media_type=media, filename=f"{job_id}_{filename}")
+
+
+# ---------------------------------------------------------------- ganchos A/B
+
+def _current_script(job_id: str) -> tuple[dict, JobInput, ShortScript, Path]:
+    row = db.get_job(job_id)
+    if row is None:
+        raise HTTPException(404, "Job não encontrado")
+    job_dir = settings.job_dir(job_id)
+    override = job_dir / "script_override.json"
+    source = override if override.exists() else job_dir / "script.json"
+    if not source.exists():
+        raise HTTPException(400, "Este job ainda não tem roteiro.")
+    job = JobInput(**json.loads(row["input_json"]))
+    script = ShortScript(**json.loads(source.read_text(encoding="utf-8")))
+    return row, job, script, job_dir
+
+
+class HooksRequest(BaseModel):
+    count: int = 3
+    preview_audio: bool = True
+
+
+@router.post("/{job_id}/hooks")
+def build_hooks(job_id: str, request: HooksRequest | None = None):
+    """Gera ganchos alternativos para o roteiro atual, com prévia em áudio de
+    cada um na voz do job — só o gancho, poucos segundos de TTS por variante."""
+    from ..pipeline import script as script_mod, tts as tts_mod
+
+    request = request or HooksRequest()
+    row, job, script, job_dir = _current_script(job_id)
+    llm.current_job.set(job_id)
+
+    try:
+        hooks = script_mod.build_hook_variants(script, job, max(2, min(request.count, 5)))
+    except Exception as exc:
+        raise HTTPException(502, f"Falha ao gerar ganchos: {exc}")
+
+    voice = db.get_voice(job.voice_id) if job.voice_id else None
+    for index, hook in enumerate(hooks):
+        hook["index"] = index
+        hook["audio"] = None
+        if not request.preview_audio:
+            continue
+        try:
+            narration = tts_mod.synthesize(hook["text"], job_dir / f"hook_{index}.mp3", voice)
+            hook["audio"] = f"/api/jobs/{job_id}/file/hook_{index}.mp3"
+            hook["seconds"] = round(narration.duration, 2)
+        except Exception as exc:  # noqa: BLE001 — prévia é opcional
+            hook["audio_error"] = str(exc)[:160]
+
+    current = next((s.text for s in script.segments if s.kind == "hook"), "")
+    result = json.loads(row["result_json"] or "{}")
+    result["hook_variants"] = {"current": current, "options": hooks}
+    db.update_job(job_id, result_json=json.dumps(result))
+    db.log_event(job_id, f"{len(hooks)} gancho(s) alternativo(s) gerado(s)")
+    return result["hook_variants"]
+
+
+class HookChoice(BaseModel):
+    text: str
+    render: bool = True
+
+
+@router.post("/{job_id}/hooks/apply")
+def apply_hook(job_id: str, choice: HookChoice):
+    """Troca o gancho do roteiro pelo escolhido e re-renderiza este job."""
+    from ..pipeline import script as script_mod
+
+    if not choice.text.strip():
+        raise HTTPException(400, "Gancho vazio.")
+    row, job, script, job_dir = _current_script(job_id)
+    updated = script_mod.with_hook(script, choice.text)
+    (job_dir / "script_override.json").write_text(updated.model_dump_json(indent=2),
+                                                  encoding="utf-8")
+    result = json.loads(row["result_json"] or "{}")
+    result["script"] = updated.model_dump()
+    db.update_job(job_id, result_json=json.dumps(result), error=None,
+                  **({"qa_json": None} if choice.render else {}))
+    db.log_event(job_id, f"Gancho trocado: {choice.text[:100]}")
+    if choice.render:
+        orchestrator.request_resume(job_id, "voz")   # roteiro pronto: pula o LLM
+        worker.enqueue(job_id)
+    return {"job_id": job_id, "script": updated.model_dump(), "rendering": choice.render}
+
+
+@router.post("/{job_id}/hooks/fork")
+def fork_with_hook(job_id: str, choice: HookChoice):
+    """Cria um NOVO job idêntico com outro gancho — o par A/B. Publique os dois
+    e compare em Desempenho."""
+    from ..pipeline import script as script_mod
+
+    if not choice.text.strip():
+        raise HTTPException(400, "Gancho vazio.")
+    row, job, script, job_dir = _current_script(job_id)
+    variant = script_mod.with_hook(script, choice.text)
+
+    new_id = db.create_job(job.model_dump(), f"{variant.title} (B)")
+    new_dir = settings.job_dir(new_id)
+    (new_dir / "script_override.json").write_text(variant.model_dump_json(indent=2),
+                                                  encoding="utf-8")
+    # reaproveita o vídeo já baixado (source.<ext> + source.info.json) em vez
+    # de puxar do YouTube outra vez
+    for src in job_dir.glob("source.*"):
+        shutil.copy(src, new_dir / src.name)
+    db.log_event(new_id, f"Variante A/B de {job_id} com gancho: {choice.text[:100]}")
+    db.log_event(job_id, f"Variante A/B criada: {new_id}")
+    worker.enqueue(new_id)
+    return {"job_id": new_id, "parent": job_id}
+
+
+# ---------------------------------------------------------------------- capa
+
+class CoverRequest(BaseModel):
+    title: str = ""
+    at: float | None = None      # segundo do frame; None = escolhe automático
+
+
+@router.post("/{job_id}/cover")
+def rebuild_cover(job_id: str, request: CoverRequest | None = None):
+    from ..pipeline import cover as cover_mod, render as render_mod
+
+    request = request or CoverRequest()
+    row = db.get_job(job_id)
+    if row is None:
+        raise HTTPException(404, "Job não encontrado")
+    job_dir = settings.job_dir(job_id)
+    video = job_dir / "short.mp4"
+    if not video.exists():
+        raise HTTPException(400, "Vídeo ainda não renderizado")
+
+    job = JobInput(**json.loads(row["input_json"]))
+    result = json.loads(row["result_json"] or "{}")
+    title = request.title.strip() or result.get("title") or row["title"] or "Short"
+    duration = float(result.get("duration") or render_mod.probe_duration(video))
+
+    try:
+        if request.at is not None:
+            work = job_dir / "cover_frames"
+            work.mkdir(exist_ok=True)
+            frame = work / "chosen.jpg"
+            cover_mod._extract(video, max(request.at, 0.0), frame)  # noqa: SLF001
+            from PIL import Image
+
+            image = Image.open(frame).convert("RGB").resize((settings.width, settings.height))
+            cover_mod._compose(image, title, job.niche).save(  # noqa: SLF001
+                job_dir / "cover.jpg", "JPEG", quality=92)
+            at = request.at
+        else:
+            _, at = cover_mod.build(video, title, job.niche, job_dir / "cover.jpg",
+                                    duration, job_dir)
+    except Exception as exc:
+        raise HTTPException(500, f"Falha ao gerar a capa: {exc}")
+
+    (job_dir / "cover.json").write_text(json.dumps({"at": at}), encoding="utf-8")
+    result["cover"] = f"/api/jobs/{job_id}/file/cover.jpg"
+    result["cover_at"] = at
+    db.update_job(job_id, result_json=json.dumps(result))
+    db.log_event(job_id, f"Capa refeita (frame em {at:.1f}s)")
+    return {"cover": result["cover"], "at": at}
 
 
 @router.post("/{job_id}/edit")
@@ -174,6 +365,7 @@ def refine_script(job_id: str, request: ScriptPrompt):
 
     job = JobInput(**json.loads(row["input_json"]))
     current = ShortScript(**json.loads(source.read_text(encoding="utf-8")))
+    llm.current_job.set(job_id)
 
     try:
         updated = script_mod.refine_script(current, request.instruction, job)
@@ -226,6 +418,7 @@ def build_caption(job_id: str, request: CaptionRequest | None = None):
 
     job = JobInput(**json.loads(row["input_json"]))
     script = ShortScript(**json.loads(source.read_text(encoding="utf-8")))
+    llm.current_job.set(job_id)
 
     try:
         caption = script_mod.build_post_caption(

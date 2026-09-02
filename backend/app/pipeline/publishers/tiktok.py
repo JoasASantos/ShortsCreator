@@ -11,7 +11,8 @@ from .. import connectors
 
 AUTH_BASE = "https://www.tiktok.com/v2/auth/authorize/"
 TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
-SCOPES = "user.info.basic,video.upload,video.publish"
+# video.list dá acesso a views/likes dos vídeos publicados (métricas)
+SCOPES = "user.info.basic,video.upload,video.publish,video.list"
 
 
 def _app_creds() -> tuple[str, str]:
@@ -110,7 +111,8 @@ def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> di
             "disable_duet": False,
             "disable_comment": False,
             "disable_stitch": False,
-            "video_cover_timestamp_ms": 1000,
+            # mesmo instante escolhido para a capa do job, quando existe
+            "video_cover_timestamp_ms": int(payload.get("cover_at", 1.0) * 1000),
         }
 
     init = httpx.post(endpoint, headers=headers, json=body, timeout=90)

@@ -86,6 +86,35 @@ CREATE TABLE IF NOT EXISTS schedules (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS llm_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT,
+    purpose TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT,
+    seconds REAL NOT NULL,
+    ok INTEGER NOT NULL,
+    error TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS metrics (
+    schedule_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    video_id TEXT NOT NULL,
+    url TEXT,
+    views INTEGER DEFAULT 0,
+    likes INTEGER DEFAULT 0,
+    comments INTEGER DEFAULT 0,
+    shares INTEGER DEFAULT 0,
+    avg_view_seconds REAL,
+    avg_view_pct REAL,
+    published_at TEXT,
+    fetched_at TEXT NOT NULL,
+    error TEXT
+);
 """
 
 
@@ -214,6 +243,31 @@ def create_account(platform: str, display_name: str, credentials: dict) -> str:
     return aid
 
 
+def upsert_account_for_platform(platform: str, display_name: str,
+                                credentials: dict) -> str:
+    """Plataformas de token fixo (Instagram, LinkedIn) têm uma conta só por
+    conector: atualiza a existente em vez de acumular duplicatas."""
+    with _lock, connect() as conn:
+        row = conn.execute("SELECT id FROM accounts WHERE platform=?",
+                           (platform,)).fetchone()
+        if row:
+            conn.execute("UPDATE accounts SET display_name=?, credentials_json=? WHERE id=?",
+                         (display_name, json.dumps(credentials), row["id"]))
+            return row["id"]
+        aid = new_id("acct")
+        conn.execute(
+            "INSERT INTO accounts (id,platform,display_name,credentials_json,created_at)"
+            " VALUES (?,?,?,?,?)",
+            (aid, platform, display_name, json.dumps(credentials), now()),
+        )
+        return aid
+
+
+def delete_accounts_for_platform(platform: str) -> None:
+    with _lock, connect() as conn:
+        conn.execute("DELETE FROM accounts WHERE platform=?", (platform,))
+
+
 def list_accounts() -> list[dict]:
     with connect() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM accounts ORDER BY created_at DESC")]
@@ -338,3 +392,107 @@ def due_schedules(now_iso: str) -> list[dict]:
 def delete_schedule(schedule_id: str) -> None:
     with _lock, connect() as conn:
         conn.execute("DELETE FROM schedules WHERE id=?", (schedule_id,))
+
+
+def get_schedule(schedule_id: str) -> dict | None:
+    with connect() as conn:
+        return _row(conn.execute("SELECT * FROM schedules WHERE id=?",
+                                 (schedule_id,)).fetchone())
+
+
+def published_schedules(since_iso: str) -> list[dict]:
+    """Publicações concluídas a partir de uma data — base da coleta de métricas."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM schedules WHERE status='published' AND updated_at>=?"
+            " ORDER BY updated_at DESC", (since_iso,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------- chamadas de LLM ----------
+
+def log_llm_call(job_id: str | None, purpose: str, provider: str, model: str,
+                 seconds: float, ok: bool, error: str = "") -> None:
+    with _lock, connect() as conn:
+        conn.execute(
+            "INSERT INTO llm_calls (job_id,purpose,provider,model,seconds,ok,error,created_at)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (job_id, purpose, provider, model, round(seconds, 2), int(ok),
+             error[:400], now()),
+        )
+
+
+def llm_calls_for_job(job_id: str) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM llm_calls WHERE job_id=? ORDER BY id", (job_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def llm_call_summary(limit_days: int = 30) -> list[dict]:
+    """Agregado por provider/modelo: quantas chamadas, taxa de acerto, latência."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT provider, model, COUNT(*) AS calls, SUM(ok) AS ok,"
+            " ROUND(AVG(seconds),1) AS avg_seconds, ROUND(SUM(seconds)) AS total_seconds"
+            " FROM llm_calls WHERE created_at >= datetime('now', ?)"
+            " GROUP BY provider, model ORDER BY calls DESC",
+            (f"-{limit_days} days",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------- métricas de publicação ----------
+
+def upsert_metrics(schedule_id: str, job_id: str, platform: str, video_id: str,
+                   url: str, data: dict, error: str = "") -> None:
+    with _lock, connect() as conn:
+        conn.execute(
+            "INSERT INTO metrics (schedule_id,job_id,platform,video_id,url,views,likes,"
+            "comments,shares,avg_view_seconds,avg_view_pct,published_at,fetched_at,error)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(schedule_id) DO UPDATE SET"
+            " views=excluded.views, likes=excluded.likes, comments=excluded.comments,"
+            " shares=excluded.shares, avg_view_seconds=excluded.avg_view_seconds,"
+            " avg_view_pct=excluded.avg_view_pct, fetched_at=excluded.fetched_at,"
+            " error=excluded.error, url=excluded.url",
+            (schedule_id, job_id, platform, video_id, url,
+             int(data.get("views", 0) or 0), int(data.get("likes", 0) or 0),
+             int(data.get("comments", 0) or 0), int(data.get("shares", 0) or 0),
+             data.get("avg_view_seconds"), data.get("avg_view_pct"),
+             data.get("published_at"), now(), error[:400]),
+        )
+
+
+def list_metrics() -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT m.*, j.title, j.input_json FROM metrics m"
+            " LEFT JOIN jobs j ON j.id = m.job_id ORDER BY m.views DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def metrics_for_job(job_id: str) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM metrics WHERE job_id=? ORDER BY fetched_at DESC", (job_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def metrics_by_jobs(job_ids: list[str]) -> dict[str, dict]:
+    """Resumo agregado (todas as plataformas) por job — para a lista do painel."""
+    if not job_ids:
+        return {}
+    marks = ",".join("?" * len(job_ids))
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT job_id, SUM(views) AS views, SUM(likes) AS likes,"
+            f" MAX(avg_view_pct) AS avg_view_pct, COUNT(*) AS platforms"
+            f" FROM metrics WHERE job_id IN ({marks}) GROUP BY job_id",
+            job_ids,
+        ).fetchall()
+    return {r["job_id"]: dict(r) for r in rows}

@@ -42,6 +42,7 @@ class Connector:
     name: str
     # publicacao: posta o short pronto | video: gera imagem em movimento
     # avatar: apresentador falante | voz: TTS | broll: banco de estoque
+    # notificacao: avisa quando o job termina ou a publicação sai
     category: str
     auth: str              # "oauth" | "api_key"
     detail: str
@@ -119,6 +120,36 @@ def _check_tiktok_app(creds: dict) -> str:
     return "App TikTok configurado — conecte a conta pelo botão Conectar"
 
 
+def _check_instagram(creds: dict) -> str:
+    from .publishers import instagram
+
+    return instagram.verify(creds)
+
+
+def _check_linkedin(creds: dict) -> str:
+    from .publishers import linkedin
+
+    return linkedin.verify(creds)
+
+
+def _check_telegram(creds: dict) -> str:
+    from . import notify
+
+    return notify.check_telegram(creds)
+
+
+def _check_discord(creds: dict) -> str:
+    from . import notify
+
+    return notify.check_discord(creds)
+
+
+def _check_webhook(creds: dict) -> str:
+    from . import notify
+
+    return notify.check_webhook(creds)
+
+
 # ------------------------------------------------------------------ catálogo
 
 CATALOG: list[Connector] = [
@@ -194,28 +225,61 @@ CATALOG: list[Connector] = [
         fields=[Field("api_key", "API key", "PIXABAY_API_KEY")],
         check=_check_pixabay,
     ),
-    # Abaixo: previstos, sem implementação de envio ainda. Ficam listados de
-    # propósito — a chave pode ser guardada agora e o envio entra depois.
     Connector(
         id="instagram", name="Instagram Reels", category="publicacao",
-        auth="api_key", status="planejado",
+        auth="api_key",
         detail="Publicação de Reels pela Graph API (container + publish). "
-               "Exige conta profissional ligada a uma página do Facebook.",
+               "Exige conta profissional ligada a uma página do Facebook, e a "
+               "API precisa baixar o MP4 por uma URL pública — PUBLIC_API_URL "
+               "tem que ser alcançável da internet (ngrok, cloudflared...).",
         requirement="Token de longa duração + IG User ID",
         docs="https://developers.facebook.com/docs/instagram-api/guides/content-publishing",
         fields=[Field("access_token", "Access token", "INSTAGRAM_ACCESS_TOKEN"),
                 Field("ig_user_id", "IG user id", "INSTAGRAM_USER_ID", secret=False)],
+        check=_check_instagram,
     ),
     Connector(
         id="linkedin", name="LinkedIn", category="publicacao", auth="api_key",
-        status="planejado",
         detail="Post de vídeo nativo pela Posts API. Serve para os nichos de "
                "tecnologia e segurança, onde o alcance ali é melhor.",
-        requirement="Access token com w_member_social",
+        requirement="Access token com w_member_social (e openid/profile para "
+                    "descobrir o URN sozinho)",
         docs="https://learn.microsoft.com/linkedin/marketing/community-management/shares/videos-api",
         fields=[Field("access_token", "Access token", "LINKEDIN_ACCESS_TOKEN"),
-                Field("author_urn", "URN do autor", "LINKEDIN_AUTHOR_URN", secret=False)],
+                Field("author_urn", "URN do autor", "LINKEDIN_AUTHOR_URN", secret=False,
+                      hint="urn:li:person:xxxx — vazio = descobre pelo token")],
+        check=_check_linkedin,
     ),
+    Connector(
+        id="telegram", name="Telegram", category="notificacao", auth="api_key",
+        detail="Aviso quando um short termina, falha ou é publicado. Crie um bot "
+               "no @BotFather, mande /start pra ele e pegue seu chat_id em "
+               "@userinfobot.",
+        requirement="Token do bot + chat_id",
+        docs="https://core.telegram.org/bots/api#sendmessage",
+        fields=[Field("bot_token", "Token do bot", "TELEGRAM_BOT_TOKEN"),
+                Field("chat_id", "Chat id", "TELEGRAM_CHAT_ID", secret=False)],
+        check=_check_telegram,
+    ),
+    Connector(
+        id="discord", name="Discord", category="notificacao", auth="api_key",
+        detail="Mesmos avisos, num canal do Discord via webhook de integração.",
+        requirement="URL do webhook do canal",
+        docs="https://discord.com/developers/docs/resources/webhook#execute-webhook",
+        fields=[Field("webhook_url", "URL do webhook", "DISCORD_WEBHOOK_URL")],
+        check=_check_discord,
+    ),
+    Connector(
+        id="webhook", name="Webhook genérico", category="notificacao", auth="api_key",
+        detail="POST JSON {title, body, url, level} para qualquer URL — n8n, "
+               "Zapier, Make ou seu próprio serviço.",
+        requirement="URL que aceite POST",
+        docs="https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/",
+        fields=[Field("url", "URL", "NOTIFY_WEBHOOK_URL", secret=False)],
+        check=_check_webhook,
+    ),
+    # Abaixo: previstos, sem implementação ainda. Ficam listados de
+    # propósito — a chave pode ser guardada agora e o uso entra depois.
     Connector(
         id="runway", name="Runway Gen-4", category="video", auth="api_key",
         status="planejado",
@@ -321,13 +385,36 @@ def save(connector_id: str, values: dict) -> dict:
         else:
             saved.pop(f.key, None)
     db.save_connector(connector_id, saved)
+    _sync_token_account(connector_id)
     return describe(connector_id)
 
 
 def clear(connector_id: str) -> dict:
     get(connector_id)
     db.delete_connector(connector_id)
+    if connector_id in TOKEN_PUBLISHERS:
+        db.delete_accounts_for_platform(connector_id)
     return describe(connector_id)
+
+
+# Publicadores cuja "conta" é o próprio token salvo no conector — não têm
+# fluxo OAuth com redirect. Ao salvar, viram uma conta publicável na hora.
+TOKEN_PUBLISHERS = {"instagram", "linkedin"}
+
+
+def _sync_token_account(connector_id: str) -> None:
+    if connector_id not in TOKEN_PUBLISHERS or not is_configured(connector_id):
+        return
+    creds = credentials(connector_id)
+    if connector_id == "instagram":
+        from .publishers import instagram
+
+        name = instagram.display_name(creds)
+    else:
+        from .publishers import linkedin
+
+        name = linkedin.display_name(creds)
+    db.upsert_account_for_platform(connector_id, name, creds)
 
 
 def test(connector_id: str) -> str:

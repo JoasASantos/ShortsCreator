@@ -1,5 +1,76 @@
 export type JobStatus = "queued" | "running" | "done" | "error";
 
+export type Platform = "youtube" | "tiktok" | "instagram" | "linkedin";
+
+export const PLATFORM_LABEL: Record<string, string> = {
+  youtube: "YouTube Shorts",
+  tiktok: "TikTok",
+  instagram: "Instagram Reels",
+  linkedin: "LinkedIn",
+};
+
+export interface JobMetricsSummary {
+  job_id: string;
+  views: number;
+  likes: number;
+  avg_view_pct: number | null;
+  platforms: number;
+}
+
+export interface MetricRow {
+  schedule_id: string;
+  job_id: string;
+  platform: string;
+  video_id: string;
+  url: string | null;
+  views: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  avg_view_seconds: number | null;
+  avg_view_pct: number | null;
+  published_at: string | null;
+  fetched_at: string;
+  error: string | null;
+  title?: string | null;
+  niche?: string | null;
+}
+
+export interface LLMCall {
+  id: number;
+  purpose: string;
+  provider: string;
+  model: string;
+  seconds: number;
+  ok: number;
+  error: string | null;
+  created_at: string;
+}
+
+export interface LLMSummary {
+  provider: string;
+  model: string;
+  calls: number;
+  ok: number;
+  avg_seconds: number;
+  total_seconds: number;
+}
+
+export interface HookOption {
+  index: number;
+  text: string;
+  mechanism: string;
+  why: string;
+  audio: string | null;
+  seconds?: number;
+  audio_error?: string;
+}
+
+export interface HookVariants {
+  current: string;
+  options: HookOption[];
+}
+
 export interface Job {
   id: string;
   title: string | null;
@@ -12,6 +83,10 @@ export interface Job {
   input: JobInput;
   result: JobResult | null;
   qa: QAReport | null;
+  // lista: resumo agregado; detalhe: uma linha por plataforma
+  metrics?: JobMetricsSummary | MetricRow[] | null;
+  llm_calls?: LLMCall[];
+  resumable_from?: string | null;
 }
 
 export type SourceType =
@@ -171,6 +246,40 @@ export interface JobResult {
   edit_mode?: string;
   qa_attempts?: QAAttempt[];
   caption?: PostCaption;
+  cover?: string | null;
+  cover_at?: number | null;
+  preview_gif?: string | null;
+  hook_variants?: HookVariants;
+}
+
+export interface TrendItem {
+  source: string;
+  title: string;
+  snippet: string;
+  url: string;
+  heat: number;
+  heat_label: string;
+}
+
+export interface ClipInfo {
+  inicio: number;
+  fim: number;
+  titulo: string;
+  motivo: string;
+  assunto: string;
+}
+
+export interface ClipPlan {
+  id: string;
+  attachment_id: string;
+  status: "queued" | "analisando" | "ready" | "rendered" | "error";
+  requested: number;
+  target_seconds: number;
+  options: { niche: string; language: string } | null;
+  clips: ClipInfo[] | null;
+  jobs: string[] | null;
+  error: string | null;
+  created_at: string;
 }
 
 export interface QAIssue {
@@ -198,7 +307,7 @@ export interface Voice {
 
 export interface Account {
   id: string;
-  platform: "youtube" | "tiktok";
+  platform: Platform;
   display_name: string;
   created_at: string;
 }
@@ -215,7 +324,7 @@ export interface ConnectorField {
 export interface Connector {
   id: string;
   name: string;
-  category: "publicacao" | "video" | "avatar" | "voz" | "broll";
+  category: "publicacao" | "video" | "avatar" | "voz" | "broll" | "notificacao";
   auth: "oauth" | "api_key";
   detail: string;
   requirement: string;
@@ -286,7 +395,42 @@ export const api = {
   job: (id: string) => req<Job>(`/api/jobs/${id}`),
   createJob: (input: Partial<JobInput>) =>
     req<{ job_id: string }>("/api/jobs", { method: "POST", body: JSON.stringify(input) }),
-  retryJob: (id: string) => req(`/api/jobs/${id}/retry`, { method: "POST" }),
+  retryJob: (id: string, from = "") =>
+    req(`/api/jobs/${id}/retry${from ? `?from=${from}` : ""}`, { method: "POST" }),
+
+  buildHooks: (id: string, count = 3) =>
+    req<HookVariants>(`/api/jobs/${id}/hooks`,
+      { method: "POST", body: JSON.stringify({ count, preview_audio: true }) }),
+  applyHook: (id: string, text: string) =>
+    req<{ rendering: boolean }>(`/api/jobs/${id}/hooks/apply`,
+      { method: "POST", body: JSON.stringify({ text, render: true }) }),
+  forkHook: (id: string, text: string) =>
+    req<{ job_id: string }>(`/api/jobs/${id}/hooks/fork`,
+      { method: "POST", body: JSON.stringify({ text }) }),
+  rebuildCover: (id: string, title = "", at: number | null = null) =>
+    req<{ cover: string; at: number }>(`/api/jobs/${id}/cover`,
+      { method: "POST", body: JSON.stringify({ title, at }) }),
+
+  metrics: () =>
+    req<{ summary: { published: number; views: number; likes: number;
+                     avg_retention: number | null; last_fetch: string | null };
+          items: MetricRow[]; llm: LLMSummary[] }>("/api/metrics"),
+  refreshMetrics: () => req<{ updated: number }>("/api/metrics/refresh", { method: "POST" }),
+  insights: (niche = "") =>
+    req<{ briefing: string }>(`/api/metrics/insights?niche=${niche}`),
+
+  trends: (niche: string, geo = "BR") =>
+    req<{ items: TrendItem[] }>(`/api/trends?niche=${niche}&geo=${geo}`),
+
+  clipPlans: () => req<ClipPlan[]>("/api/clips"),
+  clipPlan: (id: string) => req<ClipPlan>(`/api/clips/${id}`),
+  createClipPlan: (body: { attachment_id: string; count: number; target_seconds: number;
+                           niche: string; language?: string }) =>
+    req<{ plan_id: string }>("/api/clips", { method: "POST", body: JSON.stringify(body) }),
+  deleteClipPlan: (id: string) => req(`/api/clips/${id}`, { method: "DELETE" }),
+  renderClips: (id: string, body: Record<string, unknown>) =>
+    req<{ jobs: string[]; schedules: { job_id: string; publish_at: string }[] }>(
+      `/api/clips/${id}/render`, { method: "POST", body: JSON.stringify(body) }),
   deleteJob: (id: string) => req(`/api/jobs/${id}`, { method: "DELETE" }),
   rerunQA: (id: string) => req<QAReport>(`/api/jobs/${id}/qa`, { method: "POST" }),
   editJob: (id: string, edit: ScriptEdit) =>
