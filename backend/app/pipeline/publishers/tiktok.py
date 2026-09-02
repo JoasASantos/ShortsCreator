@@ -7,15 +7,24 @@ from pathlib import Path
 import httpx
 
 from ...config import settings
+from .. import connectors
 
 AUTH_BASE = "https://www.tiktok.com/v2/auth/authorize/"
 TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
 SCOPES = "user.info.basic,video.upload,video.publish"
 
 
+def _app_creds() -> tuple[str, str]:
+    """Painel de Contas (connector 'tiktok') vence o .env."""
+    creds = connectors.credentials("tiktok")
+    return (creds.get("client_key") or settings.tiktok_client_key,
+            creds.get("client_secret") or settings.tiktok_client_secret)
+
+
 def auth_url(state: str) -> str:
+    client_key, _ = _app_creds()
     params = {
-        "client_key": settings.tiktok_client_key,
+        "client_key": client_key,
         "scope": SCOPES,
         "response_type": "code",
         "redirect_uri": settings.tiktok_redirect_uri,
@@ -26,12 +35,13 @@ def auth_url(state: str) -> str:
 
 
 def exchange_code(code: str) -> dict:
+    client_key, client_secret = _app_creds()
     resp = httpx.post(
         TOKEN_URL,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         data={
-            "client_key": settings.tiktok_client_key,
-            "client_secret": settings.tiktok_client_secret,
+            "client_key": client_key,
+            "client_secret": client_secret,
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": settings.tiktok_redirect_uri,
@@ -43,12 +53,13 @@ def exchange_code(code: str) -> dict:
 
 
 def refresh(refresh_token: str) -> dict:
+    client_key, client_secret = _app_creds()
     resp = httpx.post(
         TOKEN_URL,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         data={
-            "client_key": settings.tiktok_client_key,
-            "client_secret": settings.tiktok_client_secret,
+            "client_key": client_key,
+            "client_secret": client_secret,
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
         },

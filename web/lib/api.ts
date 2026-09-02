@@ -203,6 +203,31 @@ export interface Account {
   created_at: string;
 }
 
+export interface ConnectorField {
+  key: string;
+  label: string;
+  secret: boolean;
+  env: string;
+  hint: string;
+  filled: boolean;
+}
+
+export interface Connector {
+  id: string;
+  name: string;
+  category: "publicacao" | "video" | "avatar" | "voz" | "broll";
+  auth: "oauth" | "api_key";
+  detail: string;
+  requirement: string;
+  docs: string;
+  status: "pronto" | "beta" | "planejado";
+  configured: boolean;
+  source: "painel" | "env" | "";
+  testable: boolean;
+  accounts: number;
+  fields: ConnectorField[];
+}
+
 export interface Schedule {
   id: string;
   job_id: string;
@@ -312,6 +337,13 @@ export const api = {
   deleteAccount: (id: string) => req(`/api/publish/accounts/${id}`, { method: "DELETE" }),
   youtubeAuth: () => req<{ auth_url: string }>("/api/publish/youtube/auth"),
   tiktokAuth: () => req<{ auth_url: string }>("/api/publish/tiktok/auth"),
+
+  connectors: () => req<Connector[]>("/api/connectors"),
+  saveConnector: (id: string, values: Record<string, string>) =>
+    req<Connector>(`/api/connectors/${id}`, { method: "PUT", body: JSON.stringify(values) }),
+  clearConnector: (id: string) => req<Connector>(`/api/connectors/${id}`, { method: "DELETE" }),
+  testConnector: (id: string) =>
+    req<{ ok: boolean; message: string }>(`/api/connectors/${id}/test`, { method: "POST" }),
 
   publish: (body: Record<string, unknown>) =>
     req<{ schedule_id: string }>("/api/publish", { method: "POST", body: JSON.stringify(body) }),

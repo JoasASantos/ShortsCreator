@@ -53,10 +53,11 @@ def youtube_callback(code: str = Query(...)):
 
 @router.get("/tiktok/auth")
 def tiktok_auth():
+    from ..pipeline import connectors
     from ..pipeline.publishers import tiktok
 
-    if not settings.tiktok_client_key:
-        raise HTTPException(400, "TIKTOK_CLIENT_KEY não configurada")
+    if not connectors.is_configured("tiktok"):
+        raise HTTPException(400, "Cadastre client_key/client_secret do TikTok em Contas")
     return {"auth_url": tiktok.auth_url(state=db.new_id("state"))}
 
 

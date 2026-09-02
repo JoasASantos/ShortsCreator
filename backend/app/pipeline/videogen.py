@@ -1,15 +1,14 @@
-"""Interface plugável para geradores de vídeo por IA (Runway, Luma, Pika,
-Higgsfield etc.) usados como fundo sintético do short.
+"""Interface plugável para geradores de vídeo por IA usados como fundo
+sintético do short (background='ia_video').
 
-Nenhum provider vem configurado por padrão — implemente um abaixo e troque
-`background="ia_video"` no job quando tiver credenciais. Segue o mesmo padrão
-dos providers de TTS/LLM: uma função por serviço, escolhida em runtime.
+Credencial vem de connectors.credentials("higgsfield") — configurável pela
+tela de Contas ou por HIGGSFIELD_KEY_ID/HIGGSFIELD_KEY_SECRET no .env.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-from ..config import settings
+from . import connectors
 
 
 class VideoGenNotConfigured(RuntimeError):
@@ -19,41 +18,19 @@ class VideoGenNotConfigured(RuntimeError):
 def generate_clip(prompt: str, duration: float, out_path: Path,
                   aspect: str = "9:16", log=lambda m: None) -> Path:
     """Ponto de entrada único chamado pelo orchestrator quando
-    background='ia_video'. Roteia para o provider em settings.videogen_provider.
-
-    Providers a implementar (todos com geração de vídeo por texto):
-      - Runway Gen-3/Gen-4 — https://docs.dev.runwayml.com
-      - Luma Dream Machine — https://docs.lumalabs.ai
-      - Pika Labs          — https://pika.art/api
-      - Higgsfield         — via MCP, quando disponível na sessão
-
-    Cada implementação deve: (1) chamar a API com prompt + duração + aspect
-    9:16, (2) fazer polling até o job terminar, (3) baixar o clipe final para
-    `out_path`, (4) retornar `out_path`. Sem provider configurado, levanta
-    VideoGenNotConfigured explicando o que falta.
+    background='ia_video'. Hoje roteado para o Higgsfield (Sora 2, Veo 3.1,
+    Kling 2.5, Seedance, Hailuo — todos por trás da mesma API). Para trocar
+    de provider, implemente outro módulo em generators/ e troque a chamada
+    abaixo por connectors.credentials("<id>") equivalente.
     """
-    provider = settings.videogen_provider
-    if provider == "runway":
+    if not connectors.is_configured("higgsfield"):
         raise VideoGenNotConfigured(
-            "Provider 'runway' declarado mas não implementado — adicione a "
-            "chamada à Runway API em videogen.py e defina RUNWAY_API_KEY."
+            "Nenhum gerador de vídeo por IA está configurado. Cadastre a "
+            "chave da Higgsfield na tela de Contas (ou HIGGSFIELD_KEY_ID/"
+            "HIGGSFIELD_KEY_SECRET no .env), ou use background="
+            "'broll' / 'gradiente' / 'video_fonte' / 'imagem_kenburns' enquanto isso."
         )
-    if provider == "luma":
-        raise VideoGenNotConfigured(
-            "Provider 'luma' declarado mas não implementado — adicione a "
-            "chamada à Luma Dream Machine API em videogen.py."
-        )
-    if provider == "higgsfield":
-        raise VideoGenNotConfigured(
-            "Provider 'higgsfield' declarado mas não implementado — esta "
-            "função roda no processo do backend, sem acesso ao MCP da sessão "
-            "de chat. Gere o clipe manualmente e importe como vídeo de "
-            "origem (source_type='video' com upload), ou implemente aqui "
-            "uma chamada HTTP direta à API do Higgsfield."
-        )
-    raise VideoGenNotConfigured(
-        "Nenhum gerador de vídeo por IA está configurado (VIDEOGEN_PROVIDER "
-        "vazio no .env). Implemente um provider em "
-        "backend/app/pipeline/videogen.py, ou use background="
-        "'broll' / 'gradiente' / 'video_fonte' / 'imagem_kenburns' enquanto isso."
-    )
+    from .generators import higgsfield
+
+    creds = connectors.credentials("higgsfield")
+    return higgsfield.generate_clip(prompt, duration, out_path, creds, log=log)

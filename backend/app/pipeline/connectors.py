@@ -1,0 +1,341 @@
+"""Catálogo de conectores externos + guarda das credenciais.
+
+Um conector é qualquer serviço de terceiro que o ShortsCreator sabe chamar:
+publicação (YouTube, TikTok...), geração de vídeo por IA (Higgsfield),
+avatar falante (HeyGen), voz (Fish Audio, ElevenLabs) e banco de b-roll
+(Pexels, Pixabay).
+
+Duas fontes de credencial, nessa ordem:
+  1. tabela `connector_credentials` no banco — o que a tela de Contas grava;
+  2. variável de ambiente do .env — mantém funcionando quem já configurou
+     por lá antes desta tela existir.
+
+Quem consome credencial deve chamar `credentials(<id>)` em vez de ler
+settings direto, para respeitar essa precedência.
+"""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from typing import Callable
+
+import httpx
+
+from .. import db
+from ..config import settings
+
+TIMEOUT = 25.0
+
+
+@dataclass
+class Field:
+    key: str
+    label: str
+    env: str = ""          # variável de ambiente equivalente (fallback)
+    secret: bool = True
+    hint: str = ""
+
+
+@dataclass
+class Connector:
+    id: str
+    name: str
+    # publicacao: posta o short pronto | video: gera imagem em movimento
+    # avatar: apresentador falante | voz: TTS | broll: banco de estoque
+    category: str
+    auth: str              # "oauth" | "api_key"
+    detail: str
+    docs: str
+    status: str = "pronto"  # pronto | beta | planejado
+    fields: list[Field] = field(default_factory=list)
+    requirement: str = ""
+    # Função que faz uma chamada real e barata só para provar que a
+    # credencial vale. Retorna texto curto pra mostrar na tela.
+    check: Callable[[dict], str] | None = None
+
+
+# ---------------------------------------------------------------- checagens
+
+def _get(url: str, headers: dict, params: dict | None = None) -> httpx.Response:
+    return httpx.get(url, headers=headers, params=params, timeout=TIMEOUT,
+                     follow_redirects=True)
+
+
+def _check_higgsfield(creds: dict) -> str:
+    from .generators import higgsfield
+
+    return higgsfield.verify(creds)
+
+
+def _check_heygen(creds: dict) -> str:
+    from .generators import heygen
+
+    return heygen.verify(creds)
+
+
+def _check_elevenlabs(creds: dict) -> str:
+    key = creds.get("api_key", "")
+    r = _get("https://api.elevenlabs.io/v1/user", {"xi-api-key": key})
+    if r.status_code == 401:
+        raise RuntimeError("Chave recusada pela ElevenLabs (401)")
+    r.raise_for_status()
+    tier = (r.json().get("subscription") or {}).get("tier", "?")
+    return f"Conta ElevenLabs válida (plano {tier})"
+
+
+def _check_fishaudio(creds: dict) -> str:
+    key = creds.get("api_key", "")
+    r = _get("https://api.fish.audio/model",
+             {"Authorization": f"Bearer {key}"}, {"page_size": 1})
+    if r.status_code in (401, 403):
+        raise RuntimeError("Chave recusada pela Fish Audio")
+    r.raise_for_status()
+    total = r.json().get("total", "?")
+    return f"Fish Audio respondendo ({total} vozes no catálogo)"
+
+
+def _check_pexels(creds: dict) -> str:
+    r = _get("https://api.pexels.com/videos/search",
+             {"Authorization": creds.get("api_key", "")},
+             {"query": "city", "per_page": 1})
+    if r.status_code == 401:
+        raise RuntimeError("Chave recusada pela Pexels (401)")
+    r.raise_for_status()
+    return "Pexels respondendo — b-roll em vídeo liberado"
+
+
+def _check_pixabay(creds: dict) -> str:
+    r = _get("https://pixabay.com/api/videos/", {},
+             {"key": creds.get("api_key", ""), "q": "city", "per_page": 3})
+    if r.status_code in (400, 401):
+        raise RuntimeError("Chave recusada pela Pixabay")
+    r.raise_for_status()
+    return "Pixabay respondendo — b-roll em vídeo liberado"
+
+
+def _check_tiktok_app(creds: dict) -> str:
+    if not creds.get("client_key") or not creds.get("client_secret"):
+        raise RuntimeError("Faltam client_key/client_secret")
+    return "App TikTok configurado — conecte a conta pelo botão Conectar"
+
+
+# ------------------------------------------------------------------ catálogo
+
+CATALOG: list[Connector] = [
+    Connector(
+        id="youtube", name="YouTube Shorts", category="publicacao", auth="oauth",
+        detail="Upload resumível pela Data API v3. Aceita agendamento nativo "
+               "(publishAt) e privacidade por vídeo.",
+        requirement="client_secret OAuth em data/secrets/youtube_client_secret.json",
+        docs="https://developers.google.com/youtube/v3/guides/uploading_a_video",
+    ),
+    Connector(
+        id="tiktok", name="TikTok", category="publicacao", auth="oauth",
+        detail="Content Posting API v2. Conta sem auditoria cai na caixa de "
+               "rascunhos do app; com auditoria aprovada, publica direto.",
+        requirement="TIKTOK_CLIENT_KEY e TIKTOK_CLIENT_SECRET",
+        docs="https://developers.tiktok.com/doc/content-posting-api-get-started",
+        fields=[Field("client_key", "Client key", "TIKTOK_CLIENT_KEY", secret=False),
+                Field("client_secret", "Client secret", "TIKTOK_CLIENT_SECRET")],
+        check=_check_tiktok_app,
+    ),
+    Connector(
+        id="higgsfield", name="Higgsfield", category="video", auth="api_key",
+        detail="Gera o fundo do short por IA (Sora 2, Veo 3.1, Kling 2.5, "
+               "Seedance, Hailuo) já em 9:16. Vira o modo de fundo 'ia_video'.",
+        requirement="Par de chaves criado em cloud.higgsfield.ai",
+        docs="https://docs.higgsfield.ai/docs",
+        fields=[Field("key_id", "API key id", "HIGGSFIELD_KEY_ID", secret=False),
+                Field("key_secret", "API key secret", "HIGGSFIELD_KEY_SECRET")],
+        check=_check_higgsfield,
+    ),
+    Connector(
+        id="heygen", name="HeyGen", category="avatar", auth="api_key",
+        detail="Apresentador falante a partir do roteiro. O clipe gerado entra "
+               "como anexo e pode virar o vídeo de origem do short.",
+        requirement="API key da conta HeyGen (Settings > API)",
+        docs="https://docs.heygen.com/reference/create-an-avatar-video-v2",
+        fields=[Field("api_key", "API key", "HEYGEN_API_KEY")],
+        check=_check_heygen,
+    ),
+    Connector(
+        id="fishaudio", name="Fish Audio", category="voz", auth="api_key",
+        detail="Vozes de personagem e narração do catálogo Fish. Já é o "
+               "provedor das vozes instaladas na tela de Vozes.",
+        requirement="FISHAUDIO_API_KEY",
+        docs="https://docs.fish.audio/overview/capabilities",
+        fields=[Field("api_key", "API key", "FISHAUDIO_API_KEY")],
+        check=_check_fishaudio,
+    ),
+    Connector(
+        id="elevenlabs", name="ElevenLabs", category="voz", auth="api_key",
+        detail="TTS alternativo com timestamp por caractere — é o provedor com "
+               "a legenda karaokê mais precisa depois do edge-tts.",
+        requirement="ELEVENLABS_API_KEY",
+        docs="https://elevenlabs.io/docs/api-reference",
+        fields=[Field("api_key", "API key", "ELEVENLABS_API_KEY")],
+        check=_check_elevenlabs,
+    ),
+    Connector(
+        id="pexels", name="Pexels", category="broll", auth="api_key",
+        detail="Banco de vídeo gratuito usado no fundo automático (background "
+               "'broll') quando o job não traz mídia própria.",
+        requirement="PEXELS_API_KEY",
+        docs="https://www.pexels.com/api/documentation/",
+        fields=[Field("api_key", "API key", "PEXELS_API_KEY")],
+        check=_check_pexels,
+    ),
+    Connector(
+        id="pixabay", name="Pixabay", category="broll", auth="api_key",
+        detail="Segundo banco de b-roll. Entra como reserva quando a Pexels "
+               "não tem resultado para a consulta do segmento.",
+        requirement="PIXABAY_API_KEY",
+        docs="https://pixabay.com/api/docs/",
+        fields=[Field("api_key", "API key", "PIXABAY_API_KEY")],
+        check=_check_pixabay,
+    ),
+    # Abaixo: previstos, sem implementação de envio ainda. Ficam listados de
+    # propósito — a chave pode ser guardada agora e o envio entra depois.
+    Connector(
+        id="instagram", name="Instagram Reels", category="publicacao",
+        auth="api_key", status="planejado",
+        detail="Publicação de Reels pela Graph API (container + publish). "
+               "Exige conta profissional ligada a uma página do Facebook.",
+        requirement="Token de longa duração + IG User ID",
+        docs="https://developers.facebook.com/docs/instagram-api/guides/content-publishing",
+        fields=[Field("access_token", "Access token", "INSTAGRAM_ACCESS_TOKEN"),
+                Field("ig_user_id", "IG user id", "INSTAGRAM_USER_ID", secret=False)],
+    ),
+    Connector(
+        id="linkedin", name="LinkedIn", category="publicacao", auth="api_key",
+        status="planejado",
+        detail="Post de vídeo nativo pela Posts API. Serve para os nichos de "
+               "tecnologia e segurança, onde o alcance ali é melhor.",
+        requirement="Access token com w_member_social",
+        docs="https://learn.microsoft.com/linkedin/marketing/community-management/shares/videos-api",
+        fields=[Field("access_token", "Access token", "LINKEDIN_ACCESS_TOKEN"),
+                Field("author_urn", "URN do autor", "LINKEDIN_AUTHOR_URN", secret=False)],
+    ),
+    Connector(
+        id="runway", name="Runway Gen-4", category="video", auth="api_key",
+        status="planejado",
+        detail="Gerador de vídeo alternativo ao Higgsfield, com controle fino "
+               "de câmera. Roteia pelo mesmo modo de fundo 'ia_video'.",
+        requirement="RUNWAY_API_KEY",
+        docs="https://docs.dev.runwayml.com",
+        fields=[Field("api_key", "API key", "RUNWAY_API_KEY")],
+    ),
+    Connector(
+        id="did", name="D-ID", category="avatar", auth="api_key",
+        status="planejado",
+        detail="Avatar falante a partir de uma foto — alternativa mais barata "
+               "ao HeyGen quando o rosto é uma imagem sua.",
+        requirement="DID_API_KEY",
+        docs="https://docs.d-id.com",
+        fields=[Field("api_key", "API key", "DID_API_KEY")],
+    ),
+]
+
+BY_ID = {c.id: c for c in CATALOG}
+
+
+def get(connector_id: str) -> Connector:
+    if connector_id not in BY_ID:
+        raise KeyError(f"Conector desconhecido: {connector_id}")
+    return BY_ID[connector_id]
+
+
+# --------------------------------------------------------------- credenciais
+
+def credentials(connector_id: str) -> dict:
+    """Credencial efetiva: o que está no banco vence o que está no .env."""
+    connector = get(connector_id)
+    saved = db.get_connector(connector_id) or {}
+    out: dict[str, str] = {}
+    for f in connector.fields:
+        value = saved.get(f.key) or (os.getenv(f.env, "") if f.env else "")
+        if value:
+            out[f.key] = value
+    return out
+
+
+def source(connector_id: str) -> str:
+    """De onde veio a credencial — a tela mostra isso para evitar confusão
+    quando .env e banco discordam."""
+    connector = get(connector_id)
+    saved = db.get_connector(connector_id) or {}
+    if any(saved.get(f.key) for f in connector.fields):
+        return "painel"
+    if any(f.env and os.getenv(f.env) for f in connector.fields):
+        return "env"
+    return ""
+
+
+def is_configured(connector_id: str) -> bool:
+    connector = get(connector_id)
+    if connector.auth == "oauth" and not connector.fields:
+        return bool(_oauth_ready(connector_id))
+    creds = credentials(connector_id)
+    return all(f.key in creds for f in connector.fields)
+
+
+def _oauth_ready(connector_id: str) -> bool:
+    if connector_id == "youtube":
+        from pathlib import Path
+
+        return Path(settings.youtube_client_secrets).exists()
+    return False
+
+
+def describe(connector_id: str) -> dict:
+    c = get(connector_id)
+    accounts = [a for a in db.list_accounts() if a["platform"] == c.id]
+    return {
+        "id": c.id, "name": c.name, "category": c.category, "auth": c.auth,
+        "detail": c.detail, "requirement": c.requirement, "docs": c.docs,
+        "status": c.status, "configured": is_configured(c.id),
+        "source": source(c.id), "testable": c.check is not None,
+        "accounts": len(accounts),
+        "fields": [
+            {"key": f.key, "label": f.label, "secret": f.secret, "env": f.env,
+             "hint": f.hint, "filled": bool(credentials(c.id).get(f.key))}
+            for f in c.fields
+        ],
+    }
+
+
+def describe_all() -> list[dict]:
+    return [describe(c.id) for c in CATALOG]
+
+
+def save(connector_id: str, values: dict) -> dict:
+    """Grava só os campos declarados. Valor vazio apaga o campo (volta pro .env)."""
+    connector = get(connector_id)
+    saved = dict(db.get_connector(connector_id) or {})
+    for f in connector.fields:
+        if f.key not in values:
+            continue
+        value = (values[f.key] or "").strip()
+        if value:
+            saved[f.key] = value
+        else:
+            saved.pop(f.key, None)
+    db.save_connector(connector_id, saved)
+    return describe(connector_id)
+
+
+def clear(connector_id: str) -> dict:
+    get(connector_id)
+    db.delete_connector(connector_id)
+    return describe(connector_id)
+
+
+def test(connector_id: str) -> str:
+    connector = get(connector_id)
+    if connector.check is None:
+        raise RuntimeError(f"{connector.name} ainda não tem teste automático")
+    creds = credentials(connector_id)
+    missing = [f.label for f in connector.fields if not creds.get(f.key)]
+    if missing:
+        raise RuntimeError(f"Faltando: {', '.join(missing)}")
+    return connector.check(creds)

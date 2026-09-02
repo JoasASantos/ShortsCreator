@@ -67,6 +67,12 @@ CREATE TABLE IF NOT EXISTS clip_plans (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS connector_credentials (
+    connector_id TEXT PRIMARY KEY,
+    values_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS schedules (
     id TEXT PRIMARY KEY,
     job_id TEXT NOT NULL,
@@ -221,6 +227,34 @@ def get_account(account_id: str) -> dict | None:
 def delete_account(account_id: str) -> None:
     with _lock, connect() as conn:
         conn.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+
+
+# ---------- connector credentials ----------
+
+def get_connector(connector_id: str) -> dict | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT values_json FROM connector_credentials WHERE connector_id=?",
+            (connector_id,),
+        ).fetchone()
+    return json.loads(row["values_json"]) if row else None
+
+
+def save_connector(connector_id: str, values: dict) -> None:
+    with _lock, connect() as conn:
+        conn.execute(
+            "INSERT INTO connector_credentials (connector_id, values_json, updated_at)"
+            " VALUES (?,?,?)"
+            " ON CONFLICT(connector_id) DO UPDATE SET values_json=excluded.values_json,"
+            " updated_at=excluded.updated_at",
+            (connector_id, json.dumps(values), now()),
+        )
+
+
+def delete_connector(connector_id: str) -> None:
+    with _lock, connect() as conn:
+        conn.execute("DELETE FROM connector_credentials WHERE connector_id=?",
+                    (connector_id,))
 
 
 # ---------- clip plans ----------
