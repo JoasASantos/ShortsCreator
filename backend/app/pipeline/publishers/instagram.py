@@ -34,14 +34,19 @@ def verify(creds: dict) -> str:
     return f"@{data.get('username', '?')} · {data.get('followers_count', '?')} seguidores"
 
 
-def display_name(creds: dict) -> str:
-    try:
-        r = httpx.get(f"{GRAPH}/{creds['ig_user_id']}",
-                      params={"fields": "username", "access_token": creds["access_token"]},
-                      timeout=TIMEOUT)
-        return "@" + r.json().get("username", "instagram")
-    except Exception:  # noqa: BLE001
-        return "Conta Instagram"
+def profile_name(creds: dict) -> str:
+    """Nome do perfil. Levanta se o token não servir — quem chama usa isso
+    para decidir se a conta publicável deve existir."""
+    r = httpx.get(f"{GRAPH}/{creds.get('ig_user_id', '')}",
+                  params={"fields": "username",
+                          "access_token": creds.get("access_token", "")},
+                  timeout=TIMEOUT)
+    if r.status_code >= 400:
+        raise RuntimeError(_error(r))
+    username = r.json().get("username")
+    if not username:
+        raise RuntimeError("A Graph API não devolveu o username da conta")
+    return f"@{username}"
 
 
 def public_video_url(job_id: str) -> str:

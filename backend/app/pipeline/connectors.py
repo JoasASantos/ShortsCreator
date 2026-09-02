@@ -403,17 +403,30 @@ TOKEN_PUBLISHERS = {"instagram", "linkedin"}
 
 
 def _sync_token_account(connector_id: str) -> None:
+    """Cria/atualiza a conta publicável — mas só se o token responder.
+
+    Buscar o nome do perfil já valida a credencial de graça. Sem isso, um
+    token errado virava uma conta com nome genérico que só falhava na hora
+    de publicar; agora o conector fica salvo e a conta não aparece, e o
+    "Testar conexão" explica o motivo.
+    """
     if connector_id not in TOKEN_PUBLISHERS or not is_configured(connector_id):
         return
     creds = credentials(connector_id)
     if connector_id == "instagram":
         from .publishers import instagram
 
-        name = instagram.display_name(creds)
+        module = instagram
     else:
         from .publishers import linkedin
 
-        name = linkedin.display_name(creds)
+        module = linkedin
+
+    try:
+        name = module.profile_name(creds)
+    except Exception:  # noqa: BLE001 — token inválido ou serviço fora do ar
+        db.delete_accounts_for_platform(connector_id)
+        return
     db.upsert_account_for_platform(connector_id, name, creds)
 
 

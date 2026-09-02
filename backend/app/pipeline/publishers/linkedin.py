@@ -55,14 +55,25 @@ def verify(creds: dict) -> str:
     return f"Token válido para {name or urn}"
 
 
-def display_name(creds: dict) -> str:
-    try:
-        r = httpx.get(f"{API}/v2/userinfo",
-                      headers={"Authorization": f"Bearer {creds['access_token']}"},
-                      timeout=TIMEOUT)
-        return r.json().get("name") or "Conta LinkedIn"
-    except Exception:  # noqa: BLE001
-        return "Conta LinkedIn"
+def profile_name(creds: dict) -> str:
+    """Nome do autor. Levanta se o token não servir.
+
+    Um token só com `w_member_social` não consegue ler o perfil; nesse caso o
+    URN informado à mão já identifica a conta e serve como nome.
+    """
+    r = httpx.get(f"{API}/v2/userinfo",
+                  headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
+                  timeout=TIMEOUT)
+    if r.status_code == 200:
+        name = r.json().get("name")
+        if name:
+            return name
+    urn = (creds.get("author_urn") or "").strip()
+    if urn:
+        return urn
+    raise RuntimeError(
+        f"Token recusado pelo LinkedIn ({r.status_code}) e sem author_urn para "
+        "identificar a conta. Informe o URN em Contas.")
 
 
 def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> dict:
