@@ -19,6 +19,38 @@ def edge_catalog(locale: str = "pt-BR"):
     return list_edge_voices(locale)
 
 
+@router.get("/presets")
+def voice_presets():
+    """Catálogo curado por uso: narração, cinema, personagens e vozes gerais."""
+    from ..pipeline.voice_presets import all_presets
+
+    installed = {v["provider_voice_id"] for v in db.list_voices()
+                 if v["provider"] == "fishaudio"}
+    return [{**v, "installed": v["id"] in installed} for v in all_presets()]
+
+
+@router.post("/presets/{reference_id}/install")
+def install_preset(reference_id: str):
+    """Cria a voz local apontando para um preset do fish.audio."""
+    from ..pipeline.voice_presets import find
+
+    preset = find(reference_id)
+    if preset is None:
+        raise HTTPException(404, "Preset não encontrado")
+
+    for existing in db.list_voices():
+        if existing["provider_voice_id"] == reference_id:
+            return existing
+
+    voice_id = db.create_voice(
+        name=preset["name"], provider="fishaudio",
+        provider_voice_id=reference_id,
+        settings_json={"fish_model": settings.fishaudio_backend,
+                       "note": preset.get("note", "")},
+    )
+    return db.get_voice(voice_id)
+
+
 @router.get("/catalog/fish")
 def fish_catalog(query: str = "", language: str = "pt"):
     """Catálogo de vozes do fish.audio para escolher pelo id."""

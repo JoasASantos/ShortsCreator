@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { api, type Voice } from "@/lib/api";
+import { api, type Voice, type VoicePreset } from "@/lib/api";
 import { Chips, Field, Topbar, useToast } from "@/components/ui";
 
 export default function Vozes() {
   const { toast, node } = useToast();
   const [voices, setVoices] = useState<Voice[]>([]);
   const [catalog, setCatalog] = useState<{ id: string; name: string; gender: string }[]>([]);
+  const [presets, setPresets] = useState<VoicePreset[]>([]);
+  const [installing, setInstalling] = useState("");
   const [provider, setProvider] = useState<"edge" | "elevenlabs" | "xtts" | "fishaudio">("edge");
   const [name, setName] = useState("");
   const [voiceId, setVoiceId] = useState("");
@@ -18,10 +20,31 @@ export default function Vozes() {
 
   const pull = () => api.voices().then(setVoices).catch(() => setVoices([]));
 
+  const pullPresets = () =>
+    api.voicePresets().then(setPresets).catch(() => setPresets([]));
+
   useEffect(() => {
     pull();
+    pullPresets();
     api.edgeCatalog().then(setCatalog).catch(() => setCatalog([]));
   }, []);
+
+  const install = async (preset: VoicePreset) => {
+    setInstalling(preset.id);
+    try {
+      await api.installPreset(preset.id);
+      await Promise.all([pull(), pullPresets()]);
+      toast(`Voz "${preset.name}" adicionada.`);
+    } catch (error) {
+      toast((error as Error).message);
+    } finally { setInstalling(""); }
+  };
+
+  // agrupa por categoria preservando a ordem que veio do backend
+  const groups = presets.reduce<Record<string, VoicePreset[]>>((acc, preset) => {
+    (acc[preset.category_label] ||= []).push(preset);
+    return acc;
+  }, {});
 
   const save = async () => {
     if (!name.trim()) return toast("Dê um nome ao personagem.");
@@ -84,6 +107,37 @@ export default function Vozes() {
             ))
           )}
 
+          {Object.entries(groups).map(([label, items]) => (
+            <section className="panel" key={label}>
+              <div className="panel-head">
+                <span className="label">{label}</span>
+                <div className="grow" />
+                <span className="label">{items[0]?.category_hint}</span>
+              </div>
+              <div className="panel-body grid" style={{ gap: 8 }}>
+                {items.map((preset) => (
+                  <div className="row spread" key={preset.id}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, marginBottom: 2 }}>
+                        {preset.name}{" "}
+                        <span className="dimmer" style={{ fontSize: 11 }}>♥{preset.likes}</span>
+                      </div>
+                      <div className="dimmer" style={{ fontSize: 11.5 }}>{preset.note}</div>
+                    </div>
+                    {preset.installed ? (
+                      <span className="tag" data-tone="ok">adicionada</span>
+                    ) : (
+                      <button className="btn sm" disabled={installing === preset.id}
+                              onClick={() => install(preset)}>
+                        {installing === preset.id ? "Adicionando…" : "Adicionar"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+
           <section className="panel">
             <div className="panel-head">
               <span className="label">Como clonar a voz de um personagem</span>
@@ -122,9 +176,9 @@ export default function Vozes() {
                 onChange={setProvider}
                 options={[
                   { value: "edge", label: "Edge (grátis)" },
+                  { value: "fishaudio", label: "fish.audio" },
                   { value: "elevenlabs", label: "ElevenLabs" },
                   { value: "xtts", label: "XTTS local" },
-                  { value: "fishaudio", label: "Fish Audio" },
                 ]}
               />
             </Field>

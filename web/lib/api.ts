@@ -62,6 +62,17 @@ export interface MusicTrack {
   size_bytes: number;
 }
 
+export interface VoicePreset {
+  id: string;
+  name: string;
+  note: string;
+  likes: number;
+  category: string;
+  category_label: string;
+  category_hint: string;
+  installed: boolean;
+}
+
 export interface ScriptEdit {
   segments?: ScriptSegment[];
   title?: string;
@@ -269,6 +280,9 @@ export const api = {
   },
 
   voices: () => req<Voice[]>("/api/voices"),
+  voicePresets: () => req<VoicePreset[]>("/api/voices/presets"),
+  installPreset: (referenceId: string) =>
+    req<Voice>(`/api/voices/presets/${referenceId}/install`, { method: "POST" }),
   edgeCatalog: (locale = "pt-BR") =>
     req<{ id: string; name: string; gender: string }[]>(`/api/voices/catalog/edge?locale=${locale}`),
   createVoice: (form: FormData) =>
