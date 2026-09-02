@@ -192,7 +192,7 @@ backend/app/
     orchestrator.py  pipeline + laço de autoajuste + retomada
     publishers/      youtube, tiktok, instagram, linkedin
   routers/           API HTTP
-  tests/             pytest (93 casos)
+  tests/             pytest (128 casos)
 web/                 interface Next.js
 ```
 
