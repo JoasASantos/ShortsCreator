@@ -27,3 +27,5 @@ assets/music/*
 assets/fonts/*
 !assets/fonts/.gitkeep
 .DS_Store
+.pytest_cache/
+.playwright-mcp/

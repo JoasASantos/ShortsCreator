@@ -1,147 +1,67 @@
+"use client";
+
+import { Fragment } from "react";
+
+import { useDocs, type Block } from "@/lib/i18n/docs";
 import { Topbar } from "@/components/ui";
 
+/** Marcação mínima aceita nos textos traduzidos: **negrito** e `código`.
+ *  Evita duplicar HTML em cinco idiomas sem perder o destaque dos termos. */
+const INLINE = /\*\*([^*]+)\*\*|`([^`]+)`/g;
+
+function inline(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+
+  for (const match of text.matchAll(INLINE)) {
+    const at = match.index ?? 0;
+    if (at > cursor) parts.push(text.slice(cursor, at));
+    parts.push(
+      match[1] !== undefined
+        ? <b key={at}>{match[1]}</b>
+        : <code key={at}>{match[2]}</code>,
+    );
+    cursor = at + match[0].length;
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+
+  return parts.length === 1 ? parts[0] : parts;
+}
+
+function Piece({ block }: { block: Block }) {
+  switch (block.kind) {
+    case "h":
+      return <h3>{inline(block.text)}</h3>;
+    case "p":
+      return <p>{inline(block.text)}</p>;
+    case "code":
+      return <pre><code>{block.text}</code></pre>;
+    case "ul":
+      return (
+        <ul>
+          {block.items.map((item, i) => <li key={i}>{inline(item)}</li>)}
+        </ul>
+      );
+  }
+}
+
 export default function Docs() {
+  const docs = useDocs();
+
   return (
     <>
-      <Topbar title="Instalação">
-        <span className="label">guia rápido</span>
+      <Topbar title={docs.title}>
+        <span className="label">{docs.intro}</span>
       </Topbar>
 
       <div className="content">
         <div className="prose">
-          <h3>Requisitos</h3>
-          <ul>
-            <li><b>Python 3.11+</b> — backend e pipeline de mídia</li>
-            <li><b>Node 20+</b> — interface web</li>
-            <li><b>FFmpeg</b> — composição do vídeo (obrigatório)</li>
-            <li>
-              Um LLM: a CLI do <b>Claude Code</b> ou do <b>Codex</b> já autenticada (usa a sua
-              assinatura, sem chave), ou uma chave de API da Anthropic/OpenAI, ou Ollama local
-            </li>
-          </ul>
-
-          <h3>1. Instalar o FFmpeg</h3>
-          <pre><code>{`# macOS
-brew install ffmpeg
-
-# Ubuntu / Debian
-sudo apt install ffmpeg
-
-# Windows (winget)
-winget install Gyan.FFmpeg`}</code></pre>
-          <p>
-            Se o seu FFmpeg vier sem <code>libass</code>, tudo continua funcionando: o pipeline
-            detecta a ausência e queima as legendas como imagens PNG geradas localmente.
-          </p>
-
-          <h3>2. Backend</h3>
-          <pre><code>{`git clone <seu-repo> ShortsCreator && cd ShortsCreator
-python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\\Scripts\\activate
-pip install -r backend/requirements.txt
-cp .env.example .env             # preencha as chaves`}</code></pre>
-
-          <h3>3. Configurar o .env</h3>
-          <p>
-            O caminho mais barato é usar uma assinatura que você já paga, em vez de uma chave de
-            API cobrada por token. O backend chama a CLI local que já está autenticada:
-          </p>
-          <pre><code>{`# Claude Pro/Max — requer o Claude Code logado (\`claude\`)
-LLM_PROVIDER=claude_cli
-
-# ou ChatGPT Plus/Pro — requer \`codex login\`
-# LLM_PROVIDER=codex_cli
-
-TTS_PROVIDER=edge                # gratuito, vozes neurais pt-BR
-EDGE_VOICE=pt-BR-AntonioNeural`}</code></pre>
-          <p>
-            Nenhuma chave entra no <code>.env</code> nesse modo. Confirme o login com{" "}
-            <code>claude --version</code> ou <code>codex login status</code> — o indicador{" "}
-            <b>Auth</b> na barra lateral mostra <code>assinatura</code> quando está tudo certo.
-          </p>
-          <p>
-            Cada chamada leva de 25 a 40 segundos porque roda um agente completo por baixo. Se
-            preferir latência menor e não se importar em pagar por token, use o modo de chave:
-          </p>
-          <pre><code>{`LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-opus-5`}</code></pre>
-          <p>
-            Também dá para rodar totalmente offline com <code>LLM_PROVIDER=ollama</code> apontando
-            para um modelo local.
-          </p>
-          <p>Opcionais que melhoram bastante o resultado:</p>
-          <ul>
-            <li><code>PEXELS_API_KEY</code> — B-roll vertical real em vez de gradiente</li>
-            <li><code>ELEVENLABS_API_KEY</code> — voz clonada de personagem com timings exatos</li>
-            <li><code>YOUTUBE_CLIENT_SECRETS</code> e <code>TIKTOK_CLIENT_KEY</code> — publicação</li>
-          </ul>
-
-          <h3>4. Subir os dois serviços</h3>
-          <pre><code>{`# terminal 1 — API
-make api        # ou: uvicorn app.main:app --app-dir backend --reload
-
-# terminal 2 — interface
-make web        # ou: cd web && npm install && npm run dev`}</code></pre>
-          <p>
-            Interface em <code>http://localhost:3000</code>, API em <code>http://localhost:8000</code>{" "}
-            (documentação interativa em <code>/docs</code>).
-          </p>
-
-          <h3>5. Conectar as contas de publicação</h3>
-          <p><b>YouTube:</b> no Google Cloud Console, ative a <i>YouTube Data API v3</i>, crie uma
-            credencial OAuth do tipo <i>Aplicativo Web</i> com a URI de redirecionamento{" "}
-            <code>http://localhost:8000/api/publish/youtube/callback</code> e salve o JSON em{" "}
-            <code>data/secrets/youtube_client_secret.json</code>.</p>
-          <p><b>TikTok:</b> registre um app no TikTok for Developers com os escopos{" "}
-            <code>video.upload</code> e <code>video.publish</code>. Enquanto o app não passar pela
-            auditoria, os envios chegam na caixa de rascunhos do aplicativo — é uma limitação da
-            plataforma, não do projeto.</p>
-
-          <h3>Voz de personagem</h3>
-          <p>
-            Duas rotas para narrar com a voz de um personagem. Na <b>ElevenLabs</b>, clone a voz no
-            painel deles e cole o <code>voice_id</code> na tela de Vozes. No <b>XTTS local</b>, suba o
-            servidor e envie um sample de 6 a 30 segundos — roda offline e sem custo por caractere.
-          </p>
-          <pre><code>{`# XTTS local via Docker
-docker run -d --name xtts -p 8020:80 \\
-  ghcr.io/coqui-ai/xtts-streaming-server:latest`}</code></pre>
-
-          <h3>O que o QA verifica</h3>
-          <p>
-            Toda renderização passa por uma auditoria automática sobre o arquivo final — não sobre o
-            que o pipeline acha que produziu:
-          </p>
-          <ul>
-            <li>Resolução exata de 1080×1920 e proporção 9:16 com SAR 1:1</li>
-            <li>Ausência de barras pretas (<code>cropdetect</code> sobre amostras do vídeo)</li>
-            <li>H.264 em <code>yuv420p</code>, 30 fps, átomo <code>moov</code> no início</li>
-            <li>Áudio AAC normalizado em −14 LUFS com pico real abaixo de −1 dBTP</li>
-            <li>Silêncio no início (mata o hook) e sobra de silêncio no fim</li>
-            <li>Legenda fora dos 340 px inferiores ocupados pela interface do app</li>
-            <li>Cobertura de legenda ao longo do vídeo e duração dentro da janela útil</li>
-          </ul>
-
-          <h3>Problemas comuns</h3>
-          <ul>
-            <li>
-              <b>&quot;yt-dlp não encontrado&quot;</b> — instale com <code>pip install yt-dlp</code>{" "}
-              dentro do mesmo ambiente virtual da API.
-            </li>
-            <li>
-              <b>Vídeo sai sem legenda</b> — verifique se existe alguma fonte TrueType em{" "}
-              <code>assets/fonts/</code> ou no sistema.
-            </li>
-            <li>
-              <b>Sem trilha sonora</b> — coloque arquivos <code>.mp3</code> livres de direitos em{" "}
-              <code>assets/music/</code>.
-            </li>
-            <li>
-              <b>QA reprova por duração</b> — ajuste a duração alvo no formulário; o roteiro é
-              dimensionado a partir dela.
-            </li>
-          </ul>
+          {docs.sections.map((section) => (
+            <Fragment key={section.title}>
+              <h3>{section.title}</h3>
+              {section.blocks.map((block, i) => <Piece key={i} block={block} />)}
+            </Fragment>
+          ))}
         </div>
       </div>
     </>

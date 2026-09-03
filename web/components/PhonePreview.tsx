@@ -2,12 +2,15 @@
 
 import { useRef, useState } from "react";
 
+import { useI18n } from "@/lib/i18n";
+
 /**
  * Moldura 9:16 com sobreposição das zonas cobertas pela UI do TikTok/Shorts.
  * É o que responde à pergunta "isso está mesmo no formato de short?" sem
  * precisar subir o vídeo para descobrir.
  */
 export function PhonePreview({ src, poster }: { src: string; poster?: string }) {
+  const { t } = useI18n();
   const [guides, setGuides] = useState(true);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -30,18 +33,18 @@ export function PhonePreview({ src, poster }: { src: string; poster?: string }) 
             <div className="zone top" />
             <div className="zone right" />
             <div className="zone bottom" />
-            <div className="badge">ZONA DA UI DO APP</div>
+            <div className="badge">{t.preview.uiZone}</div>
             <div className="caption-line" style={{ top: "59%" }} />
           </div>
         </div>
       </div>
 
-      <div className="row spread">
+      <div className="row spread wrap">
         <button
           className="btn sm ghost"
           onClick={() => setGuides((on) => !on)}
         >
-          {guides ? "Ocultar guias de safe area" : "Mostrar guias de safe area"}
+          {guides ? t.preview.hideGuides : t.preview.showGuides}
         </button>
         <span className="mono dimmer" style={{ fontSize: 11 }}>
           {time.toFixed(1)}s / {duration ? duration.toFixed(1) : "—"}s · 1080×1920 · 9:16

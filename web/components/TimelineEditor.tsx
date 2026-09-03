@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type Timeline, type TimelineCue, type TimelineVideoClip } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 
 type Selection =
   | { track: "video"; id: string }
@@ -29,6 +30,7 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
   onRendered: () => void;
   toast: (message: string) => void;
 }) {
+  const { t, f } = useI18n();
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
   const [pxPerSec, setPxPerSec] = useState(28);
@@ -146,7 +148,7 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
     const local = playhead - clip.start;
     const length = clip.out_point - clip.in_point;
     if (local <= MIN_LEN || local >= length - MIN_LEN) {
-      toast("Posicione o cursor dentro do clipe para cortar.");
+      toast(t.timeline.splitNeedsPlayhead);
       return;
     }
     mutate((draft) => {
@@ -189,7 +191,7 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
       const saved = await api.saveTimeline(jobId, timeline);
       setTimeline(saved);
       setDirty(false);
-      toast("Linha do tempo salva.");
+      toast(t.timeline.saved);
     } catch (e) {
       toast((e as Error).message);
     } finally { setBusy(false); }
@@ -202,16 +204,19 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
       const result = await api.renderTimeline(jobId, timeline);
       setDirty(false);
       toast(result.qa.passed
-        ? `Renderizado: ${result.duration.toFixed(1)}s, QA ${result.qa.score}/100.`
-        : `Renderizado, mas o QA reprovou (${result.qa.score}/100).`);
+        ? f(t.timeline.renderedOk,
+            { duration: result.duration.toFixed(1), score: result.qa.score })
+        : f(t.timeline.renderedFailed, { score: result.qa.score }));
       onRendered();
     } catch (e) {
       toast((e as Error).message);
     } finally { setBusy(false); }
   };
 
-  if (error) return <div className="empty">Sem linha do tempo: {error}</div>;
-  if (!timeline) return <div className="empty">carregando linha do tempo…</div>;
+  if (error) return (
+    <div className="empty">{f(t.timeline.unavailable, { message: error })}</div>
+  );
+  if (!timeline) return <div className="empty">{t.timeline.loading}</div>;
 
   const videoEnd = Math.max(0,
     ...timeline.video.map((c) => c.start + c.out_point - c.in_point));
@@ -252,13 +257,13 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
     <div className="grid" style={{ gap: 12 }}>
       <section className="panel">
         <div className="panel-head">
-          <span className="label">Monitor</span>
+          <span className="label">{t.timeline.monitorTitle}</span>
           <div className="grow" />
           {dirty ? (
-            <span className="tag" data-tone="amber">alterações não renderizadas</span>
+            <span className="tag" data-tone="amber">{t.timeline.unrendered}</span>
           ) : null}
         </div>
-        <div className="panel-body row" style={{ gap: 16, alignItems: "flex-start" }}>
+        <div className="panel-body row wrap" style={{ gap: 16, alignItems: "flex-start" }}>
           <div className="tl-monitor">
             <video
               ref={videoRef}
@@ -276,27 +281,26 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
           <div className="grid grow" style={{ gap: 10 }}>
             <div className="row" style={{ gap: 8 }}>
               <button className="btn sm" onClick={togglePlay}>
-                {playing ? "Pausar" : "Reproduzir"}
+                {playing ? t.timeline.pause : t.timeline.play}
               </button>
               <button className="btn sm ghost" onClick={() => {
                 setPlayhead(0);
                 if (videoRef.current) videoRef.current.currentTime = 0;
-              }}>Início</button>
+              }}>{t.timeline.toStart}</button>
               <span className="mono dimmer" style={{ fontSize: 11 }}>
                 {playhead.toFixed(2)}s
               </span>
             </div>
 
             <div className="field">
-              <span className="label">Legenda neste instante</span>
+              <span className="label">{t.timeline.cueNow}</span>
               <div className="tl-cue-preview">
                 {activeCue ? activeCue.text : <span className="dimmer">—</span>}
               </div>
             </div>
 
             <p className="dimmer" style={{ margin: 0, fontSize: 11.5, lineHeight: 1.6 }}>
-              O monitor mostra a última renderização. Clique na linha do tempo para
-              posicionar o cursor; as mudanças aparecem no vídeo depois de renderizar.
+              {t.timeline.monitorHint}
             </p>
           </div>
         </div>
@@ -304,31 +308,35 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
 
       <section className="panel">
         <div className="panel-head">
-          <span className="label">Linha do tempo</span>
+          <span className="label">{t.timeline.title}</span>
           <div className="grow" />
           <span className="mono dimmer" style={{ fontSize: 11 }}>
             {playhead.toFixed(2)}s / {timeline.duration.toFixed(2)}s
           </span>
-          <button className="btn sm ghost" onClick={() => setPxPerSec((z) => Math.max(8, z - 8))}>−</button>
-          <button className="btn sm ghost" onClick={() => setPxPerSec((z) => Math.min(120, z + 8))}>+</button>
+          <button className="btn sm ghost" title={t.timeline.zoomOut} aria-label={t.timeline.zoomOut}
+                  onClick={() => setPxPerSec((z) => Math.max(8, z - 8))}>−</button>
+          <button className="btn sm ghost" title={t.timeline.zoomIn} aria-label={t.timeline.zoomIn}
+                  onClick={() => setPxPerSec((z) => Math.min(120, z + 8))}>+</button>
         </div>
 
         <div className="panel-body grid" style={{ gap: 10 }}>
           <div className="row wrap" style={{ gap: 6 }}>
             <button className="btn sm" onClick={splitSelected}
-                    disabled={selection?.track !== "video"}>Cortar no cursor</button>
+                    disabled={selection?.track !== "video"}>{t.timeline.split}</button>
             <button className="btn sm danger" onClick={removeSelected}
-                    disabled={!selection}>Remover</button>
-            <button className="btn sm ghost" onClick={closeGaps}>Fechar lacunas</button>
-            <button className="btn sm ghost" onClick={fillToAudio}>Estender até o áudio</button>
+                    disabled={!selection}>{t.common.remove}</button>
+            <button className="btn sm ghost" onClick={closeGaps}>{t.timeline.closeGaps}</button>
+            <button className="btn sm ghost" onClick={fillToAudio}>{t.timeline.fillToAudio}</button>
           </div>
 
           {gap > 0.5 ? (
             <div className="issue" data-sev="aviso">
-              <span className="label" style={{ minWidth: 52, paddingTop: 2 }}>aviso</span>
+              <span className="label" style={{ minWidth: 52, paddingTop: 2 }}>
+                {t.qa.severity.aviso}
+              </span>
               <div>
-                O vídeo termina {gap.toFixed(1)}s antes do áudio — esse trecho fica preto
-                e o QA reprova. Use <b>Estender até o áudio</b> ou encurte a narração.
+                {f(t.timeline.gapWarning,
+                   { gap: gap.toFixed(1), action: t.timeline.fillToAudio })}
               </div>
             </div>
           ) : null}
@@ -338,7 +346,7 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
               <Ruler duration={Math.max(timeline.duration, videoEnd, audioEnd)}
                      pxPerSec={pxPerSec} />
 
-              <TrackLabel text="vídeo" />
+              <TrackLabel text={t.timeline.trackVideo} />
               <div className="tl-lane">
                 {timeline.video.map((clip) => {
                   const length = clip.out_point - clip.in_point;
@@ -363,7 +371,7 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
                 })}
               </div>
 
-              <TrackLabel text="áudio" />
+              <TrackLabel text={t.timeline.trackAudio} />
               <div className="tl-lane">
                 {timeline.audio.map((clip) => {
                   const length = clip.out_point - clip.in_point;
@@ -385,7 +393,7 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
                 })}
               </div>
 
-              <TrackLabel text="legenda" />
+              <TrackLabel text={t.timeline.trackCaption} />
               <div className="tl-lane">
                 {timeline.captions.map((cue) => (
                   <div
@@ -415,7 +423,7 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
       {selectedCue ? (
         <section className="panel">
           <div className="panel-head">
-            <span className="label">Texto da legenda selecionada</span>
+            <span className="label">{t.timeline.cueTitle}</span>
             <div className="grow" />
             <span className="mono dimmer" style={{ fontSize: 11 }}>
               {selectedCue.start.toFixed(2)}s → {selectedCue.end.toFixed(2)}s
@@ -435,16 +443,16 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
         </section>
       ) : null}
 
-      <div className="row" style={{ gap: 10 }}>
+      <div className="row wrap" style={{ gap: 10 }}>
         <button className="btn primary grow" onClick={render} disabled={busy}>
-          {busy ? "Renderizando…" : "Renderizar linha do tempo"}
+          {busy ? t.timeline.rendering : t.timeline.render}
         </button>
         <button className="btn" onClick={save} disabled={busy || !dirty}>
-          Salvar sem renderizar
+          {t.timeline.saveOnly}
         </button>
         <button className="btn ghost" onClick={() =>
-          api.timeline(jobId).then((t) => { setTimeline(t); setDirty(false); })}>
-          Recarregar
+          api.timeline(jobId).then((loaded) => { setTimeline(loaded); setDirty(false); })}>
+          {t.timeline.reload}
         </button>
       </div>
     </div>

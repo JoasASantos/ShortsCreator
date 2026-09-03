@@ -12,8 +12,9 @@ from pathlib import Path
 from .. import db
 from ..config import settings
 from ..schemas import JobInput, ShortScript
-from . import (broll, captions, highlights, ingest, overlays as overlay_mod, qa,
-               render, script as script_mod, timeline as timeline_mod, tts)
+from . import (broll, captions, cover as cover_mod, highlights, ingest, llm, notify,
+               overlays as overlay_mod, qa, render, script as script_mod,
+               timeline as timeline_mod, tts)
 
 STAGES = [
     ("ingest", 0.08),
@@ -37,6 +38,105 @@ CASCADE = {
     "render": {"render"},
 }
 
+# nome da etapa na UI -> raiz da cascata a refazer quando se retoma dali.
+# A ordem importa: RESUMABLE no frontend fatia esta lista.
+RESUME_STAGES = {
+    "roteiro": "script",
+    "voz": "voz",
+    "fundo": "fundo",
+    "legendas": "legendas",
+    "render": "render",
+}
+
+
+def request_resume(job_id: str, stage: str) -> None:
+    """Marca de onde a próxima execução deve retomar. Consumida (e apagada)
+    pelo run_job; se os artefatos necessários não existirem, o pipeline roda
+    inteiro como sempre."""
+    if stage not in RESUME_STAGES:
+        raise ValueError(f"Etapa inválida para retomar: {stage}")
+    (settings.job_dir(job_id) / "resume.json").write_text(
+        json.dumps({"from": stage}), encoding="utf-8")
+
+
+def resumable_stage(job_dir: Path) -> str | None:
+    """A etapa mais avançada da qual dá para retomar com o que está no disco."""
+    has_script = (job_dir / "script.json").exists() or (job_dir / "script_override.json").exists()
+    has_voice = (job_dir / "narration.json").exists() and (job_dir / "narration.mp3").exists()
+    if not has_script:
+        return None
+    if not has_voice:
+        return "voz"
+    # sem o fundo no disco, retomar de legendas deixaria o render sem imagem
+    return "legendas" if saved_background(job_dir) is not None else "fundo"
+
+
+def _load_resume(job_id: str, job_dir: Path, log) -> tuple[set[str], ShortScript | None,
+                                                          tts.Narration | None, Path | None]:
+    """Lê resume.json e devolve (etapas sujas, roteiro, narração, fundo) já
+    carregados do disco. Sem pedido de retomada, ou sem artefatos suficientes
+    para a etapa pedida, devolve tudo sujo e o pipeline roda inteiro."""
+    everything = (set(CASCADE["script"]), None, None, None)
+    marker = job_dir / "resume.json"
+    if not marker.exists():
+        return everything
+    try:
+        stage = json.loads(marker.read_text(encoding="utf-8")).get("from", "")
+    except json.JSONDecodeError:
+        stage = ""
+    marker.unlink(missing_ok=True)
+    root = RESUME_STAGES.get(stage)
+    if root is None or root == "script":
+        return everything
+
+    override = job_dir / "script_override.json"
+    script_file = override if override.exists() else job_dir / "script.json"
+    if not script_file.exists():
+        log("Retomada pedida, mas não há roteiro salvo — rodando do início", "warn")
+        return everything
+    short = ShortScript(**json.loads(script_file.read_text(encoding="utf-8")))
+
+    narration = None
+    if root != "voz":
+        meta = job_dir / "narration.json"
+        audio = job_dir / "narration.mp3"
+        if not (meta.exists() and audio.exists()):
+            log("Retomada pedida sem narração salva — refazendo a partir da voz", "warn")
+            return set(CASCADE["voz"]), short, None, None
+        data = json.loads(meta.read_text(encoding="utf-8"))
+        narration = tts.Narration(audio, float(data["duration"]), data["words"])
+
+    # Retomar de "legendas" ou "render" não reconstrói o fundo, mas o render
+    # precisa dele: sem recuperar o arquivo, a composição recebia None.
+    background = None
+    if root in ("legendas", "render"):
+        background = saved_background(job_dir)
+        if background is None:
+            log("Retomada pedida sem fundo salvo — refazendo a partir do fundo", "warn")
+            return set(CASCADE["fundo"]), short, narration, None
+
+    log(f"Retomando a partir de: {stage}")
+    return set(CASCADE[root]), short, narration, background
+
+
+def saved_background(job_dir: Path) -> Path | None:
+    """Fundo da renderização anterior. O nome varia (scroll, padding), então o
+    caminho efetivo é anotado em background.json quando a etapa roda."""
+    meta = job_dir / "background.json"
+    if meta.exists():
+        try:
+            candidate = Path(json.loads(meta.read_text(encoding="utf-8"))["path"])
+        except (json.JSONDecodeError, KeyError, TypeError):
+            candidate = None
+        if candidate is not None and candidate.exists():
+            return candidate
+    # jobs renderizados antes deste registro existir: procura os nomes conhecidos
+    for name in ("background_scroll_padded.mp4", "background_scroll.mp4",
+                 "background_padded.mp4", "background.mp4"):
+        if (job_dir / name).exists():
+            return job_dir / name
+    return None
+
 
 def run_job(job_id: str) -> dict:
     row = db.get_job(job_id)
@@ -45,6 +145,7 @@ def run_job(job_id: str) -> dict:
 
     job = JobInput(**json.loads(row["input_json"]))
     job_dir = settings.job_dir(job_id)
+    llm.current_job.set(job_id)   # cada chamada de LLM fica atribuída a este job
 
     def log(message: str, level: str = "info") -> None:
         db.log_event(job_id, message, level)
@@ -69,16 +170,14 @@ def run_job(job_id: str) -> dict:
 
         max_attempts = max(1, job.qa_max_attempts) if job.qa_autofix else 1
 
-        short = None
-        narration = None
         ass_path = None
         overlays_list: list = []
-        background = None
         final = job_dir / "short.mp4"
         duration = 0.0
         report: qa.QAReport | None = None
         attempts: list[dict] = []
-        dirty = set(CASCADE["script"])  # primeira passada: tudo precisa rodar
+        # primeira passada: tudo precisa rodar — salvo retomada com artefatos
+        dirty, short, narration, background = _load_resume(job_id, job_dir, log)
 
         attempt = 1
         while True:
@@ -107,6 +206,11 @@ def run_job(job_id: str) -> dict:
                                           voice, log)
                 log(f"Narração: {narration.duration:.1f}s, "
                     f"{len(narration.words)} palavras cronometradas")
+                # timings no disco: é o que permite retomar de "legendas" sem
+                # sintetizar de novo depois de uma queda
+                (job_dir / "narration.json").write_text(json.dumps(
+                    {"duration": narration.duration, "words": narration.words}),
+                    encoding="utf-8")
 
             duration = min(narration.duration + 0.35, float(settings.max_short_seconds))
 
@@ -143,9 +247,16 @@ def run_job(job_id: str) -> dict:
                 stage("fundo")
                 background = _build_background(job, short, narration, material,
                                                job_dir, duration, log)
+                # o nome final varia (scroll, padding): anotado para a retomada
+                (job_dir / "background.json").write_text(
+                    json.dumps({"path": str(background)}), encoding="utf-8")
 
             if "render" in dirty:
                 stage("render")
+                if background is None:
+                    raise RuntimeError(
+                        "Fundo indisponível para a composição. Reprocesse o job "
+                        "do início ou a partir da etapa 'fundo'.")
                 render.compose(job_dir, background, job_dir / "narration.mp3",
                                final, job, duration, overlays=overlays_list,
                                subtitles=ass_path)
@@ -191,6 +302,21 @@ def run_job(job_id: str) -> dict:
         published_copy = settings.outputs_dir / f"{job_id}.mp4"
         shutil.copy(final, published_copy)
 
+        # Capa e prévia animada são cosméticos: falha aqui não reprova o job.
+        cover_at = None
+        try:
+            _, cover_at = cover_mod.build(final, short.title, job.niche,
+                                          job_dir / "cover.jpg", duration, job_dir)
+            (job_dir / "cover.json").write_text(json.dumps({"at": cover_at}),
+                                                encoding="utf-8")
+            log(f"Capa gerada a partir do frame em {cover_at:.1f}s")
+        except Exception as exc:  # noqa: BLE001
+            log(f"Capa não gerada: {exc}", "warn")
+        try:
+            render.make_preview_gif(final, job_dir / "preview.gif")
+        except Exception as exc:  # noqa: BLE001
+            log(f"Prévia animada não gerada: {exc}", "warn")
+
         # Descreve o resultado como linha do tempo editável, para o editor de
         # vídeo poder cortar/mover/reescrever sem refazer o pipeline.
         try:
@@ -220,16 +346,29 @@ def run_job(job_id: str) -> dict:
             "source_kind": material.kind,
             "edit_mode": job.edit_mode,
             "qa_attempts": attempts,
+            "cover": (f"/api/jobs/{job_id}/file/cover.jpg"
+                      if (job_dir / "cover.jpg").exists() else None),
+            "cover_at": cover_at,
+            "preview_gif": (f"/api/jobs/{job_id}/file/preview.gif"
+                            if (job_dir / "preview.gif").exists() else None),
         }
+        # preserva o que foi produzido depois da renderização anterior (hooks, legenda)
+        previous = json.loads(row["result_json"] or "{}")
+        for key in ("hook_variants", "caption"):
+            if key in previous and key not in result:
+                result[key] = previous[key]
+
         db.update_job(job_id, status="done", stage="qa", progress=1.0,
                       title=short.title,
                       result_json=json.dumps(result),
                       qa_json=report.model_dump_json())
+        notify.job_done(job_id, short.title, duration, report.score, report.passed)
         return result
 
     except Exception as exc:  # noqa: BLE001 — erro precisa chegar na UI
         db.log_event(job_id, f"Falha: {exc}", "error")
         db.update_job(job_id, status="error", error=str(exc))
+        notify.job_failed(job_id, row.get("title") or "", str(exc))
         raise
 
 

@@ -8,7 +8,9 @@ from ... import db
 from ...config import settings
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
-          "https://www.googleapis.com/auth/youtube.readonly"]
+          "https://www.googleapis.com/auth/youtube.readonly",
+          # retenção média por vídeo — base do aprendizado do roteirista
+          "https://www.googleapis.com/auth/yt-analytics.readonly"]
 
 
 def auth_url_flow(redirect_uri: str):
@@ -99,13 +101,26 @@ def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> di
 
     if creds.token != credentials.get("token"):
         credentials["token"] = creds.token
-        db.create_account  # noqa: B018 — mantém import coeso
         _persist_token(account_id, credentials)
 
     video_id = response["id"]
-    return {"platform": "youtube", "video_id": video_id,
-            "url": f"https://youtube.com/shorts/{video_id}",
-            "status": response.get("status", {})}
+    result = {"platform": "youtube", "video_id": video_id,
+              "url": f"https://youtube.com/shorts/{video_id}",
+              "status": response.get("status", {})}
+
+    # Capa personalizada exige canal verificado por telefone; sem isso a API
+    # devolve 403 e o Short fica com o frame automático — não é motivo de falha.
+    cover = payload.get("cover_path")
+    if cover and Path(cover).exists():
+        try:
+            service.thumbnails().set(
+                videoId=video_id,
+                media_body=MediaFileUpload(cover, mimetype="image/jpeg"),
+            ).execute()
+            result["cover"] = "enviada"
+        except Exception as exc:  # noqa: BLE001
+            result["cover"] = f"não aplicada: {str(exc)[:160]}"
+    return result
 
 
 def _persist_token(account_id: str, credentials: dict) -> None:

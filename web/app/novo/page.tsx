@@ -1,46 +1,59 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, type JobInput, type SourceType, type UploadResult, type Voice } from "@/lib/api";
+import { useI18n, type Dictionary } from "@/lib/i18n";
 import { Chips, Field, Topbar, useToast } from "@/components/ui";
 
-const NICHES = [
-  { value: "tecnologia", label: "Tecnologia" },
-  { value: "ciberseguranca", label: "Cibersegurança" },
-  { value: "programacao", label: "Programação" },
-  { value: "cinema", label: "Cinema" },
-  { value: "historia", label: "História" },
-  { value: "ciencia", label: "Ciência" },
-  { value: "curiosidades", label: "Curiosidades" },
-  { value: "negocios", label: "Negócios" },
-  { value: "generico", label: "Genérico" },
+// Os `value` abaixo são as chaves técnicas que vão para a API: não mudam com o
+// idioma. Só o rótulo sai do dicionário.
+const NICHE_VALUES = [
+  "tecnologia", "ciberseguranca", "programacao", "cinema", "historia",
+  "ciencia", "curiosidades", "negocios", "generico",
+] as const;
+
+const ANGLE_VALUES = [
+  "auto", "critica", "analise", "contexto", "historia",
+  "enredo", "curiosidade", "explicacao", "tutorial",
+] as const;
+
+const SOURCE_VALUES: SourceType[] = [
+  "tema", "url", "video", "github", "imagem", "texto", "roteiro",
 ];
 
-const ANGLES = [
-  { value: "auto", label: "Automático" },
-  { value: "critica", label: "Crítica / resenha" },
-  { value: "analise", label: "Análise" },
-  { value: "contexto", label: "Bastidores" },
-  { value: "historia", label: "Contar história" },
-  { value: "enredo", label: "Resumo do enredo" },
-  { value: "curiosidade", label: "Curiosidades" },
-  { value: "explicacao", label: "Explicação" },
-  { value: "tutorial", label: "Tutorial" },
-];
+const CAPTION_STYLE_VALUES = ["karaoke", "bloco", "palavra"] as const;
+const SCROLL_VALUES = ["nenhum", "texto", "codigo", "pan"] as const;
+const BACKGROUND_VALUES = [
+  "auto", "broll", "video_fonte", "imagem_kenburns", "codigo_scroll", "gradiente",
+] as const;
 
-const SOURCES: { value: SourceType; label: string; hint: string }[] = [
-  { value: "tema", label: "Tema", hint: "Descreva o assunto e o roteiro é escrito do zero." },
-  { value: "url", label: "Link de artigo", hint: "O texto da página vira roteiro." },
-  { value: "video", label: "Vídeo", hint: "Link ou arquivo. Pode resumir um episódio inteiro." },
-  { value: "github", label: "Repositório", hint: "Clona o repo, lê o código e narra sobre ele." },
-  { value: "imagem", label: "Imagens", hint: "Fotos com zoom e pan lento sob a narração." },
-  { value: "texto", label: "Texto colado", hint: "Um texto bruto que vira roteiro." },
-  { value: "roteiro", label: "Roteiro pronto", hint: "Seu texto final, narrado sem passar por IA." },
-];
+const niches = (t: Dictionary) =>
+  NICHE_VALUES.map((value) => ({ value, label: t.niches[value] }));
 
-const DEFAULTS: JobInput = {
+const angles = (t: Dictionary) =>
+  ANGLE_VALUES.map((value) => ({ value, label: t.angles[value] }));
+
+const sources = (t: Dictionary) =>
+  SOURCE_VALUES.map((value) => ({
+    value,
+    label: t.sources[value],
+    hint: t.sources[`${value}Hint`],
+  }));
+
+const captionStyles = (t: Dictionary) =>
+  CAPTION_STYLE_VALUES.map((value) => ({ value, label: t.captionStyles[value] }));
+
+const scrolls = (t: Dictionary) =>
+  SCROLL_VALUES.map((value) => ({ value, label: t.scrolls[value] }));
+
+const backgrounds = (t: Dictionary) =>
+  BACKGROUND_VALUES.map((value) => ({ value, label: t.backgrounds[value] }));
+
+/** Idioma da narração e CTA vêm do idioma da interface: quem usa em espanhol
+ *  recebe narração em espanhol por padrão. */
+const defaults = (language: string, cta: string): JobInput => ({
   source_type: "tema",
   source: "",
   attachments: [],
@@ -48,7 +61,7 @@ const DEFAULTS: JobInput = {
   angle: "auto",
   instruction: "",
   niche: "tecnologia",
-  language: "pt-BR",
+  language,
   voice_id: null,
   duration: 45,
   caption_style: "karaoke",
@@ -61,43 +74,68 @@ const DEFAULTS: JobInput = {
   music_volume: 0.12,
   caption_offset: 0,
   hook_hard: true,
-  cta: "Segue pra mais.",
+  cta,
   title_overlay: true,
   watermark: "",
   variants: 1,
   qa_autofix: true,
   qa_max_attempts: 3,
-};
-
-const PLACEHOLDERS: Record<SourceType, string> = {
-  url: "https://exemplo.com/artigo-sobre-a-falha-do-crowdstrike",
-  video: "https://youtube.com/watch?v=… ou envie o arquivo abaixo",
-  github: "https://github.com/pallets/flask",
-  tema: "Como o ataque de cadeia de suprimentos da SolarWinds funcionou",
-  texto: "Cole aqui o texto bruto que deve virar short…",
-  roteiro: "Cole o roteiro já pronto. Cada frase vira um trecho narrado.",
-  imagem: "",
-};
+});
 
 export default function NovoShort() {
   const router = useRouter();
+  const { t, f, narrationLanguage } = useI18n();
   const { toast, node } = useToast();
-  const [form, setForm] = useState<JobInput>(DEFAULTS);
+  const [form, setForm] = useState<JobInput>(() =>
+    defaults(narrationLanguage, t.newJob.ctaDefault));
   const [voices, setVoices] = useState<Voice[]>([]);
   const [uploads, setUploads] = useState<UploadResult[]>([]);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  // CTA escrito à mão não é sobrescrito quando o idioma muda
+  const ctaTouched = useRef(false);
+
+  const sourceOptions = useMemo(() => sources(t), [t]);
+  const angleOptions = useMemo(() => angles(t), [t]);
+  const nicheOptions = useMemo(() => niches(t), [t]);
 
   useEffect(() => {
     api.voices().then(setVoices).catch(() => setVoices([]));
-  }, []);
+    // vindo de Tendências: ?tema=...&niche=...&url=... já preenchidos
+    const params = new URLSearchParams(window.location.search);
+    const tema = params.get("tema");
+    const url = params.get("url");
+    const niche = params.get("niche");
+    if (tema || url) {
+      setForm((prev) => ({
+        ...prev,
+        source_type: url ? "url" : "tema",
+        source: url || tema || "",
+        instruction: url && tema
+          ? f(t.newJob.trendInstruction, { topic: tema })
+          : prev.instruction,
+        niche: (niche as JobInput["niche"]) || prev.niche,
+      }));
+    }
+  }, []);   // só na montagem: os parâmetros da URL são lidos uma vez
+
+  // O idioma real só é conhecido depois do primeiro efeito do provider (e pode
+  // mudar no seletor), então a narração e o CTA acompanham a interface.
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      language: narrationLanguage,
+      cta: ctaTouched.current ? prev.cta : t.newJob.ctaDefault,
+    }));
+  }, [narrationLanguage, t]);
 
   const set = <K extends keyof JobInput>(key: K, value: JobInput[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
   const acceptsFiles = form.source_type === "imagem" || form.source_type === "video";
   const isLongForm = form.source_type === "video";
+  const hasVideoUpload = isLongForm && uploads.length > 0;
 
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -112,9 +150,9 @@ export default function NovoShort() {
         : [...uploads, ...results];
       setUploads(merged);
       set("attachments", merged.map((u) => u.id));
-      toast(`${results.length} arquivo(s) enviado(s).`);
+      toast(f(t.newJob.uploaded, { count: results.length }));
     } catch (error) {
-      toast(`Falha no upload: ${(error as Error).message}`);
+      toast(f(t.newJob.uploadFailed, { message: (error as Error).message }));
     } finally {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = "";
@@ -129,11 +167,11 @@ export default function NovoShort() {
 
   const submit = async () => {
     if (form.source_type === "imagem" && form.attachments.length === 0) {
-      toast("Envie ao menos uma imagem.");
+      toast(t.newJob.errNoImage);
       return;
     }
     if (!form.source.trim() && form.attachments.length === 0) {
-      toast("Informe uma origem ou envie um arquivo.");
+      toast(t.newJob.errNoSource);
       return;
     }
     setBusy(true);
@@ -141,35 +179,34 @@ export default function NovoShort() {
       const { job_id } = await api.createJob(form);
       router.push(`/job/${job_id}`);
     } catch (error) {
-      toast(`Falha ao enfileirar: ${(error as Error).message}`);
+      toast(f(t.newJob.errQueue, { message: (error as Error).message }));
       setBusy(false);
     }
   };
 
-  const activeSource = SOURCES.find((s) => s.value === form.source_type);
+  const activeSource = sourceOptions.find((s) => s.value === form.source_type);
 
   return (
     <>
-      <Topbar title="Novo short">
-        <span className="label">saída fixa 1080×1920 · 9:16</span>
+      <Topbar title={t.newJob.title}>
+        <span className="label">{t.newJob.outputFixed}</span>
       </Topbar>
 
       <div className="content grid" style={{ gap: 18 }}>
         <div className="steps">
-          <div data-on="true">01 · origem</div>
-          <div data-on="true">02 · voz</div>
-          <div data-on="true">03 · imagem</div>
-          <div data-on="true">04 · qa</div>
+          {t.newJob.stepsShort.map((step) => (
+            <div key={step} data-on="true">{step}</div>
+          ))}
         </div>
 
         <div className="side">
           <div className="grid" style={{ gap: 14 }}>
             <section className="panel">
               <div className="panel-head">
-                <span className="label">01 · Origem do conteúdo</span>
+                <span className="label">{t.newJob.stepSource}</span>
               </div>
               <div className="panel-body grid" style={{ gap: 14 }}>
-                <Field label="Tipo de entrada" hint={activeSource?.hint}>
+                <Field label={t.newJob.inputType} hint={activeSource?.hint}>
                   <Chips
                     value={form.source_type}
                     onChange={(value) => {
@@ -177,26 +214,27 @@ export default function NovoShort() {
                       setUploads([]);
                       set("attachments", []);
                     }}
-                    options={SOURCES.map((s) => ({ value: s.value, label: s.label }))}
+                    options={sourceOptions.map((s) => ({ value: s.value, label: s.label }))}
                   />
                 </Field>
 
                 {form.source_type !== "imagem" ? (
                   <Field
-                    label={form.source_type === "roteiro" ? "Seu roteiro" : "Entrada"}
-                    hint={form.source_type === "video" ? "link ou arquivo" : undefined}
+                    label={form.source_type === "roteiro"
+                      ? t.newJob.yourScript : t.newJob.input}
+                    hint={form.source_type === "video" ? t.newJob.linkOrFile : undefined}
                   >
                     {form.source_type === "texto" || form.source_type === "roteiro" ? (
                       <textarea
                         className="textarea"
-                        placeholder={PLACEHOLDERS[form.source_type]}
+                        placeholder={t.sources.placeholders[form.source_type]}
                         value={form.source}
                         onChange={(e) => set("source", e.target.value)}
                       />
                     ) : (
                       <input
                         className="input"
-                        placeholder={PLACEHOLDERS[form.source_type]}
+                        placeholder={t.sources.placeholders[form.source_type]}
                         value={form.source}
                         onChange={(e) => set("source", e.target.value)}
                       />
@@ -206,10 +244,11 @@ export default function NovoShort() {
 
                 {acceptsFiles ? (
                   <Field
-                    label={form.source_type === "imagem" ? "Imagens" : "Arquivo de vídeo"}
+                    label={form.source_type === "imagem"
+                      ? t.newJob.images : t.newJob.videoFile}
                     hint={form.source_type === "imagem"
-                      ? "uma por trecho narrado, em ordem"
-                      : "episódio, trailer, gravação…"}
+                      ? t.newJob.imagesHint
+                      : t.newJob.videoHint}
                   >
                     <div className="grid" style={{ gap: 8 }}>
                       <input
@@ -220,9 +259,9 @@ export default function NovoShort() {
                         multiple={form.source_type === "imagem"}
                         onChange={(e) => handleFiles(e.target.files)}
                       />
-                      {uploading ? <span className="label">enviando…</span> : null}
+                      {uploading ? <span className="label">{t.newJob.uploading}</span> : null}
                       {uploads.map((upload) => (
-                        <div className="row spread" key={upload.id}>
+                        <div className="row spread wrap" key={upload.id}>
                           <span className="mono" style={{ fontSize: 12 }}>
                             {upload.filename}{" "}
                             <span className="dimmer">
@@ -231,7 +270,7 @@ export default function NovoShort() {
                           </span>
                           <button className="btn sm danger"
                                   onClick={() => removeUpload(upload.id)}>
-                            Remover
+                            {t.common.remove}
                           </button>
                         </div>
                       ))}
@@ -241,29 +280,38 @@ export default function NovoShort() {
 
                 {isLongForm ? (
                   <Field
-                    label="O que fazer com o vídeo"
-                    hint="resumo condensa um conteúdo longo"
+                    label={t.newJob.videoMode}
+                    hint={t.newJob.videoModeHint}
                   >
                     <Chips
                       value={form.edit_mode}
                       onChange={(value) => set("edit_mode", value)}
                       options={[
-                        { value: "narrar_por_cima", label: "Narrar por cima" },
-                        { value: "resumo", label: "Resumir e cortar destaques" },
+                        { value: "narrar_por_cima", label: t.newJob.narrateOver },
+                        { value: "resumo", label: t.newJob.summarize },
                       ]}
                     />
+                    {hasVideoUpload ? (
+                      <p className="dimmer" style={{ margin: "8px 0 0", fontSize: 12 }}>
+                        {t.newJob.batchHint}{" "}
+                        <a href={`/lote?attachment=${uploads[0].id}&name=${encodeURIComponent(uploads[0].filename)}`}
+                           style={{ color: "var(--amber)" }}>
+                          {t.newJob.batchLink}
+                        </a>
+                      </p>
+                    ) : null}
                   </Field>
                 ) : null}
 
                 {form.source_type !== "roteiro" ? (
                   <Field
-                    label="Instrução para este vídeo"
-                    hint="o que você quer que ele fale"
+                    label={t.newJob.instruction}
+                    hint={t.newJob.instructionHint}
                   >
                     <textarea
                       className="textarea"
                       style={{ minHeight: 62 }}
-                      placeholder="ex.: fale sobre o filme usando a cena como imagem de fundo, não descreva a cena · faça uma crítica do jogo · conte a história por trás dessa música"
+                      placeholder={t.newJob.instructionPlaceholder}
                       value={form.instruction}
                       onChange={(e) => set("instruction", e.target.value)}
                     />
@@ -271,27 +319,28 @@ export default function NovoShort() {
                 ) : null}
 
                 {form.source_type !== "roteiro" ? (
-                  <Field label="Ângulo" hint="qual o tipo de abordagem">
+                  <Field label={t.newJob.angle} hint={t.newJob.angleHint}>
                     <Chips
                       value={form.angle}
                       onChange={(value) => set("angle", value)}
-                      options={ANGLES}
+                      options={angleOptions}
                     />
                   </Field>
                 ) : null}
 
                 {form.source_type !== "roteiro" ? (
-                  <Field label="Nicho" hint="ajusta o tom e o ritmo do roteiro">
+                  <Field label={t.newJob.niche} hint={t.newJob.nicheHint}>
                     <Chips
                       value={form.niche}
                       onChange={(value) => set("niche", value)}
-                      options={NICHES}
+                      options={nicheOptions}
                     />
                   </Field>
                 ) : null}
 
                 <div className="two">
-                  <Field label="Duração alvo" hint={`${form.duration}s`}>
+                  <Field label={t.newJob.duration}
+                         hint={`${form.duration}${t.common.seconds}`}>
                     <input
                       type="range"
                       min={15}
@@ -301,11 +350,14 @@ export default function NovoShort() {
                       onChange={(e) => set("duration", Number(e.target.value))}
                     />
                   </Field>
-                  <Field label="Chamada final (CTA)">
+                  <Field label={t.newJob.cta}>
                     <input
                       className="input"
                       value={form.cta}
-                      onChange={(e) => set("cta", e.target.value)}
+                      onChange={(e) => {
+                        ctaTouched.current = true;
+                        set("cta", e.target.value);
+                      }}
                     />
                   </Field>
                 </div>
@@ -314,17 +366,17 @@ export default function NovoShort() {
 
             <section className="panel">
               <div className="panel-head">
-                <span className="label">02 · Narração e legenda</span>
+                <span className="label">{t.newJob.stepVoice}</span>
               </div>
               <div className="panel-body grid" style={{ gap: 14 }}>
                 <div className="two">
-                  <Field label="Voz" hint="cadastre personagens em Vozes">
+                  <Field label={t.newJob.voice} hint={t.newJob.voiceHint}>
                     <select
                       className="select"
                       value={form.voice_id ?? ""}
                       onChange={(e) => set("voice_id", e.target.value || null)}
                     >
-                      <option value="">Padrão do sistema (edge-tts pt-BR)</option>
+                      <option value="">{t.newJob.voiceDefault}</option>
                       {voices.map((voice) => (
                         <option key={voice.id} value={voice.id}>
                           {voice.name} · {voice.provider}
@@ -332,29 +384,25 @@ export default function NovoShort() {
                       ))}
                     </select>
                   </Field>
-                  <Field label="Posição da legenda">
+                  <Field label={t.newJob.captionPosition}>
                     <select
                       className="select"
                       value={form.caption_position}
                       onChange={(e) => set("caption_position",
                         e.target.value as JobInput["caption_position"])}
                     >
-                      <option value="centro">Centro (recomendado)</option>
-                      <option value="baixo">Base</option>
-                      <option value="topo">Topo</option>
+                      <option value="centro">{t.positions.centro}</option>
+                      <option value="baixo">{t.positions.baixo}</option>
+                      <option value="topo">{t.positions.topo}</option>
                     </select>
                   </Field>
                 </div>
 
-                <Field label="Estilo da legenda">
+                <Field label={t.newJob.captionStyle}>
                   <Chips
                     value={form.caption_style}
                     onChange={(value) => set("caption_style", value)}
-                    options={[
-                      { value: "karaoke", label: "Karaokê (palavra destacada)" },
-                      { value: "bloco", label: "Bloco de frase" },
-                      { value: "palavra", label: "Uma palavra por vez" },
-                    ]}
+                    options={captionStyles(t)}
                   />
                 </Field>
               </div>
@@ -362,39 +410,27 @@ export default function NovoShort() {
 
             <section className="panel">
               <div className="panel-head">
-                <span className="label">03 · Imagem e movimento</span>
+                <span className="label">{t.newJob.stepImage}</span>
               </div>
               <div className="panel-body grid" style={{ gap: 14 }}>
-                <Field label="Fundo">
+                <Field label={t.newJob.background}>
                   <Chips
                     value={form.background}
                     onChange={(value) => set("background", value)}
-                    options={[
-                      { value: "auto", label: "Automático" },
-                      { value: "broll", label: "B-roll de banco" },
-                      { value: "video_fonte", label: "Vídeo de origem" },
-                      { value: "imagem_kenburns", label: "Imagens (Ken Burns)" },
-                      { value: "codigo_scroll", label: "Código rolando" },
-                      { value: "gradiente", label: "Gradiente" },
-                    ]}
+                    options={backgrounds(t)}
                   />
                 </Field>
 
-                <Field label="Efeito de scroll" hint="movimento contínuo prende o olho">
+                <Field label={t.newJob.scroll} hint={t.newJob.scrollHint}>
                   <Chips
                     value={form.scroll}
                     onChange={(value) => set("scroll", value)}
-                    options={[
-                      { value: "nenhum", label: "Sem scroll" },
-                      { value: "texto", label: "Texto rolando" },
-                      { value: "codigo", label: "Código rolando" },
-                      { value: "pan", label: "Pan lento" },
-                    ]}
+                    options={scrolls(t)}
                   />
                 </Field>
 
                 <div className="two">
-                  <Field label="Busca de B-roll" hint="opcional, em inglês">
+                  <Field label={t.newJob.brollQuery} hint={t.newJob.brollQueryHint}>
                     <input
                       className="input"
                       placeholder="server room, hacker typing"
@@ -402,10 +438,10 @@ export default function NovoShort() {
                       onChange={(e) => set("background_query", e.target.value)}
                     />
                   </Field>
-                  <Field label="Marca d'água">
+                  <Field label={t.newJob.watermark}>
                     <input
                       className="input"
-                      placeholder="@seucanal"
+                      placeholder={t.newJob.watermarkPlaceholder}
                       value={form.watermark}
                       onChange={(e) => set("watermark", e.target.value)}
                     />
@@ -413,11 +449,11 @@ export default function NovoShort() {
                 </div>
 
                 <div className="row wrap" style={{ gap: 18 }}>
-                  <Toggle label="Trilha de fundo" on={form.music}
+                  <Toggle label={t.newJob.musicToggle} on={form.music}
                           onChange={(v) => set("music", v)} />
-                  <Toggle label="Título na abertura" on={form.title_overlay}
+                  <Toggle label={t.newJob.titleOverlay} on={form.title_overlay}
                           onChange={(v) => set("title_overlay", v)} />
-                  <Toggle label="Hook agressivo" on={form.hook_hard}
+                  <Toggle label={t.newJob.hardHook} on={form.hook_hard}
                           onChange={(v) => set("hook_hard", v)} />
                 </div>
               </div>
@@ -425,18 +461,16 @@ export default function NovoShort() {
 
             <section className="panel">
               <div className="panel-head">
-                <span className="label">04 · Controle de qualidade</span>
+                <span className="label">{t.newJob.stepQa}</span>
               </div>
               <div className="panel-body grid" style={{ gap: 12 }}>
                 <p className="dimmer" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6 }}>
-                  Toda renderização é auditada. Com o autoajuste ligado, uma reprovação
-                  vira uma correção concreta (alongar o roteiro, mover a legenda, baixar
-                  a trilha) e o vídeo é refeito até passar.
+                  {t.newJob.qaExplain}
                 </p>
                 <div className="row wrap" style={{ gap: 18 }}>
-                  <Toggle label="Corrigir automaticamente" on={form.qa_autofix}
+                  <Toggle label={t.newJob.qaAutofix} on={form.qa_autofix}
                           onChange={(v) => set("qa_autofix", v)} />
-                  <Field label="Tentativas" hint={`${form.qa_max_attempts}`}>
+                  <Field label={t.newJob.qaAttempts} hint={`${form.qa_max_attempts}`}>
                     <input
                       type="range" min={1} max={5} step={1}
                       value={form.qa_max_attempts}
@@ -451,31 +485,59 @@ export default function NovoShort() {
 
           <aside className="panel" style={{ position: "sticky", top: 76 }}>
             <div className="panel-head">
-              <span className="label">Resumo da ordem</span>
+              <span className="label">{t.newJob.summary}</span>
             </div>
             <div className="panel-body grid" style={{ gap: 12 }}>
-              <Summary k="Origem" v={activeSource?.label ?? form.source_type} />
+              <Summary k={t.newJob.summaryOrigin}
+                       v={activeSource?.label ?? form.source_type} />
               {isLongForm ? (
-                <Summary k="Modo" v={form.edit_mode === "resumo" ? "resumo" : "narrar por cima"} />
+                <Summary
+                  k={t.newJob.summaryMode}
+                  v={form.edit_mode === "resumo"
+                    ? t.newJob.summarize : t.newJob.narrateOver}
+                />
               ) : null}
               {form.attachments.length ? (
-                <Summary k="Arquivos" v={`${form.attachments.length}`} />
+                <Summary k={t.newJob.summaryFiles} v={`${form.attachments.length}`} />
               ) : null}
-              <Summary k="Nicho" v={form.niche} />
+              <Summary
+                k={t.newJob.summaryNiche}
+                v={t.niches[form.niche as keyof typeof t.niches] ?? form.niche}
+              />
               {form.angle !== "auto" ? (
-                <Summary k="Ângulo" v={ANGLES.find((a) => a.value === form.angle)?.label ?? form.angle} />
+                <Summary
+                  k={t.newJob.summaryAngle}
+                  v={angleOptions.find((a) => a.value === form.angle)?.label ?? form.angle}
+                />
               ) : null}
               {form.instruction.trim() ? (
-                <Summary k="Instrução" v="definida" />
+                <Summary k={t.newJob.summaryInstruction}
+                         v={t.newJob.summaryInstructionSet} />
               ) : null}
-              <Summary k="Duração" v={`${form.duration}s`} />
-              <Summary k="Legenda" v={`${form.caption_style} · ${form.caption_position}`} />
-              <Summary k="Fundo" v={`${form.background}${form.scroll !== "nenhum" ? ` + ${form.scroll}` : ""}`} />
-              <Summary k="Voz" v={voices.find((v) => v.id === form.voice_id)?.name ?? "padrão"} />
-              <Summary k="Autoajuste" v={form.qa_autofix ? `até ${form.qa_max_attempts}x` : "desligado"} />
+              <Summary k={t.newJob.summaryDuration}
+                       v={`${form.duration}${t.common.seconds}`} />
+              <Summary
+                k={t.newJob.summaryCaption}
+                v={`${t.captionStyles[`${form.caption_style}Short`]} · ${t.positions[`${form.caption_position}Short`]}`}
+              />
+              <Summary
+                k={t.newJob.summaryBackground}
+                v={`${t.backgrounds[form.background]}${
+                  form.scroll !== "nenhum" ? ` + ${t.scrolls[form.scroll]}` : ""}`}
+              />
+              <Summary
+                k={t.newJob.summaryVoice}
+                v={voices.find((v) => v.id === form.voice_id)?.name ?? t.common.default}
+              />
+              <Summary
+                k={t.newJob.summaryAutofix}
+                v={form.qa_autofix
+                  ? f(t.newJob.summaryAutofixOn, { n: form.qa_max_attempts })
+                  : t.newJob.summaryAutofixOff}
+              />
               <hr className="rule" />
               <button className="btn primary" onClick={submit} disabled={busy || uploading}>
-                {busy ? "Enfileirando…" : "Gerar short"}
+                {busy ? t.newJob.submitting : t.newJob.submit}
               </button>
             </div>
           </aside>

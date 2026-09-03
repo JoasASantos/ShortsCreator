@@ -134,7 +134,7 @@ class ScriptEdit(BaseModel):
 class PublishRequest(BaseModel):
     job_id: str
     account_id: str
-    platform: Literal["youtube", "tiktok"]
+    platform: Literal["youtube", "tiktok", "instagram", "linkedin"]
     title: str = ""
     description: str = ""
     tags: list[str] = []

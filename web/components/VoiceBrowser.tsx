@@ -3,15 +3,14 @@
 import { useRef, useState } from "react";
 
 import { api, type CatalogVoice } from "@/lib/api";
-
-const ATALHOS = ["narrador", "trailer", "documentário", "cinema", "games",
-                 "tecnologia", "personagem", "grave", "feminina"];
+import { useI18n } from "@/lib/i18n";
 
 /** Busca vozes no catálogo do fish.audio, com prévia antes de instalar. */
 export function VoiceBrowser({ onInstalled, toast }: {
   onInstalled: (voiceId: string, name: string) => void;
   toast: (message: string) => void;
 }) {
+  const { t, f, narrationLanguage } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CatalogVoice[]>([]);
@@ -21,6 +20,9 @@ export function VoiceBrowser({ onInstalled, toast }: {
   const [searched, setSearched] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // o catálogo é filtrado pelo idioma da narração deste locale ("pt", "en"…)
+  const language = narrationLanguage.split("-")[0];
+
   const search = async (term: string) => {
     const value = term.trim();
     if (!value) return;
@@ -28,7 +30,7 @@ export function VoiceBrowser({ onInstalled, toast }: {
     setLoading(true);
     setSearched(true);
     try {
-      setResults(await api.searchVoices(value));
+      setResults(await api.searchVoices(value, language));
     } catch (error) {
       toast((error as Error).message);
       setResults([]);
@@ -41,8 +43,8 @@ export function VoiceBrowser({ onInstalled, toast }: {
     if (playing === voice.id) { setPlaying(""); return; }
     const audio = new Audio(api.sampleUrl(voice.id));
     audio.onended = () => setPlaying("");
-    audio.onerror = () => { setPlaying(""); toast("Amostra indisponível."); };
-    audio.play().catch(() => { setPlaying(""); toast("Não foi possível tocar."); });
+    audio.onerror = () => { setPlaying(""); toast(t.editor.sampleUnavailable); };
+    audio.play().catch(() => { setPlaying(""); toast(t.editor.cantPlay); });
     audioRef.current = audio;
     setPlaying(voice.id);
   };
@@ -56,7 +58,7 @@ export function VoiceBrowser({ onInstalled, toast }: {
       form.append("provider_voice_id", voice.id);
       const saved = await api.addCatalogVoice(form);
       onInstalled(saved.id, saved.name);
-      toast(`Voz "${voice.name}" salva na sua lista.`);
+      toast(f(t.voicesPage.savedToList, { name: voice.name }));
     } catch (error) {
       toast((error as Error).message);
     } finally { setAdding(""); }
@@ -65,7 +67,7 @@ export function VoiceBrowser({ onInstalled, toast }: {
   if (!open) {
     return (
       <button className="btn sm ghost" onClick={() => setOpen(true)}>
-        Buscar mais vozes
+        {t.voicesPage.browseMore}
       </button>
     );
   }
@@ -73,32 +75,32 @@ export function VoiceBrowser({ onInstalled, toast }: {
   return (
     <div className="panel" style={{ background: "var(--void)" }}>
       <div className="panel-head" style={{ padding: "10px 12px" }}>
-        <span className="label">Catálogo fish.audio</span>
+        <span className="label">{t.voicesPage.browserTitle}</span>
         <div className="grow" />
         <button className="btn sm ghost" onClick={() => {
           audioRef.current?.pause();
           setOpen(false);
-        }}>Fechar</button>
+        }}>{t.common.close}</button>
       </div>
 
       <div className="panel-body grid" style={{ gap: 10, padding: 12 }}>
         <div className="row" style={{ gap: 8 }}>
           <input
             className="input grow"
-            placeholder="narrador de trailer, voz grave, personagem…"
+            placeholder={t.voicesPage.searchPlaceholder}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") search(query); }}
           />
           <button className="btn sm" onClick={() => search(query)} disabled={loading}>
-            {loading ? "Buscando…" : "Buscar"}
+            {loading ? t.voicesPage.searching : t.voicesPage.search}
           </button>
         </div>
 
         <div className="chips">
-          {ATALHOS.map((atalho) => (
-            <button className="chip" key={atalho} onClick={() => search(atalho)}>
-              {atalho}
+          {t.voicesPage.searchTags.map((tag) => (
+            <button className="chip" key={tag} onClick={() => search(tag)}>
+              {tag}
             </button>
           ))}
         </div>
@@ -107,14 +109,14 @@ export function VoiceBrowser({ onInstalled, toast }: {
 
         {searched && !loading && results.length === 0 ? (
           <p className="dimmer" style={{ margin: 0, fontSize: 12.5 }}>
-            Nenhuma voz encontrada para “{query}”.
+            {f(t.voicesPage.noResults, { query })}
           </p>
         ) : null}
 
         {results.length > 0 ? (
           <div className="voice-results">
             {results.map((voice) => (
-              <div className="row spread voice-row" key={voice.id}>
+              <div className="row spread wrap voice-row" key={voice.id}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13, marginBottom: 2 }}>
                     {voice.name}{" "}
@@ -124,17 +126,18 @@ export function VoiceBrowser({ onInstalled, toast }: {
                     </span>
                   </div>
                   <div className="dimmer" style={{ fontSize: 11.3, lineHeight: 1.45 }}>
-                    {voice.description || voice.sample_text || "sem descrição"}
+                    {voice.description || voice.sample_text || t.voicesPage.noDescription}
                   </div>
                 </div>
                 <div className="row" style={{ gap: 6, flexShrink: 0 }}>
                   <button className="btn sm ghost" disabled={!voice.has_sample}
+                          title={playing === voice.id ? t.editor.stop : t.editor.listenTooltip}
                           onClick={() => preview(voice)}>
                     {playing === voice.id ? "■" : "▶"}
                   </button>
                   <button className="btn sm" disabled={adding === voice.id}
                           onClick={() => add(voice)}>
-                    {adding === voice.id ? "…" : "Usar"}
+                    {adding === voice.id ? "…" : t.voicesPage.use}
                   </button>
                 </div>
               </div>

@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 
 type Event = { id: number; level: string; message: string; created_at: string };
 
 export function LogStream({ jobId, live }: { jobId: string; live: boolean }) {
+  const { t, time } = useI18n();
   const [events, setEvents] = useState<Event[]>([]);
   const box = useRef<HTMLDivElement>(null);
   const cursor = useRef(0);
@@ -48,10 +50,10 @@ export function LogStream({ jobId, live }: { jobId: string; live: boolean }) {
 
   return (
     <div className="log" ref={box}>
-      {events.length === 0 ? <div className="dimmer">aguardando eventos…</div> : null}
+      {events.length === 0 ? <div className="dimmer">{t.job.logWaiting}</div> : null}
       {events.map((event) => (
         <div key={event.id}>
-          <time>{new Date(event.created_at).toLocaleTimeString("pt-BR")}</time>
+          <time>{time(event.created_at)}</time>
           <span data-lv={event.level}>{event.message}</span>
         </div>
       ))}

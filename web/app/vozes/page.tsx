@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, type Voice, type VoicePreset } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import { Chips, Field, Topbar, useToast } from "@/components/ui";
 import { VoiceBrowser } from "@/components/VoiceBrowser";
 
 export default function Vozes() {
+  const { t, f, narrationLanguage } = useI18n();
   const { toast, node } = useToast();
   const [voices, setVoices] = useState<Voice[]>([]);
   const [catalog, setCatalog] = useState<{ id: string; name: string; gender: string }[]>([]);
@@ -27,15 +29,16 @@ export default function Vozes() {
   useEffect(() => {
     pull();
     pullPresets();
-    api.edgeCatalog().then(setCatalog).catch(() => setCatalog([]));
-  }, []);
+    // o catálogo do Edge vem no idioma da narração deste locale
+    api.edgeCatalog(narrationLanguage).then(setCatalog).catch(() => setCatalog([]));
+  }, [narrationLanguage]);
 
   const install = async (preset: VoicePreset) => {
     setInstalling(preset.id);
     try {
       await api.installPreset(preset.id);
       await Promise.all([pull(), pullPresets()]);
-      toast(`Voz "${preset.name}" adicionada.`);
+      toast(f(t.voicesPage.installedToast, { name: preset.name }));
     } catch (error) {
       toast((error as Error).message);
     } finally { setInstalling(""); }
@@ -48,7 +51,7 @@ export default function Vozes() {
   }, {});
 
   const save = async () => {
-    if (!name.trim()) return toast("Dê um nome ao personagem.");
+    if (!name.trim()) return toast(t.voicesPage.needName);
     const form = new FormData();
     form.append("name", name);
     form.append("provider", provider);
@@ -61,7 +64,7 @@ export default function Vozes() {
       await api.createVoice(form);
       setName(""); setVoiceId("");
       pull();
-      toast("Voz cadastrada.");
+      toast(t.voicesPage.savedToast);
     } catch (error) {
       toast((error as Error).message);
     }
@@ -69,44 +72,45 @@ export default function Vozes() {
 
   return (
     <>
-      <Topbar title="Vozes">
-        <span className="label">{voices.length} cadastrada(s)</span>
+      <Topbar title={t.voices.title}>
+        <span className="label">{f(t.voicesPage.registered, { n: voices.length })}</span>
       </Topbar>
 
       <div className="content side">
         <div className="grid" style={{ gap: 12 }}>
           {voices.length === 0 ? (
-            <div className="empty">
-              Nenhuma voz personalizada. O sistema usa a voz neural padrão em pt-BR até você
-              cadastrar um personagem.
-            </div>
+            <div className="empty">{t.voicesPage.empty}</div>
           ) : (
             voices.map((voice) => (
-              <div className="panel panel-body row spread" key={voice.id}>
+              <div className="panel panel-body row spread wrap" key={voice.id}>
                 <div>
                   <div style={{ fontWeight: 500, marginBottom: 5 }}>{voice.name}</div>
-                  <div className="row" style={{ gap: 6 }}>
+                  <div className="row wrap" style={{ gap: 6 }}>
                     <span className="tag" data-tone="amber">{voice.provider}</span>
                     {voice.provider_voice_id ? (
                       <span className="tag mono">{voice.provider_voice_id.slice(0, 22)}</span>
                     ) : null}
-                    {voice.sample_path ? <span className="tag">sample enviado</span> : null}
+                    {voice.sample_path ? (
+                      <span className="tag">{t.voicesPage.sampleUploaded}</span>
+                    ) : null}
                   </div>
                 </div>
-                <div className="row" style={{ gap: 6 }}>
+                <div className="row wrap" style={{ gap: 6 }}>
                   {voice.provider === "fishaudio" && voice.provider_voice_id ? (
                     <audio controls preload="none" style={{ height: 30, maxWidth: 210 }}
                            src={api.sampleUrl(voice.provider_voice_id)} />
                   ) : (
                     <form action={`/api/voices/${voice.id}/preview`} method="post" target="_blank">
-                      <button className="btn sm ghost" type="submit">Ouvir</button>
+                      <button className="btn sm ghost" type="submit">
+                        {t.voicesPage.listen}
+                      </button>
                     </form>
                   )}
                   <button
                     className="btn sm danger"
                     onClick={() => api.deleteVoice(voice.id).then(pull)}
                   >
-                    Remover
+                    {t.common.remove}
                   </button>
                 </div>
               </div>
@@ -115,9 +119,9 @@ export default function Vozes() {
 
           <section className="panel">
             <div className="panel-head">
-              <span className="label">Buscar no catálogo</span>
+              <span className="label">{t.voicesPage.catalogTitle}</span>
               <div className="grow" />
-              <span className="label">ouça antes de adicionar</span>
+              <span className="label">{t.voicesPage.catalogHint}</span>
             </div>
             <div className="panel-body">
               <VoiceBrowser toast={toast} onInstalled={() => { pull(); pullPresets(); }} />
@@ -133,7 +137,7 @@ export default function Vozes() {
               </div>
               <div className="panel-body grid" style={{ gap: 8 }}>
                 {items.map((preset) => (
-                  <div className="row spread" key={preset.id}>
+                  <div className="row spread wrap" key={preset.id}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 13.5, marginBottom: 2 }}>
                         {preset.name}{" "}
@@ -142,11 +146,12 @@ export default function Vozes() {
                       <div className="dimmer" style={{ fontSize: 11.5 }}>{preset.note}</div>
                     </div>
                     {preset.installed ? (
-                      <span className="tag" data-tone="ok">adicionada</span>
+                      <span className="tag" data-tone="ok">{t.voicesPage.installed}</span>
                     ) : (
                       <button className="btn sm" disabled={installing === preset.id}
                               onClick={() => install(preset)}>
-                        {installing === preset.id ? "Adicionando…" : "Adicionar"}
+                        {installing === preset.id
+                          ? t.voicesPage.installing : t.voicesPage.install}
                       </button>
                     )}
                   </div>
@@ -157,62 +162,55 @@ export default function Vozes() {
 
           <section className="panel">
             <div className="panel-head">
-              <span className="label">Como clonar a voz de um personagem</span>
+              <span className="label">{t.voicesPage.cloneTitle}</span>
             </div>
             <div className="panel-body prose" style={{ fontSize: 13 }}>
-              <p>
-                Para narrar com a voz de um personagem (Seu Madruga, um dublador, sua própria voz),
-                há dois caminhos:
-              </p>
+              <p>{t.voicesPage.cloneIntro}</p>
               <ul>
                 <li>
-                  <b>ElevenLabs</b> — crie a voz clonada no painel deles, copie o <code>voice_id</code>{" "}
-                  e cadastre aqui. Traz timings por caractere, então a legenda karaokê fica perfeita.
+                  <b>{t.voicesPage.providers.elevenlabs}</b>{" "}
+                  {f(t.voicesPage.cloneEleven, { code: "voice_id" })}
                 </li>
                 <li>
-                  <b>XTTS local</b> — suba o servidor XTTS e envie um sample de 6 a 30 segundos do
-                  personagem. Roda offline, sem custo por caractere.
+                  <b>{t.voicesPage.providers.xtts}</b> {t.voicesPage.cloneXtts}
                 </li>
               </ul>
-              <p style={{ marginBottom: 0 }}>
-                Use apenas vozes que você tem direito de usar. Clonar a voz de uma pessoa real sem
-                autorização pode violar direitos de imagem e os termos das plataformas.
-              </p>
+              <p style={{ marginBottom: 0 }}>{t.voicesPage.cloneWarning}</p>
             </div>
           </section>
         </div>
 
         <section className="panel" style={{ position: "sticky", top: 76 }}>
           <div className="panel-head">
-            <span className="label">Cadastrar voz</span>
+            <span className="label">{t.voicesPage.formTitle}</span>
           </div>
           <div className="panel-body grid" style={{ gap: 13 }}>
-            <Field label="Provedor">
+            <Field label={t.voicesPage.providerField}>
               <Chips
                 value={provider}
                 onChange={setProvider}
                 options={[
-                  { value: "edge", label: "Edge (grátis)" },
-                  { value: "fishaudio", label: "fish.audio" },
-                  { value: "elevenlabs", label: "ElevenLabs" },
-                  { value: "xtts", label: "XTTS local" },
+                  { value: "edge", label: t.voicesPage.providers.edge },
+                  { value: "fishaudio", label: t.voicesPage.providers.fishaudio },
+                  { value: "elevenlabs", label: t.voicesPage.providers.elevenlabs },
+                  { value: "xtts", label: t.voicesPage.providers.xtts },
                 ]}
               />
             </Field>
 
-            <Field label="Nome do personagem">
+            <Field label={t.voicesPage.nameField}>
               <input
                 className="input"
-                placeholder="Narrador grave / Seu personagem"
+                placeholder={t.voicesPage.namePlaceholder}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
             </Field>
 
             {provider === "edge" ? (
-              <Field label="Voz do catálogo pt-BR">
+              <Field label={f(t.voicesPage.edgeVoiceField, { lang: narrationLanguage })}>
                 <select className="select" value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
-                  <option value="">Selecione…</option>
+                  <option value="">{t.voicesPage.select}</option>
                   {catalog.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.id} · {item.gender}
@@ -221,14 +219,14 @@ export default function Vozes() {
                 </select>
               </Field>
             ) : provider === "xtts" ? (
-              <Field label="Sample de referência" hint="6 a 30s, wav ou mp3">
+              <Field label={t.voicesPage.sampleField} hint={t.voicesPage.sampleHint}>
                 <input className="input" type="file" accept="audio/*" ref={sample} />
               </Field>
             ) : (
-              <Field label="voice_id do provedor">
+              <Field label={t.voicesPage.providerVoiceField}>
                 <input
                   className="input"
-                  placeholder="ex.: 21m00Tcm4TlvDq8ikWAM"
+                  placeholder={t.voicesPage.providerVoicePlaceholder}
                   value={voiceId}
                   onChange={(e) => setVoiceId(e.target.value)}
                 />
@@ -237,16 +235,16 @@ export default function Vozes() {
 
             {provider === "edge" ? (
               <div className="two">
-                <Field label="Velocidade">
+                <Field label={t.voicesPage.rateField}>
                   <input className="input" value={rate} onChange={(e) => setRate(e.target.value)} />
                 </Field>
-                <Field label="Tom">
+                <Field label={t.voicesPage.pitchField}>
                   <input className="input" value={pitch} onChange={(e) => setPitch(e.target.value)} />
                 </Field>
               </div>
             ) : null}
 
-            <button className="btn primary" onClick={save}>Salvar voz</button>
+            <button className="btn primary" onClick={save}>{t.voicesPage.saveVoice}</button>
           </div>
         </section>
       </div>

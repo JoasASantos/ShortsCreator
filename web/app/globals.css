@@ -582,7 +582,9 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  /* auto-fit e não auto-fill: com 4 contadores numa tela larga, auto-fill
+     deixava colunas vazias desenhando faixas de fundo à direita */
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 1px;
   background: var(--line-soft);
   border: 1px solid var(--line-soft);
@@ -686,10 +688,187 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .side { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
 
+/* ============================================================
+   RESPONSIVO
+   Três faixas: desktop (barra fixa), tablet (coluna única) e
+   celular (barra vira gaveta com botão no topo). O iOS entra com
+   as notches via env(safe-area-inset-*), e todo alvo de toque
+   respeita os 44px recomendados pela Apple / 48dp do Android.
+   ============================================================ */
+
+/* seletor de idioma ------------------------------------------------ */
+
+.locale { position: relative; }
+
+.locale-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  background: var(--void);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.locale-btn:hover { border-color: #33393f; color: var(--ink); }
+.locale-name { flex: 1; text-align: left; }
+
+.locale-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: grid;
+  gap: 1px;
+  padding: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+}
+.locale-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 9px;
+  background: none;
+  border: 0;
+  border-radius: 2px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.locale-menu button:hover { background: var(--rail); color: var(--ink); }
+.locale-menu button[data-on="true"] { color: var(--amber); }
+
+/* botão de menu: só existe no celular ------------------------------ */
+
+.menu-toggle { display: none; }
+
+.rail-scrim { display: none; }
+
+/* --- tablet e telas médias --- */
 @media (max-width: 1080px) {
   .shell { grid-template-columns: 1fr; }
   .rail { position: static; height: auto; }
   .side, .two { grid-template-columns: 1fr; }
+  .content { padding: 20px 20px 56px; }
+  .topbar { padding: 0 20px; }
+}
+
+/* --- celular --- */
+@media (max-width: 760px) {
+  html, body { font-size: 15px; }        /* 16px no input evita zoom no iOS */
+
+  .shell { grid-template-columns: 1fr; }
+
+  /* a barra lateral vira gaveta deslizante */
+  .rail {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 50;
+    width: min(84vw, 300px);
+    height: 100%;
+    border-right: 1px solid var(--line);
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-left: env(safe-area-inset-left);
+  }
+  .rail[data-open="true"] { transform: translateX(0); }
+
+  .rail-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    background: rgba(0, 0, 0, 0.62);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+  }
+  .rail-scrim[data-open="true"] { opacity: 1; pointer-events: auto; }
+
+  .menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin-left: -10px;
+    background: none;
+    border: 0;
+    color: var(--ink);
+    font-size: 20px;
+    cursor: pointer;
+  }
+
+  .topbar {
+    padding: 0 14px;
+    padding-top: env(safe-area-inset-top);
+    height: calc(52px + env(safe-area-inset-top));
+    gap: 8px;
+  }
+  .topbar h2 { font-size: 16px; }
+  /* na barra de título só cabe o essencial no celular */
+  .topbar .label { display: none; }
+
+  .content {
+    padding: 16px 14px calc(48px + env(safe-area-inset-bottom));
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
+
+  /* alvos de toque: 44px é o mínimo recomendado no iOS */
+  .btn, .chip, .select, .input { min-height: 44px; }
+  .btn.sm, .chip { min-height: 38px; }
+  .btn { padding: 10px 14px; }
+  input, select, textarea { font-size: 16px; }   /* impede o zoom automático */
+  input[type="range"] { height: 34px; }
+
+  .metrics { grid-template-columns: repeat(2, 1fr); }
+  .metric b { font-size: 22px !important; }
+
+  .steps { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .steps > div { white-space: nowrap; }
+
+  /* tabelas largas passam a rolar em vez de estourar a página */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table { min-width: 560px; }
+
+  .jobs .job { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
+  .job .thumb { width: 64px; }
+  /* no toque não existe hover: o botão de excluir fica sempre visível */
+  .job-delete, .job:hover .job-delete { opacity: 1; }
+  .job-actions { grid-column: 2; justify-content: flex-start; }
+
+  .phone { width: 100%; max-width: 320px; }
+  .prose pre { font-size: 11.5px; }
+  /* o seletor de idioma fica no rodapé da gaveta: o menu tem que subir,
+     senão abre para fora da tela */
+}
+
+/* telas muito estreitas (iPhone SE e afins) */
+@media (max-width: 400px) {
+  .metrics { grid-template-columns: 1fr; }
+  .two { gap: 10px; }
+  .content { padding-left: 11px; padding-right: 11px; }
+}
+
+/* quem prefere menos movimento não recebe a transição da gaveta */
+@media (prefers-reduced-motion: reduce) {
+  .rail, .rail-scrim { transition: none; }
 }
 
 .prose { line-height: 1.75; max-width: 78ch; }
