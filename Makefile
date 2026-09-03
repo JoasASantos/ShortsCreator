@@ -5,15 +5,15 @@ PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
 help:
-	@echo "make setup     — cria venv, instala backend e frontend"
-	@echo "make api       — sobe a API em :8000"
-	@echo "make web       — sobe a interface em :3000"
-	@echo "make dev       — sobe os dois juntos"
-	@echo "make doctor    — checa dependências do sistema"
-	@echo "make test      — roda os testes do backend"
-	@echo "make test-fast — só os testes que não usam FFmpeg"
-	@echo "make typecheck — checa os tipos do frontend"
-	@echo "make i18n      — audita os dicionários dos 5 idiomas"
+	@echo "make setup     — create the venv, install backend and frontend"
+	@echo "make api       — start the API on :8000"
+	@echo "make web       — start the web UI on :3000"
+	@echo "make dev       — start both together"
+	@echo "make doctor    — check the system dependencies"
+	@echo "make test      — run the backend test suite"
+	@echo "make test-fast — only the tests that do not need FFmpeg"
+	@echo "make typecheck — check the frontend types"
+	@echo "make i18n      — audit the dictionaries of all 5 languages"
 	@echo "make check     — test + typecheck + i18n"
 
 setup:

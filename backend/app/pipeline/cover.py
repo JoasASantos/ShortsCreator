@@ -1,11 +1,11 @@
-"""Capa do short: o frame mais rico do vídeo + título grande + faixa do nicho.
+"""Short cover: the richest frame of the video + a large title + the niche band.
 
-Thumbnail padrão (thumb.jpg) é um frame fixo do começo — quase sempre o fundo
-antes de qualquer coisa acontecer. Aqui amostramos frames ao longo do vídeo,
-medimos detalhe (desvio-padrão da luminância, um proxy barato de "tem coisa
-na imagem") e escolhemos o melhor fora dos primeiros 300 ms. Sobre ele vai um
-gradiente escuro na base e o título quebrado em até 3 linhas, no mesmo estilo
-das legendas para a identidade visual bater.
+The default thumbnail (thumb.jpg) is a fixed frame from the very start — almost
+always the background before anything has happened. Here we sample frames across
+the video, measure detail (luminance standard deviation, a cheap proxy for
+"there is something in the picture") and pick the best one past the first 300 ms.
+On top of it goes a dark gradient at the base and the title wrapped into at most
+3 lines, styled like the subtitles so the visual identity matches.
 """
 from __future__ import annotations
 
@@ -21,17 +21,17 @@ from .captions import SAFE_BOTTOM
 from .overlays import _font
 
 W, H = settings.width, settings.height
-SAMPLE_EVERY = 0.7            # segundos entre frames candidatos
-SKIP_HEAD = 0.3               # o começo costuma ser fade-in ou fundo cru
+SAMPLE_EVERY = 0.7            # seconds between candidate frames
+SKIP_HEAD = 0.3               # the opening is usually a fade-in or a bare background
 TITLE_BAND_TOP = int(H * 0.56)
-# O título respeita a MESMA safe area das legendas: os 340px de baixo somem
-# atrás da interface do app, e uma capa cortada é pior que uma capa sem graça.
+# The title respects the SAME safe area as the subtitles: the bottom 340 px
+# disappear behind the app UI, and a cropped cover is worse than a dull one.
 TITLE_BOTTOM = H - SAFE_BOTTOM - 40
 
 
 def build(video: Path, title: str, niche: str, out: Path, duration: float,
           work_dir: Path | None = None) -> tuple[Path, float]:
-    """Gera cover.jpg. Retorna (caminho, instante do frame escolhido em segundos)."""
+    """Generate cover.jpg. Returns (path, timestamp of the chosen frame in seconds)."""
     work = (work_dir or out.parent) / "cover_frames"
     work.mkdir(parents=True, exist_ok=True)
 
@@ -45,7 +45,7 @@ def build(video: Path, title: str, niche: str, out: Path, duration: float,
 
 
 def pick_frame_time(video: Path, duration: float, work: Path) -> float:
-    """Frame com mais detalhe visual entre SKIP_HEAD e 85% do vídeo."""
+    """Frame with the most visual detail between SKIP_HEAD and 85% of the video."""
     end = max(duration * 0.85, SKIP_HEAD + 0.5)
     best_at, best_score = SKIP_HEAD, -1.0
     t = SKIP_HEAD
@@ -58,12 +58,12 @@ def pick_frame_time(video: Path, duration: float, work: Path) -> float:
             stat = ImageStat.Stat(gray)
             std = stat.stddev[0]
             mean = stat.mean[0]
-            # penaliza frames muito escuros ou estourados — aparecem bem só no feed
+            # penalize very dark or blown-out frames — they only look fine in the feed
             penalty = abs(mean - 118) / 118
             score = std * (1 - 0.5 * penalty)
             if score > best_score:
                 best_score, best_at = score, t
-        except Exception:  # noqa: BLE001 — frame ruim só é pulado
+        except Exception:  # noqa: BLE001 — a bad frame is simply skipped
             pass
         t += SAMPLE_EVERY
         index += 1
@@ -83,11 +83,11 @@ def _compose(image: Image.Image, title: str, niche: str) -> Image.Image:
     c0, _ = broll.palette(niche)
     accent = _hex(c0)
 
-    # desfoque + escurecimento na faixa do título: sem isso o texto disputa
-    # atenção com o fundo e some em qualquer imagem clara
-    # 1. Onde o texto vai ficar. Precisa vir ANTES do escurecimento: senão o
-    # gradiente não sabe até onde subir e um título de 3 linhas nasce na parte
-    # clara da faixa, ilegível sobre fundo branco.
+    # blur + darkening over the title band: without it the text competes for
+    # attention with the background and vanishes on any bright image
+    # 1. Where the text will sit. This has to come BEFORE the darkening:
+    # otherwise the gradient has no idea how high to reach and a 3-line title is
+    # born in the bright part of the band, unreadable over a white background.
     draw = ImageDraw.Draw(image)
     clean = " ".join(title.split())
     size = 132
@@ -104,12 +104,12 @@ def _compose(image: Image.Image, title: str, niche: str) -> Image.Image:
 
     line_h = int(size * 1.08)
     total_h = line_h * len(lines)
-    # ancorado pelo RODAPÉ útil: com 1, 2 ou 3 linhas o texto nunca entra na
-    # faixa da interface do app
+    # anchored to the usable BOTTOM edge: with 1, 2 or 3 lines the text never
+    # enters the app UI band
     top = TITLE_BOTTOM - total_h
 
-    # 2. Desfoque e escurecimento: opaco de onde o texto começa para baixo,
-    # desbotando para cima ao longo de 220px.
+    # 2. Blur and darkening: opaque from where the text starts downwards, fading
+    # out upwards over 220 px.
     fade_start = max(min(top - 220, TITLE_BAND_TOP), 0)
     band_h = H - fade_start
     band = image.crop((0, fade_start, W, H)).filter(ImageFilter.GaussianBlur(10))
@@ -123,7 +123,7 @@ def _compose(image: Image.Image, title: str, niche: str) -> Image.Image:
     shade = Image.new("RGB", (W, band_h), (6, 8, 10))
     image.paste(shade, (0, fade_start), gradient.resize((W, band_h)))
 
-    # 3. Título, com a faixa de cor do nicho à esquerda do bloco
+    # 3. Title, with the niche color band to the left of the block
     x_left = int(W * 0.06)
     draw = ImageDraw.Draw(image)
     draw.rectangle([x_left - 34, top + 8, x_left - 18, top + total_h - 8], fill=accent)

@@ -25,7 +25,7 @@ const DICTIONARIES: Record<Locale, Dictionary> = {
 const STORAGE_KEY = "shortscreator.locale";
 const DEFAULT_LOCALE: Locale = "pt-BR";
 
-/** Descobre o idioma pelo navegador; cai no português quando não há match. */
+/** Detects the language from the browser; falls back to Portuguese with no match. */
 function detectLocale(): Locale {
   if (typeof navigator === "undefined") return DEFAULT_LOCALE;
   for (const candidate of navigator.languages ?? [navigator.language]) {
@@ -45,7 +45,7 @@ function readStored(): Locale | null {
     return value && (LOCALES as readonly string[]).includes(value)
       ? (value as Locale) : null;
   } catch {
-    return null;   // navegador com armazenamento bloqueado
+    return null;   // browser with storage blocked
   }
 }
 
@@ -53,21 +53,21 @@ type Ctx = {
   locale: Locale;
   setLocale: (l: Locale) => void;
   t: Dictionary;
-  /** Substitui {chave} pelos valores passados. */
+  /** Replaces {key} with the values passed in. */
   f: (template: string, vars: Record<string, string | number>) => string;
-  /** Data/hora no formato do idioma escolhido. */
+  /** Date/time in the chosen language's format. */
   date: (value: string | number | Date, opts?: Intl.DateTimeFormatOptions) => string;
   time: (value: string | number | Date) => string;
   dateTime: (value: string | number | Date) => string;
-  /** Idioma que a narração deve usar por padrão neste locale. */
+  /** Language the narration should use by default in this locale. */
   narrationLanguage: string;
 };
 
 const I18nContext = createContext<Ctx | null>(null);
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
-  // Começa no padrão para o HTML do servidor bater com o do cliente; o idioma
-  // real é aplicado no primeiro efeito, evitando erro de hidratação.
+  // Starts at the default so the server HTML matches the client's; the real
+  // language is applied in the first effect, avoiding a hydration error.
   const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE);
 
   useEffect(() => {
@@ -84,7 +84,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     try {
       window.localStorage.setItem(STORAGE_KEY, l);
     } catch {
-      /* sem armazenamento: a escolha vale só para esta sessão */
+      /* no storage: the choice only holds for this session */
     }
   }, []);
 
@@ -129,7 +129,7 @@ export function useI18n(): Ctx {
   return ctx;
 }
 
-/** Atalho para quem só precisa do dicionário. */
+/** Shortcut for code that only needs the dictionary. */
 export function useT(): Dictionary {
   return useI18n().t;
 }

@@ -25,7 +25,7 @@ def _parse_chain(raw: str) -> list[tuple[str, str]]:
 
 
 class Settings:
-    """Configuração lida de .env. Sem pydantic-settings para evitar acoplamento."""
+    """Configuration read from .env. No pydantic-settings, to avoid coupling."""
 
     def __init__(self) -> None:
         self.root = ROOT
@@ -55,8 +55,8 @@ class Settings:
         self.ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         self.ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1")
 
-        # Providers por CLI: usam a assinatura já logada na máquina,
-        # sem chave de API e sem cobrança por token.
+        # CLI providers: they use the subscription already logged in on this
+        # machine, with no API key and no per-token billing.
         self.claude_cli_bin = os.getenv("CLAUDE_CLI_BIN", "claude")
         self.claude_cli_model = os.getenv("CLAUDE_CLI_MODEL", "")
         self.codex_cli_bin = os.getenv("CODEX_CLI_BIN", "codex")
@@ -64,8 +64,8 @@ class Settings:
         self.codex_reasoning_effort = os.getenv("CODEX_REASONING_EFFORT", "medium")
         self.llm_cli_timeout = int(os.getenv("LLM_CLI_TIMEOUT", "420"))
 
-        # Cadeia de fallback usada quando LLM_PROVIDER=chain. Formato:
-        # "provider:modelo,provider:modelo" — o modelo é opcional.
+        # Fallback chain used when LLM_PROVIDER=chain. Format:
+        # "provider:model,provider:model" — the model is optional.
         self.llm_chain = _parse_chain(os.getenv(
             "LLM_CHAIN",
             "claude_cli:claude-fable-5-1,"
@@ -80,7 +80,7 @@ class Settings:
         self.elevenlabs_model = os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
         self.xtts_server = os.getenv("XTTS_SERVER", "http://localhost:8020")
         self.fishaudio_api_key = os.getenv("FISHAUDIO_API_KEY", "")
-        # família do modelo: s1 | s2-pro | s2.1-pro | s2.1-pro-free
+        # model family: s1 | s2-pro | s2.1-pro | s2.1-pro-free
         self.fishaudio_backend = os.getenv("FISHAUDIO_BACKEND", "s2.1-pro-free")
         self.fishaudio_model = os.getenv("FISHAUDIO_MODEL", "")
 
@@ -108,7 +108,7 @@ class Settings:
         self.github_max_files = int(os.getenv("GITHUB_MAX_FILES", "12"))
         self.github_max_file_chars = int(os.getenv("GITHUB_MAX_FILE_CHARS", "6000"))
 
-        # Formato fixo do short
+        # Fixed short format
         self.width = 1080
         self.height = 1920
         self.fps = 30

@@ -5,8 +5,8 @@ import { Fragment } from "react";
 import { useDocs, type Block } from "@/lib/i18n/docs";
 import { Topbar } from "@/components/ui";
 
-/** Marcação mínima aceita nos textos traduzidos: **negrito** e `código`.
- *  Evita duplicar HTML em cinco idiomas sem perder o destaque dos termos. */
+/** Minimal markup accepted in the translated texts: **bold** and `code`.
+ *  Avoids duplicating HTML across five languages without losing term emphasis. */
 const INLINE = /\*\*([^*]+)\*\*|`([^`]+)`/g;
 
 function inline(text: string): React.ReactNode {

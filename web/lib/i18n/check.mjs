@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Auditoria dos dicionários de idioma.
+ * Audit of the language dictionaries.
  *
- * O TypeScript já garante que nenhuma CHAVE falte — `Dictionary` é inferido do
- * pt-BR e as traduções são tipadas com ele. O que o compilador não vê é o
- * conteúdo: uma chave copiada do português e nunca traduzida, um placeholder
- * `{x}` perdido na tradução (que apareceria literalmente na tela) ou um texto
- * vazio. É isso que este script confere.
+ * TypeScript already guarantees that no KEY is missing — `Dictionary` is
+ * inferred from pt-BR and the translations are typed with it. What the
+ * compiler cannot see is the content: a key copied from Portuguese and never
+ * translated, a `{x}` placeholder lost in translation (which would show up
+ * literally on screen) or an empty text. That is what this script checks.
  *
  *   node lib/i18n/check.mjs
  */
@@ -18,7 +18,7 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 const LOCALES = ["pt-BR", "en", "es", "ru", "zh"];
 const REFERENCIA = "pt-BR";
 
-// Palavras que denunciam texto português esquecido numa tradução.
+// Words that give away Portuguese text left behind in a translation.
 const MARCAS_PT = [
   "roteiro", "legenda", "gancho", "você", "não ", "está ", "são ",
   "publicação", "cadastr", "arquivo", "nenhum", "trecho", "fundo",
@@ -26,8 +26,9 @@ const MARCAS_PT = [
 ];
 
 /**
- * Palavras iguais em português e em outro idioma — grafia idêntica não é
- * tradução esquecida. Espanhol e português compartilham bastante vocabulário.
+ * Words that are the same in Portuguese and in another language — identical
+ * spelling is not a forgotten translation. Spanish and Portuguese share a
+ * good deal of vocabulary.
  */
 const HOMOGRAFOS = {
   es: ["idioma", "vídeo", "vídeo por ia", "cinema", "voz", "local", "total",
@@ -47,7 +48,7 @@ function achatar(obj, prefixo = "", saida = {}) {
   return saida;
 }
 
-/** Lê o literal exportado sem precisar compilar TypeScript. */
+/** Reads the exported literal without having to compile TypeScript. */
 function carregar(locale) {
   const fonte = readFileSync(join(AQUI, `${locale}.ts`), "utf8");
   const inicio = fonte.indexOf("= {");
@@ -70,7 +71,7 @@ for (const locale of LOCALES) {
   const sobrando = Object.keys(d).filter((k) => !chaves.includes(k));
   const vazias = chaves.filter((k) => d[k] === "" && base[k] !== "");
 
-  // um {placeholder} perdido na tradução apareceria literal na tela
+  // a {placeholder} lost in translation would show up literally on screen
   const placeholders = chaves.filter((k) => {
     const esperado = String(base[k] ?? "").match(/\{\w+\}/g) ?? [];
     const obtido = String(d[k] ?? "").match(/\{\w+\}/g) ?? [];
@@ -78,7 +79,7 @@ for (const locale of LOCALES) {
   });
 
   const naoTraduzidas = locale === REFERENCIA ? [] : chaves.filter((k) => {
-    if (d[k] !== base[k]) return false;                    // traduziu
+    if (d[k] !== base[k]) return false;                    // translated
     const valor = String(d[k] ?? "").toLowerCase().trim();
     if (!valor || homografos.includes(valor)) return false;
     return MARCAS_PT.some((marca) => valor.includes(marca));

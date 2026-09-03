@@ -507,6 +507,13 @@ export const ru: Dictionary = {
       "сейчас без результата — источник может ограничивать запросы или не покрывает эту нишу",
     sourceAge: "собрано {n} мин назад",
     createShort: "Создать Short",
+    heat: {
+      searches: "{searches}+ запросов",
+      rising: "в тренде",
+      reddit_rising: "растёт · #{position} в r/{sub}",
+      points_comments: "{points} очков · {comments} комментариев",
+      views: "{views} просмотров",
+    },
     regions: { BR: "Бразилия", US: "США", PT: "Португалия", ES: "Испания", RU: "Россия", CN: "Китай" },
     sourceNames: {
       google_trends: "Google Trends",

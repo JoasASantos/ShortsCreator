@@ -7,8 +7,8 @@ import { api, type JobInput, type SourceType, type UploadResult, type Voice } fr
 import { useI18n, type Dictionary } from "@/lib/i18n";
 import { Chips, Field, Topbar, useToast } from "@/components/ui";
 
-// Os `value` abaixo são as chaves técnicas que vão para a API: não mudam com o
-// idioma. Só o rótulo sai do dicionário.
+// The `value`s below are the technical keys that go to the API: they don't
+// change with the language. Only the label comes from the dictionary.
 const NICHE_VALUES = [
   "tecnologia", "ciberseguranca", "programacao", "cinema", "historia",
   "ciencia", "curiosidades", "negocios", "generico",
@@ -51,8 +51,8 @@ const scrolls = (t: Dictionary) =>
 const backgrounds = (t: Dictionary) =>
   BACKGROUND_VALUES.map((value) => ({ value, label: t.backgrounds[value] }));
 
-/** Idioma da narração e CTA vêm do idioma da interface: quem usa em espanhol
- *  recebe narração em espanhol por padrão. */
+/** Narration language and CTA come from the interface language: whoever uses
+ *  it in Spanish gets Spanish narration by default. */
 const defaults = (language: string, cta: string): JobInput => ({
   source_type: "tema",
   source: "",
@@ -93,7 +93,7 @@ export default function NovoShort() {
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
-  // CTA escrito à mão não é sobrescrito quando o idioma muda
+  // a hand-written CTA is not overwritten when the language changes
   const ctaTouched = useRef(false);
 
   const sourceOptions = useMemo(() => sources(t), [t]);
@@ -102,7 +102,7 @@ export default function NovoShort() {
 
   useEffect(() => {
     api.voices().then(setVoices).catch(() => setVoices([]));
-    // vindo de Tendências: ?tema=...&niche=...&url=... já preenchidos
+    // coming from Trends: ?tema=...&niche=...&url=... already filled in
     const params = new URLSearchParams(window.location.search);
     const tema = params.get("tema");
     const url = params.get("url");
@@ -118,10 +118,10 @@ export default function NovoShort() {
         niche: (niche as JobInput["niche"]) || prev.niche,
       }));
     }
-  }, []);   // só na montagem: os parâmetros da URL são lidos uma vez
+  }, []);   // on mount only: the URL parameters are read once
 
-  // O idioma real só é conhecido depois do primeiro efeito do provider (e pode
-  // mudar no seletor), então a narração e o CTA acompanham a interface.
+  // The real language is only known after the provider's first effect (and can
+  // change in the picker), so narration and CTA follow the interface.
   useEffect(() => {
     setForm((prev) => ({
       ...prev,
@@ -145,7 +145,7 @@ export default function NovoShort() {
       for (const file of Array.from(files)) {
         results.push(await api.upload(file));
       }
-      // vídeo é sempre um só; imagens acumulam numa sequência
+      // there is always a single video; images pile up into a sequence
       const merged = form.source_type === "video" ? results.slice(-1)
         : [...uploads, ...results];
       setUploads(merged);

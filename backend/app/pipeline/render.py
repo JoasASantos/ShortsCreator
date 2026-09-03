@@ -1,6 +1,6 @@
-"""Composição final do vídeo 9:16 via ffmpeg.
+"""Final 9:16 video composition through ffmpeg.
 
-Pipeline: fundo (1080x1920) -> legenda ASS -> mixagem de áudio -> H.264 faststart.
+Pipeline: background (1080x1920) -> ASS subtitles -> audio mix -> H.264 faststart.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ W, H, FPS = settings.width, settings.height, settings.fps
 
 _FILTERS: set[str] | None = None
 
-# Preenche 9:16 sem barras: fundo desfocado + vídeo original centralizado.
+# Fills 9:16 without bars: blurred background + original video centered.
 FIT_919 = (
     f"split=2[a][b];"
     f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
@@ -32,16 +32,16 @@ def _run(cmd: list[str], cwd: Path | None = None) -> None:
     proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.strip().splitlines()[-12:])
-        raise RuntimeError(f"ffmpeg falhou: {tail}")
+        raise RuntimeError(f"ffmpeg failed: {tail}")
 
 
 def ensure_ffmpeg() -> None:
     for binary in ("ffmpeg", "ffprobe"):
         if not shutil.which(binary):
-            raise RuntimeError(f"{binary} não encontrado no PATH. Instale o FFmpeg.")
+            raise RuntimeError(f"{binary} not found on PATH. Install FFmpeg.")
 
 
-# ------------------------- fundos -------------------------
+# ------------------------- backgrounds -------------------------
 
 def background_gradient(duration: float, niche: str, out: Path,
                         scroll: str = "nenhum") -> Path:
@@ -73,7 +73,7 @@ def background_from_video(source: Path, duration: float, out: Path,
 
 def background_from_clips(clips: list[Path], duration: float, out: Path,
                           work_dir: Path) -> Path:
-    """Normaliza cada clipe para 9:16 e concatena até cobrir a duração."""
+    """Normalize each clip to 9:16 and concatenate until the duration is covered."""
     per_clip = max(duration / max(len(clips), 1), 2.0)
     normalized: list[Path] = []
     for index, clip in enumerate(clips):
@@ -94,8 +94,8 @@ def background_from_clips(clips: list[Path], duration: float, out: Path,
 def background_from_multi_highlights(
         windows: list[tuple[Path, float, float]], out: Path, work_dir: Path,
         durations: list[float] | None = None) -> Path:
-    """Como background_from_highlights, mas cada trecho pode vir de um arquivo
-    diferente — é o caminho quando o usuário envia mais de um vídeo."""
+    """Like background_from_highlights, but each excerpt may come from a different
+    file — this is the path taken when the user uploads more than one video."""
     parts: list[Path] = []
     for index, (source, start, end) in enumerate(windows):
         dest = work_dir / f"hl_{index}.mp4"
@@ -117,13 +117,15 @@ def background_from_multi_highlights(
 def background_from_highlights(source: Path, windows: list[tuple[float, float]],
                                out: Path, work_dir: Path,
                                durations: list[float] | None = None) -> Path:
-    """Recorta N janelas de um único vídeo longo (episódio) e concatena — usado
-    no modo 'resumo': cada janela vem de highlights.highlight_windows_for_script.
+    """Cut N windows out of a single long video (an episode) and concatenate them —
+    used by 'recap' mode: each window comes from
+    highlights.highlight_windows_for_script.
 
-    `durations` define quanto cada trecho deve DURAR no short. Como o vídeo de
-    origem pode acabar antes do fim da janela, cada trecho é repetido em loop
-    até completar o tempo pedido — sem isso o fundo fica mais curto que a
-    narração e o `-shortest` corta o final do áudio.
+    `durations` defines how LONG each excerpt must last in the short. Since the
+    source video may run out before the end of the window, each excerpt is
+    looped until it fills the requested time — without that the background ends
+    up shorter than the narration and the composition's `-shortest` truncates
+    the tail of the audio.
     """
     parts: list[Path] = []
     for index, (start, end) in enumerate(windows):
@@ -143,27 +145,27 @@ def background_from_highlights(source: Path, windows: list[tuple[float, float]],
     return out
 
 
-# Direções de pan alternadas para o efeito Ken Burns não repetir sempre o mesmo movimento.
+# Alternating pan directions so the Ken Burns effect doesn't always repeat the same move.
 _KENBURNS_PANS = [
-    ("iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"),   # centro, só zoom
-    ("0", "0"),                                  # canto superior esquerdo
-    ("iw-iw/zoom", "ih-ih/zoom"),                # canto inferior direito
-    ("iw/2-(iw/zoom/2)", "0"),                   # topo, centralizado
+    ("iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"),   # center, zoom only
+    ("0", "0"),                                  # top-left corner
+    ("iw-iw/zoom", "ih-ih/zoom"),                # bottom-right corner
+    ("iw/2-(iw/zoom/2)", "0"),                   # top, centered
 ]
 
 
 def background_from_images_kenburns(images: list[Path], durations: list[float],
                                     out: Path, work_dir: Path) -> Path:
-    """Uma imagem estática por segmento, com zoom/pan lento (efeito Ken Burns)."""
+    """One still image per segment, with slow zoom/pan (the Ken Burns effect)."""
     canvas_w, canvas_h = int(W * 1.5), int(H * 1.5)
     parts: list[Path] = []
     for index, (image, duration) in enumerate(zip(images, durations)):
         dest = work_dir / f"kb_{index}.mp4"
         frames = max(int(round(FPS * duration)), 1)
         x_expr, y_expr = _KENBURNS_PANS[index % len(_KENBURNS_PANS)]
-        # JPEG decodifica como yuvj420p (full range). Sem a conversão explícita
-        # para TV range o encoder propaga yuvj420p, que o QA reprova e alguns
-        # players móveis exibem com cores estouradas.
+        # JPEG decodes as yuvj420p (full range). Without the explicit conversion
+        # to TV range the encoder propagates yuvj420p, which QA rejects and some
+        # mobile players render with blown-out colors.
         vf = (
             f"scale={canvas_w}:{canvas_h}:force_original_aspect_ratio=increase,"
             f"crop={canvas_w}:{canvas_h},"
@@ -184,7 +186,7 @@ def background_from_images_kenburns(images: list[Path], durations: list[float],
 
 
 def has_filter(name: str) -> bool:
-    """Alguns builds do FFmpeg (ex.: Homebrew) vêm sem libass/libfreetype."""
+    """Some FFmpeg builds (Homebrew's, for one) ship without libass/libfreetype."""
     global _FILTERS
     if _FILTERS is None:
         proc = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
@@ -196,7 +198,7 @@ def has_filter(name: str) -> bool:
 
 def add_scroll_panel(background: Path, panel: Path, duration: float, out: Path,
                      speed: int = 95) -> Path:
-    """Sobrepõe um painel de texto rolando de baixo para cima (efeito 'scroll')."""
+    """Overlay a text panel scrolling from bottom to top (the 'scroll' effect)."""
     filt = (f"[0:v][1:v]overlay=x=80:y='H-mod(t*{speed}\\,H+h)':eval=frame"
             f":shortest=0[v]")
     _run(["ffmpeg", "-y", "-i", background.name, "-i", panel.name,
@@ -207,7 +209,7 @@ def add_scroll_panel(background: Path, panel: Path, duration: float, out: Path,
 
 
 def pick_music(track_id: str = "") -> Path | None:
-    """Trilha escolhida pelo usuário; sem escolha, a primeira da pasta."""
+    """The track the user picked; with no pick, the first one in the folder."""
     from ..routers import music as music_router
 
     if track_id:
@@ -221,15 +223,15 @@ def pick_music(track_id: str = "") -> Path | None:
     return tracks[0] if tracks else None
 
 
-# ------------------------- composição final -------------------------
+# ------------------------- final composition -------------------------
 
 def compose(job_dir: Path, background: Path, narration: Path, out: Path,
             job: JobInput, duration: float, overlays: list = (),
             subtitles: Path | None = None) -> Path:
-    """Queima legendas + mixa áudio + exporta MP4 pronto para upload.
+    """Burn in subtitles + mix audio + export an MP4 ready for upload.
 
-    Usa o filtro `ass` quando o FFmpeg tem libass; caso contrário sobrepõe os
-    PNGs gerados pelo módulo `overlays`.
+    Uses the `ass` filter when FFmpeg has libass; otherwise it overlays the PNGs
+    produced by the `overlays` module.
     """
     music = pick_music(job.music_track) if job.music else None
 
@@ -306,9 +308,10 @@ def probe_duration(video: Path) -> float:
 
 def ensure_min_duration(video: Path, target: float, work_dir: Path,
                         tolerance: float = 0.15) -> Path:
-    """Rede de segurança: se o fundo ficou mais curto que a narração, congela o
-    último frame até fechar o tempo. Sem isso o `-shortest` da composição corta
-    o fim do áudio — o vídeo termina antes da última frase ser dita."""
+    """Safety net: if the background came out shorter than the narration, freeze
+    the last frame until the time is filled. Without this the composition's
+    `-shortest` truncates the end of the audio — the video stops before the last
+    sentence has been spoken."""
     current = probe_duration(video)
     if current <= 0 or current >= target - tolerance:
         return video
@@ -324,8 +327,8 @@ def ensure_min_duration(video: Path, target: float, work_dir: Path,
 
 
 def trim_video(source: Path, start: float, end: float, out: Path) -> Path:
-    """Recorta um trecho do vídeo preservando áudio — usado pelo clipper para
-    transformar um vídeo longo em vários arquivos, um por clipe."""
+    """Cut an excerpt out of the video, keeping the audio — used by the clipper to
+    turn one long video into several files, one per clip."""
     duration = max(end - start, 0.5)
     _run(["ffmpeg", "-y", "-ss", f"{start:.2f}", "-i", str(source),
           "-t", f"{duration:.2f}", "-c:v", "libx264", "-preset", "veryfast",
@@ -342,8 +345,8 @@ def make_thumbnail(video: Path, out: Path, at: float = 1.0) -> Path:
 
 def make_preview_gif(video: Path, out: Path, seconds: float = 3.0,
                      width: int = 270, fps: int = 10) -> Path:
-    """GIF dos primeiros segundos — é o hook em movimento na lista do painel.
-    Paleta em duas passadas para não ficar com banding em gradiente."""
+    """GIF of the first few seconds — the hook in motion in the dashboard list.
+    Two-pass palette so gradients don't come out with banding."""
     filters = (f"fps={fps},scale={width}:-2:flags=lanczos,"
                f"split[a][b];[a]palettegen=max_colors=96:stats_mode=diff[p];"
                f"[b][p]paletteuse=dither=bayer:bayer_scale=4")

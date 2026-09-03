@@ -1,9 +1,9 @@
-"""Cola entre o plano de clipes e a fila de jobs.
+"""Glue between the clip plan and the job queue.
 
-`analyze_plan` transcreve o vídeo e pede ao LLM os melhores trechos.
-`spawn_jobs` corta cada trecho escolhido num arquivo próprio e cria um job
-normal por clipe — daí em diante cada short segue o pipeline padrão, com
-roteiro, narração, legenda e QA independentes.
+`analyze_plan` transcribes the video and asks the LLM for the best stretches.
+`spawn_jobs` cuts each chosen stretch into its own file and creates a regular
+job per clip — from there on each short follows the standard pipeline, with an
+independent script, narration, captions and QA.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from . import clipper, highlights, ingest, render
 def analyze_plan(plan_id: str) -> None:
     row = db.get_clip_plan(plan_id)
     if row is None:
-        raise RuntimeError(f"Plano {plan_id} não existe")
+        raise RuntimeError(f"Plan {plan_id} does not exist")
 
     db.update_clip_plan(plan_id, status="analisando")
     source = uploads_router.resolve(row["attachment_id"])
@@ -28,8 +28,8 @@ def analyze_plan(plan_id: str) -> None:
     segments = ingest.whisper_segments(source)
     if not segments:
         raise RuntimeError(
-            "Não foi possível transcrever o vídeo. Instale faster-whisper "
-            "(pip install faster-whisper) para fatiar vídeos longos."
+            "Could not transcribe the video. Install faster-whisper "
+            "(pip install faster-whisper) to slice long videos."
         )
 
     transcript = clipper.transcript_with_timestamps(segments)
@@ -37,7 +37,7 @@ def analyze_plan(plan_id: str) -> None:
         transcript, total, row["requested"], row["target_seconds"]
     )
     if not clips:
-        raise RuntimeError("O modelo não encontrou trechos aproveitáveis neste vídeo.")
+        raise RuntimeError("The model found no usable stretches in this video.")
 
     db.update_clip_plan(plan_id, status="ready", clips_json=json.dumps(clips))
 
@@ -52,8 +52,8 @@ def spawn_jobs(plan_row: dict, clips: list[dict], indices: list[int],
             continue
         clip = clips[index]
 
-        # cada clipe vira um arquivo próprio, registrado como upload para que
-        # o job siga o caminho normal de "vídeo enviado pelo usuário"
+        # each clip becomes its own file, registered as an upload so that the
+        # job follows the normal "video uploaded by the user" path
         clip_id = db.new_id("upl")
         clip_path = settings.uploads_dir / f"{clip_id}.mp4"
         render.trim_video(source, clip["inicio"], clip["fim"], clip_path)
@@ -77,7 +77,7 @@ def spawn_jobs(plan_row: dict, clips: list[dict], indices: list[int],
         job_id = db.create_job(job.model_dump(), clip.get("titulo", "Clipe"))
         db.log_event(
             job_id,
-            f"Clipe {index + 1} de {plan_row['id']}: "
+            f"Clip {index + 1} of {plan_row['id']}: "
             f"{clip['inicio']:.0f}s–{clip['fim']:.0f}s — {clip.get('motivo', '')}",
         )
         job_ids.append(job_id)

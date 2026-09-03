@@ -10,7 +10,7 @@ import { useI18n } from "@/lib/i18n";
 import { Chips, Field } from "@/components/ui";
 import { VoiceBrowser } from "@/components/VoiceBrowser";
 
-// Valores técnicos enviados ao backend; o rótulo vem do dicionário.
+// Technical values sent to the backend; the label comes from the dictionary.
 const KINDS = ["hook", "corpo", "cta"];
 const AUTOSAVE_MS = 1200;
 
@@ -36,13 +36,13 @@ export function Editor({ job, onApplied, toast }: {
   const [prompt, setPrompt] = useState("");
   const [refining, setRefining] = useState(false);
   const [previewing, setPreviewing] = useState(false);
-  // "limpo" = igual ao servidor | "pendente" = digitando | "salvo" = rascunho no disco
+  // "limpo" = same as server | "pendente" = typing | "salvo" = draft on disk
   const [rascunho, setRascunho] = useState<"limpo" | "pendente" | "salvando" | "salvo">("limpo");
   const [salvoEm, setSalvoEm] = useState<string | null>(null);
   const [carregado, setCarregado] = useState(false);
   const musicInput = useRef<HTMLInputElement>(null);
   const voiceAudio = useRef<HTMLAudioElement | null>(null);
-  // marca que o conteúdo em tela é edição do usuário, não o que veio do servidor
+  // flags that the on-screen content is the user's edit, not what came from the server
   const editando = useRef(false);
 
   const loadTracks = () => api.music().then(setTracks).catch(() => setTracks([]));
@@ -52,7 +52,7 @@ export function Editor({ job, onApplied, toast }: {
     loadTracks();
   }, []);
 
-  // Rascunho do disco: o que estava sendo digitado quando a tela foi fechada.
+  // Draft from disk: whatever was being typed when the screen was closed.
   useEffect(() => {
     api.draft(job.id)
       .then(({ draft }) => {
@@ -68,16 +68,16 @@ export function Editor({ job, onApplied, toast }: {
         setMusicVolume(draft.music_volume);
         setSalvoEm(draft.saved_at ?? null);
         setRascunho("salvo");
-        editando.current = true;   // não deixa o polling sobrescrever
+        editando.current = true;   // keeps polling from overwriting it
       })
       .catch(() => undefined)
       .finally(() => setCarregado(true));
   }, [job.id]);
 
-  // O roteiro pode mudar fora deste componente (refinamento por prompt,
-  // re-renderização). Sincronizamos com o servidor, mas NUNCA por cima de
-  // edição em andamento: `serverScript` é um array novo a cada polling, então
-  // comparar por referência apagava o que estava sendo digitado a cada 2,5s.
+  // The script can change outside this component (prompt refinement,
+  // re-rendering). We sync with the server, but NEVER on top of an edit in
+  // progress: `serverScript` is a brand-new array on every poll, so comparing
+  // by reference wiped out whatever was being typed every 2.5s.
   const serverScript = job.result?.script.segments;
   const serverKey = serverScript ? JSON.stringify(serverScript) : "";
   const serverTitle = job.result?.title ?? "";
@@ -87,8 +87,8 @@ export function Editor({ job, onApplied, toast }: {
     if (serverTitle) setTitle(serverTitle);
   }, [serverKey, serverTitle]);
 
-  // Autosave: só depois de o rascunho existente ter sido carregado, para não
-  // gravar o estado inicial por cima do que estava salvo.
+  // Autosave: only after the existing draft has been loaded, so we don't
+  // write the initial state over what was already saved.
   const draftAtual = (): ScriptDraft => ({
     segments, title, voice_id: voiceId, caption_style: captionStyle,
     caption_position: captionPosition, caption_offset: offset,
@@ -108,7 +108,7 @@ export function Editor({ job, onApplied, toast }: {
     return () => clearTimeout(timer);
   }, [draftKey, carregado, job.id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fechar a aba com algo ainda não gravado: o navegador pede confirmação.
+  // Closing the tab with something still unsaved: the browser asks to confirm.
   useEffect(() => {
     const aviso = (e: BeforeUnloadEvent) => {
       if (rascunho === "pendente" || rascunho === "salvando") e.preventDefault();
@@ -117,8 +117,8 @@ export function Editor({ job, onApplied, toast }: {
     return () => window.removeEventListener("beforeunload", aviso);
   }, [rascunho]);
 
-  /** Toda alteração do usuário passa por aqui: liga o autosave e trava o
-   *  sincronismo com o servidor. */
+  /** Every user change goes through here: it turns on the autosave and locks
+   *  out syncing with the server. */
   const tocar = () => {
     editando.current = true;
     if (rascunho === "limpo") setRascunho("pendente");
@@ -126,7 +126,7 @@ export function Editor({ job, onApplied, toast }: {
 
   const words = job.result?.words ?? [];
   const totalWords = segments.reduce((sum, s) => sum + s.text.split(/\s+/).filter(Boolean).length, 0);
-  // ~2,6 palavras por segundo é o ritmo que o pipeline assume ao escrever roteiro
+  // ~2.6 words per second is the pace the pipeline assumes when writing a script
   const estimate = totalWords / 2.6;
 
   const updateSegment = (index: number, patch: Partial<ScriptSegment>) => {
@@ -181,7 +181,7 @@ export function Editor({ job, onApplied, toast }: {
     setBusy(true);
     try {
       const result = await api.editJob(job.id, edit);
-      // o rascunho virou a versão oficial: o backend já apagou o arquivo
+      // the draft became the official version: the backend already deleted the file
       editando.current = false;
       setRascunho("limpo");
       setSalvoEm(null);
@@ -215,7 +215,7 @@ export function Editor({ job, onApplied, toast }: {
     }
     setRefining(true);
     try {
-      // render=false: mostra o resultado no editor para você revisar antes
+      // render=false: shows the result in the editor so you can review it first
       const result = await api.refineScript(job.id, prompt, false);
       tocar();
       setSegments(result.script.segments);
@@ -233,7 +233,7 @@ export function Editor({ job, onApplied, toast }: {
   const kindLabel = (kind: string) =>
     (t.segmentKinds as Record<string, string>)[kind] ?? kind;
 
-  /** Toca a amostra da voz escolhida direto do catálogo, sem gastar síntese. */
+  /** Plays the chosen voice's sample straight from the catalog, no synthesis spent. */
   const previewVoice = () => {
     voiceAudio.current?.pause();
     if (previewing) { setPreviewing(false); return; }
@@ -401,7 +401,7 @@ export function Editor({ job, onApplied, toast }: {
               <VoiceBrowser
                 toast={toast}
                 onInstalled={(id) => {
-                  // já deixa selecionada a voz recém-salva
+                  // leave the just-saved voice already selected
                   api.voices().then((list) => {
                     setVoices(list);
                     setVoiceId(id);
@@ -535,7 +535,7 @@ export function Editor({ job, onApplied, toast }: {
   );
 }
 
-/** Estado do rascunho, para o usuário nunca ficar na dúvida se perdeu texto. */
+/** Draft status, so the user is never left wondering whether text was lost. */
 function RascunhoTag({ estado, salvoEm }: {
   estado: "limpo" | "pendente" | "salvando" | "salvo";
   salvoEm: string | null;

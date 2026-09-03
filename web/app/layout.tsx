@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   formatDetection: { telephone: false },
 };
 
-// viewport-fit=cover é o que libera env(safe-area-inset-*) nos iPhones com notch
+// viewport-fit=cover is what unlocks env(safe-area-inset-*) on notched iPhones
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,

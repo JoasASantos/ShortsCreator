@@ -185,8 +185,14 @@ publicado. Opcional — sem credencial configurada, nada é enviado.
 make test        # backend inteiro
 make test-fast   # pula o que precisa de FFmpeg
 make typecheck   # tipos do frontend
-make check       # os dois
+make i18n        # audita os dicionários dos cinco idiomas
+make check       # tudo acima
 ```
+
+O `make i18n` pega o que o compilador não vê: chave copiada sem traduzir,
+`{placeholder}` perdido na tradução (que apareceria literal na tela), valor
+vazio. As chaves em si já são garantidas — o tipo `Dictionary` é inferido do
+dicionário português, então uma chave faltando quebra a compilação.
 
 Os testes de QA e de sincronia geram MP4 e MP3 de verdade com FFmpeg e auditam
 o arquivo resultante — é o único jeito de exercitar o que o QA realmente faz.
@@ -223,6 +229,13 @@ web/
 ```
 
 Banco em SQLite puro, sem ORM. Fila de jobs em thread, sem broker externo.
+
+Código, comentários e histórico de commits estão em inglês. Duas coisas ficam
+em português de propósito: os **prompts do LLM** em `script.py` e `clipper.py`
+(são calibrados em português e suas respostas JSON usam chaves portuguesas — o
+idioma da *saída* é controlado separadamente pelo `job.language`) e as
+**descrições dos conectores** em `connectors.py`, que a tela de Contas exibe
+direto e precisariam de i18n própria.
 
 ## Licença
 

@@ -5,9 +5,9 @@ import { useRef, useState } from "react";
 import { useI18n } from "@/lib/i18n";
 
 /**
- * Moldura 9:16 com sobreposição das zonas cobertas pela UI do TikTok/Shorts.
- * É o que responde à pergunta "isso está mesmo no formato de short?" sem
- * precisar subir o vídeo para descobrir.
+ * 9:16 frame overlaying the zones covered by the TikTok/Shorts UI.
+ * This is what answers "is this really in short format?" without having to
+ * upload the video to find out.
  */
 export function PhonePreview({ src, poster }: { src: string; poster?: string }) {
   const { t } = useI18n();

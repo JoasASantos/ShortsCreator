@@ -19,7 +19,7 @@ export function LogStream({ jobId, live }: { jobId: string; live: boolean }) {
     cursor.current = 0;
     setEvents([]);
     const pull = async () => {
-      if (inFlight) return; // evita corrida entre StrictMode e o interval
+      if (inFlight) return; // avoids a race between StrictMode and the interval
       inFlight = true;
       try {
         const batch = await api.events(jobId, cursor.current);
@@ -30,7 +30,7 @@ export function LogStream({ jobId, live }: { jobId: string; live: boolean }) {
           return [...prev, ...batch.filter((e) => !seen.has(e.id))];
         });
       } catch {
-        /* silencioso: o log não deve derrubar a tela */
+        /* silent: the log must not take the screen down */
       } finally {
         inFlight = false;
       }

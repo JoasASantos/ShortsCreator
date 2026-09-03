@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { api, type CatalogVoice } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 
-/** Busca vozes no catálogo do fish.audio, com prévia antes de instalar. */
+/** Searches the fish.audio catalog for voices, with a preview before installing. */
 export function VoiceBrowser({ onInstalled, toast }: {
   onInstalled: (voiceId: string, name: string) => void;
   toast: (message: string) => void;
@@ -20,7 +20,7 @@ export function VoiceBrowser({ onInstalled, toast }: {
   const [searched, setSearched] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // o catálogo é filtrado pelo idioma da narração deste locale ("pt", "en"…)
+  // the catalog is filtered by this locale's narration language ("pt", "en"…)
   const language = narrationLanguage.split("-")[0];
 
   const search = async (term: string) => {
@@ -38,7 +38,7 @@ export function VoiceBrowser({ onInstalled, toast }: {
   };
 
   const preview = (voice: CatalogVoice) => {
-    // só um player: tocar outra voz interrompe a anterior
+    // only one player: playing another voice stops the previous one
     audioRef.current?.pause();
     if (playing === voice.id) { setPlaying(""); return; }
     const audio = new Audio(api.sampleUrl(voice.id));

@@ -1,9 +1,10 @@
-"""Retorno de desempenho das publicações — e o que o roteirista aprende com ele.
+"""Performance feedback from the publications — and what the scriptwriter
+learns from it.
 
-Coleta views, likes, comentários, compartilhamentos e retenção média de cada
-short publicado (YouTube Analytics, TikTok video.query, Instagram insights) e
-grava em `metrics`. O `insights()` transforma isso num briefing curto que entra
-no prompt do roteiro: os hooks que mais retiveram no SEU canal.
+Collects views, likes, comments, shares and average retention of every
+published short (YouTube Analytics, TikTok video.query, Instagram insights)
+and stores them in `metrics`. `insights()` turns that into a short briefing
+that goes into the script prompt: the hooks that retained best on YOUR channel.
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 from .. import db
 
-MAX_AGE_DAYS = 45          # depois disso o short já estabilizou; não vale requisição
+MAX_AGE_DAYS = 45          # past this the short has settled; not worth a request
 REFRESH_EVERY_HOURS = 6
 
 
@@ -23,8 +24,8 @@ def refresh_all(log=lambda m: None) -> int:
         try:
             if refresh_schedule(schedule):
                 updated += 1
-        except Exception as exc:  # noqa: BLE001 — uma conta quebrada não para as outras
-            log(f"métricas {schedule['id']}: {exc}")
+        except Exception as exc:  # noqa: BLE001 — one broken account must not stop the rest
+            log(f"metrics {schedule['id']}: {exc}")
     return updated
 
 
@@ -50,7 +51,7 @@ def refresh_schedule(schedule: dict) -> bool:
 
             data = instagram.insights(video_id, creds["access_token"])
         else:
-            return False   # LinkedIn não expõe analytics de post para membros
+            return False   # LinkedIn exposes no post analytics to members
         error = ""
     except Exception as exc:  # noqa: BLE001
         data, error = {}, str(exc)
@@ -73,7 +74,7 @@ def _youtube(video_id: str, creds: dict, account_id: str) -> dict:
     resp = service.videos().list(part="statistics,snippet", id=video_id).execute()
     items = resp.get("items", [])
     if not items:
-        raise RuntimeError("Vídeo não encontrado no canal (removido?)")
+        raise RuntimeError("Video not found on the channel (removed?)")
     stats = items[0].get("statistics", {})
     out = {
         "views": int(stats.get("viewCount", 0)),
@@ -83,8 +84,9 @@ def _youtube(video_id: str, creds: dict, account_id: str) -> dict:
         "published_at": items[0].get("snippet", {}).get("publishedAt"),
     }
 
-    # Retenção exige o escopo yt-analytics.readonly — contas conectadas antes
-    # dele existir não têm; nesse caso ficamos só com as estatísticas públicas.
+    # Retention requires the yt-analytics.readonly scope — accounts connected
+    # before it existed don't have it; in that case we are left with the public
+    # statistics only.
     if any("yt-analytics" in s for s in (creds.get("scopes") or [])):
         try:
             analytics = build("youtubeAnalytics", "v2", credentials=credentials)
@@ -101,7 +103,7 @@ def _youtube(video_id: str, creds: dict, account_id: str) -> dict:
                 out["avg_view_seconds"] = round(float(avg_sec), 1)
                 out["avg_view_pct"] = round(float(avg_pct), 1)
                 out["shares"] = int(shares)
-        except Exception:  # noqa: BLE001 — analytics é bônus
+        except Exception:  # noqa: BLE001 — analytics is a bonus
             pass
 
     if credentials.token != creds.get("token"):
@@ -119,7 +121,7 @@ def _tiktok(video_id: str, creds: dict, account_id: str) -> dict:
 
     token = creds.get("access_token")
     if not token:
-        raise RuntimeError("Conta TikTok sem access_token")
+        raise RuntimeError("TikTok account without an access_token")
 
     def query(access_token: str) -> httpx.Response:
         return httpx.post(
@@ -141,8 +143,8 @@ def _tiktok(video_id: str, creds: dict, account_id: str) -> dict:
     resp.raise_for_status()
     videos = resp.json().get("data", {}).get("videos", [])
     if not videos:
-        # publish_id (inbox) não é o id do vídeo; só dá para medir posts diretos
-        raise RuntimeError("Vídeo não encontrado — publicações via inbox não expõem métricas")
+        # publish_id (inbox) is not the video id; only direct posts are measurable
+        raise RuntimeError("Video not found — inbox publications expose no metrics")
     v = videos[0]
     created = v.get("create_time")
     return {
@@ -162,11 +164,14 @@ def _persist_account(account_id: str, credentials: dict) -> None:
 # ---------------------------------------------------------------- insights
 
 def insights(niche: str = "", limit: int = 5) -> str:
-    """Briefing curto para o prompt do roteiro: os hooks que mais funcionaram.
+    """Short briefing for the script prompt: the hooks that worked best.
 
-    Ordena por retenção quando existe (é o que o algoritmo premia) e por views
-    quando não. Vazio quando ainda não há publicação medida — o prompt fica
-    igual ao de antes.
+    Sorts by retention when it exists (that is what the algorithm rewards) and
+    by views when it does not. Empty when no publication has been measured yet
+    — the prompt then stays exactly as it was before.
+
+    The briefing text below stays in Portuguese on purpose: it is injected into
+    the script prompt, which is itself calibrated in Portuguese.
     """
     rows = db.list_metrics()
     if not rows:

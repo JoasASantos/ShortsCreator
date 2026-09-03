@@ -185,8 +185,15 @@ published. Optional — with no credential configured, nothing is sent.
 make test        # whole backend
 make test-fast   # skips what needs FFmpeg
 make typecheck   # frontend types
-make check       # both
+make i18n        # audits the five dictionaries
+make check       # all of the above
 ```
+
+`make i18n` catches what the compiler cannot: a key copied without being
+translated, a `{placeholder}` lost in translation (which would render
+literally), an empty value. The keys themselves are already guaranteed —
+`Dictionary` is inferred from the Portuguese dictionary, so a missing key
+fails the build.
 
 The QA and sync tests generate real MP4 and MP3 files with FFmpeg and audit the
 result — the only way to exercise what the QA actually does. Without FFmpeg on
@@ -223,6 +230,13 @@ web/
 ```
 
 SQLite with no ORM. In-thread job queue, no external broker.
+
+Code, comments and commit history are in English. Two things stay in
+Portuguese on purpose: the **LLM prompts** in `script.py` and `clipper.py`
+(they are calibrated in Portuguese and their JSON responses use Portuguese
+keys — the *output* language is controlled separately by `job.language`), and
+the **connector descriptions** in `connectors.py`, which the Accounts screen
+renders directly and would need their own i18n pass.
 
 ## License
 

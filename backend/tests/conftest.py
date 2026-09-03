@@ -1,10 +1,9 @@
-"""Fixtures compartilhadas.
+"""Shared fixtures.
 
-Cada teste roda contra um DATA_DIR temporário: o banco, os jobs e os uploads
-saem num diretório descartável, então nada toca os dados reais de quem
-desenvolve. `settings` é um singleton com lru_cache, por isso o env precisa
-estar no lugar ANTES do primeiro import do módulo de config — daí o
-autouse com escopo de sessão.
+Every test runs against a temporary DATA_DIR: the database, the jobs and the
+uploads all land in a throwaway directory, so nothing touches a developer's
+real data. `settings` is an lru_cache singleton, so the env has to be in place
+BEFORE the config module is first imported — hence the session-scoped autouse.
 """
 from __future__ import annotations
 
@@ -31,7 +30,7 @@ def data_dir() -> Path:
 
 @pytest.fixture(autouse=True)
 def fresh_db():
-    """Banco limpo por teste — os testes de fila e métricas contam registros."""
+    """Clean database per test — the queue and metrics tests count rows."""
     from app import db
 
     db.init_db()
@@ -49,18 +48,18 @@ def has_ffmpeg() -> bool:
 
 
 needs_ffmpeg = pytest.mark.skipif(not has_ffmpeg(),
-                                  reason="FFmpeg não está no PATH")
+                                  reason="FFmpeg is not on the PATH")
 
 
 @pytest.fixture(scope="session")
 def sample_video(data_dir: Path) -> Path:
-    """MP4 9:16 de 4s com áudio: barras coloridas + tom senoidal.
+    """A 4s 9:16 MP4 with audio: color bars plus a sine tone.
 
-    Um arquivo de verdade importa aqui — o QA audita o arquivo final com
-    ffprobe/ffmpeg, então um mock não exercitaria nada do que interessa.
+    A real file matters here — QA audits the final file with ffprobe/ffmpeg,
+    so a mock would not exercise any of what actually counts.
     """
     if not has_ffmpeg():
-        pytest.skip("FFmpeg não está no PATH")
+        pytest.skip("FFmpeg is not on the PATH")
     out = data_dir / "sample_9x16.mp4"
     if out.exists():
         return out
@@ -77,7 +76,7 @@ def sample_video(data_dir: Path) -> Path:
 
 @pytest.fixture
 def words() -> list[dict]:
-    """Timings de palavra como o TTS devolve — base das legendas."""
+    """Word timings the way TTS returns them — the basis for the captions."""
     return [
         {"word": "Ninguém", "start": 0.10, "end": 0.55},
         {"word": "avisou", "start": 0.55, "end": 1.00},

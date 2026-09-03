@@ -1,4 +1,4 @@
-"""Cliente LLM com abstração de provider. Padrão: cadeia Fable -> Opus 5 -> Codex."""
+"""LLM client with a provider abstraction. Default: Fable -> Opus 5 -> Codex chain."""
 from __future__ import annotations
 
 import contextvars
@@ -16,8 +16,8 @@ import httpx
 from .. import db
 from ..config import settings
 
-# Job dono da chamada atual — o orquestrador seta antes de rodar o pipeline e
-# cada chamada fica registrada com custo/latência em `llm_calls`.
+# Job that owns the current call — the orchestrator sets it before running the
+# pipeline, and every call is recorded with cost/latency in `llm_calls`.
 current_job: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "llm_current_job", default=None)
 current_purpose: contextvars.ContextVar[str] = contextvars.ContextVar(
@@ -33,7 +33,7 @@ def _record(provider: str, model: str | None, started: float, ok: bool,
     try:
         db.log_llm_call(current_job.get(), current_purpose.get(), provider,
                         model or "", time.monotonic() - started, ok, error)
-    except Exception:  # noqa: BLE001 — telemetria nunca derruba a geração
+    except Exception:  # noqa: BLE001 — telemetry never takes generation down
         pass
 
 
@@ -46,7 +46,7 @@ def _extract_json(text: str) -> dict:
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", text, re.S)
         if not match:
-            raise LLMError(f"Resposta do LLM sem JSON válido: {text[:400]}")
+            raise LLMError(f"LLM response with no valid JSON: {text[:400]}")
         return json.loads(match.group(0))
 
 
@@ -80,8 +80,8 @@ def _default_model(provider: str) -> str:
         "anthropic": settings.anthropic_model,
         "openai": settings.openai_model,
         "ollama": settings.ollama_model,
-        "claude_cli": settings.claude_cli_model or "sessão",
-        "codex_cli": settings.codex_cli_model or "sessão",
+        "claude_cli": settings.claude_cli_model or "session",
+        "codex_cli": settings.codex_cli_model or "session",
     }.get(provider, "")
 
 
@@ -97,27 +97,28 @@ def _dispatch_raw(provider: str, model: str | None, system: str, prompt: str,
         return _claude_cli_json(system, prompt, model)
     if provider == "codex_cli":
         return _codex_cli_json(system, prompt, schema, model)
-    raise LLMError(f"LLM_PROVIDER desconhecido: {provider}")
+    raise LLMError(f"Unknown LLM_PROVIDER: {provider}")
 
 
 def _chain_json(system: str, prompt: str, schema: dict | None, max_tokens: int) -> dict:
-    """Tenta cada provider:model de LLM_CHAIN em ordem; cai pro próximo se falhar.
+    """Tries each provider:model from LLM_CHAIN in order; falls through to the
+    next one on failure.
 
-    Padrão: Claude Fable (principal) -> Claude Opus 5 -> Codex GPT-5.6 Sol
-    (assinatura ChatGPT), sem precisar de chave de API.
+    Default: Claude Fable (primary) -> Claude Opus 5 -> Codex GPT-5.6 Sol
+    (ChatGPT subscription), with no API key required.
     """
     steps = settings.llm_chain
     if not steps:
-        raise LLMError("LLM_PROVIDER=chain requer LLM_CHAIN configurado no .env")
+        raise LLMError("LLM_PROVIDER=chain requires LLM_CHAIN to be set in .env")
 
     last_error: Exception | None = None
     for provider, model in steps:
         try:
             return _dispatch(provider, model or None, system, prompt, schema, max_tokens)
-        except Exception as exc:  # noqa: BLE001 — tenta o próximo elo da cadeia
+        except Exception as exc:  # noqa: BLE001 — try the next link in the chain
             last_error = exc
             continue
-    raise LLMError(f"Todos os modelos da chain falharam. Último erro: {last_error}")
+    raise LLMError(f"Every model in the chain failed. Last error: {last_error}")
 
 
 def _anthropic_json(system: str, prompt: str, schema: dict | None, max_tokens: int,
@@ -125,7 +126,7 @@ def _anthropic_json(system: str, prompt: str, schema: dict | None, max_tokens: i
     import anthropic
 
     if not settings.anthropic_api_key:
-        raise LLMError("ANTHROPIC_API_KEY não configurada")
+        raise LLMError("ANTHROPIC_API_KEY is not set")
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     kwargs: dict = {
@@ -139,14 +140,14 @@ def _anthropic_json(system: str, prompt: str, schema: dict | None, max_tokens: i
 
     response = client.messages.create(**kwargs)
     if response.stop_reason == "refusal":
-        raise LLMError("Modelo recusou a solicitação.")
+        raise LLMError("The model refused the request.")
     text = next((b.text for b in response.content if b.type == "text"), "")
     return _extract_json(text)
 
 
 def _openai_json(system: str, prompt: str, max_tokens: int) -> dict:
     if not settings.openai_api_key:
-        raise LLMError("OPENAI_API_KEY não configurada")
+        raise LLMError("OPENAI_API_KEY is not set")
     resp = httpx.post(
         "https://api.openai.com/v1/chat/completions",
         headers={"Authorization": f"Bearer {settings.openai_api_key}"},
@@ -185,9 +186,9 @@ def _ollama_json(system: str, prompt: str, max_tokens: int) -> dict:
 
 
 # --------------------------------------------------------------------------
-# Providers por CLI — usam a assinatura já logada na máquina (Claude Pro/Max
-# via `claude`, ChatGPT Plus/Pro via `codex`) em vez de uma chave de API
-# cobrada por token. Nenhuma chave precisa entrar no .env.
+# CLI-based providers — they use the subscription already logged in on the
+# machine (Claude Pro/Max via `claude`, ChatGPT Plus/Pro via `codex`) instead of
+# an API key billed per token. No key has to go into the .env.
 # --------------------------------------------------------------------------
 
 JSON_ONLY = (
@@ -201,8 +202,8 @@ def _resolve(binary: str, label: str) -> str:
     found = shutil.which(binary)
     if not found:
         raise LLMError(
-            f"CLI '{binary}' não encontrada no PATH. "
-            f"Instale e autentique o {label}, ou troque LLM_PROVIDER no .env."
+            f"CLI '{binary}' not found on PATH. "
+            f"Install and authenticate {label}, or switch LLM_PROVIDER in .env."
         )
     return found
 
@@ -213,23 +214,23 @@ def _run_cli(cmd: list[str], cwd: str, timeout: int) -> str:
                               timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         raise LLMError(
-            f"CLI excedeu {timeout}s. Aumente LLM_CLI_TIMEOUT no .env."
+            f"CLI went over {timeout}s. Raise LLM_CLI_TIMEOUT in .env."
         ) from exc
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout).strip()[-600:]
-        raise LLMError(f"CLI falhou (código {proc.returncode}): {tail}")
+        raise LLMError(f"CLI failed (exit code {proc.returncode}): {tail}")
     return proc.stdout
 
 
 def _claude_cli_json(system: str, prompt: str, model: str | None = None) -> dict:
-    """Claude Code em modo não interativo — consome a assinatura Pro/Max."""
+    """Claude Code in non-interactive mode — draws on the Pro/Max subscription."""
     binary = _resolve(settings.claude_cli_bin, "Claude Code (`claude` login)")
 
     cmd = [
         binary, "-p", prompt,
         "--output-format", "json",
         "--append-system-prompt", f"{system}\n\n{JSON_ONLY}",
-        # sem ferramentas: queremos uma resposta, não um agente agindo no disco
+        # no tools: we want an answer, not an agent acting on the disk
         "--disallowed-tools", "Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,Task",
         "--strict-mcp-config",
     ]
@@ -243,17 +244,17 @@ def _claude_cli_json(system: str, prompt: str, model: str | None = None) -> dict
     try:
         envelope = json.loads(stdout)
     except json.JSONDecodeError:
-        # se o formato mudar, ainda tentamos achar o JSON no texto cru
+        # if the format changes, we still try to find the JSON in the raw text
         return _extract_json(stdout)
 
     if envelope.get("is_error"):
-        raise LLMError(f"Claude CLI retornou erro: {str(envelope)[:400]}")
+        raise LLMError(f"Claude CLI returned an error: {str(envelope)[:400]}")
     return _extract_json(envelope.get("result") or "")
 
 
 def _codex_cli_json(system: str, prompt: str, schema: dict | None,
                     model: str | None = None) -> dict:
-    """Codex CLI em modo não interativo — consome a assinatura ChatGPT."""
+    """Codex CLI in non-interactive mode — draws on the ChatGPT subscription."""
     binary = _resolve(settings.codex_cli_bin, "Codex (`codex login`)")
 
     with tempfile.TemporaryDirectory(prefix="shortscreator-llm-") as work:

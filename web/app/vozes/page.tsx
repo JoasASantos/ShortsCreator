@@ -29,7 +29,7 @@ export default function Vozes() {
   useEffect(() => {
     pull();
     pullPresets();
-    // o catálogo do Edge vem no idioma da narração deste locale
+    // the Edge catalog comes in this locale's narration language
     api.edgeCatalog(narrationLanguage).then(setCatalog).catch(() => setCatalog([]));
   }, [narrationLanguage]);
 
@@ -44,7 +44,7 @@ export default function Vozes() {
     } finally { setInstalling(""); }
   };
 
-  // agrupa por categoria preservando a ordem que veio do backend
+  // groups by category, preserving the order that came from the backend
   const groups = presets.reduce<Record<string, VoicePreset[]>>((acc, preset) => {
     (acc[preset.category_label] ||= []).push(preset);
     return acc;

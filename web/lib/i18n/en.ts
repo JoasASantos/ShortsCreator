@@ -508,6 +508,13 @@ export const en: Dictionary = {
       "no result right now — the source may be rate-limiting, or it does not cover this niche",
     sourceAge: "collected {n} min ago",
     createShort: "Create short",
+    heat: {
+      searches: "{searches}+ searches",
+      rising: "trending",
+      reddit_rising: "rising · #{position} in r/{sub}",
+      points_comments: "{points} points · {comments} comments",
+      views: "{views} views",
+    },
     regions: { BR: "Brazil", US: "USA", PT: "Portugal", ES: "Spain", RU: "Russia", CN: "China" },
     sourceNames: {
       google_trends: "Google Trends",

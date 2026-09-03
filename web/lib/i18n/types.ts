@@ -9,7 +9,7 @@ export const LOCALE_NAMES: Record<Locale, string> = {
   zh: "中文",
 };
 
-/** Bandeira/rótulo curto para o seletor compacto da barra lateral. */
+/** Flag/short label for the sidebar's compact picker. */
 export const LOCALE_SHORT: Record<Locale, string> = {
   "pt-BR": "PT",
   en: "EN",
@@ -18,8 +18,8 @@ export const LOCALE_SHORT: Record<Locale, string> = {
   zh: "中",
 };
 
-/** Idioma que a narração assume por padrão em cada locale da interface.
- *  Trocar a interface para espanhol não deve obrigar a narrar em português. */
+/** Language the narration defaults to in each interface locale.
+ *  Switching the interface to Spanish must not force narration in Portuguese. */
 export const NARRATION_LANGUAGE: Record<Locale, string> = {
   "pt-BR": "pt-BR",
   en: "en-US",
@@ -28,7 +28,7 @@ export const NARRATION_LANGUAGE: Record<Locale, string> = {
   zh: "zh-CN",
 };
 
-/** Locale do Intl para datas e números. */
+/** Intl locale for dates and numbers. */
 export const INTL_LOCALE: Record<Locale, string> = {
   "pt-BR": "pt-BR",
   en: "en-US",

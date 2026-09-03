@@ -18,7 +18,7 @@ export const DOCS: Record<Locale, DocsPage> = {
   zh: docsZh,
 };
 
-/** Conteúdo da página de instalação no idioma escolhido na interface. */
+/** Install page content in the language chosen in the interface. */
 export function useDocs(): DocsPage {
   return DOCS[useI18n().locale];
 }

@@ -64,7 +64,7 @@ def tiktok_auth():
     from ..pipeline.publishers import tiktok
 
     if not connectors.is_configured("tiktok"):
-        raise HTTPException(400, "Cadastre client_key/client_secret do TikTok em Contas")
+        raise HTTPException(400, "Register the TikTok client_key/client_secret under Accounts")
     return {"auth_url": tiktok.auth_url(state=db.new_id("state"))}
 
 
@@ -78,28 +78,28 @@ def tiktok_callback(code: str = Query(...)):
         info = tiktok.creator_info(token["access_token"])
     except Exception:
         pass
-    name = info.get("creator_nickname") or "Conta TikTok"
+    name = info.get("creator_nickname") or "TikTok account"
     db.create_account("tiktok", name, token)
     return RedirectResponse("http://localhost:3000/contas?connected=tiktok")
 
 
-# ---------------- publicação / agendamento ----------------
+# ---------------- publishing / scheduling ----------------
 
 @router.post("")
 def publish(request: PublishRequest):
     job = db.get_job(request.job_id)
     if job is None or job["status"] != "done":
-        raise HTTPException(400, "Job precisa estar concluído")
+        raise HTTPException(400, "Job must be completed")
 
     qa_report = json.loads(job["qa_json"] or "{}")
     if qa_report and not qa_report.get("passed"):
         fatal = [i for i in qa_report.get("issues", []) if i["severity"] == "fatal"]
         if fatal:
             raise HTTPException(
-                400, f"QA reprovou com erro fatal: {fatal[0]['message']}")
+                400, f"QA failed with a fatal error: {fatal[0]['message']}")
 
     if db.get_account(request.account_id) is None:
-        raise HTTPException(404, "Conta não encontrada")
+        raise HTTPException(404, "Account not found")
 
     result = json.loads(job["result_json"] or "{}")
     payload = {

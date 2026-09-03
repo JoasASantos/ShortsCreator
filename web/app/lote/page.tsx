@@ -8,14 +8,14 @@ import { formatSeconds } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { Chips, Field, StatusTag, Topbar, useToast } from "@/components/ui";
 
-// A chave é o que a API entende; o rótulo é o que o idioma escolhido mostra.
+// The key is what the API understands; the label is what the chosen language shows.
 const NICHE_KEYS = [
   "tecnologia", "ciberseguranca", "programacao", "cinema", "historia",
   "ciencia", "curiosidades", "negocios", "generico",
 ] as const;
 
-// Um vídeo longo vira N shorts: transcreve, o LLM escolhe os momentos, cada
-// um vira um job normal — e, se quiser, já sai agendado um por dia.
+// One long video becomes N shorts: it transcribes, the LLM picks the moments,
+// each one becomes a regular job — and, if you want, goes out scheduled one a day.
 export default function Lote() {
   const { t, f, date } = useI18n();
   const { toast, node } = useToast();
@@ -37,7 +37,7 @@ export default function Lote() {
   useEffect(() => {
     pull();
     const id = setInterval(pull, 5000);
-    // vindo de /novo com o vídeo já enviado
+    // coming from /novo with the video already uploaded
     const params = new URLSearchParams(window.location.search);
     const attachment = params.get("attachment");
     if (attachment) {
@@ -155,7 +155,7 @@ export default function Lote() {
   );
 }
 
-/** Nicho do plano salvo: traduz quando a chave é conhecida, senão mostra crua. */
+/** Niche of the saved plan: translated when the key is known, shown raw otherwise. */
 function nicheLabel(niches: Record<string, string>, value?: string): string {
   if (!value) return "";
   return niches[value] ?? value;

@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 
 import { api, type TrendItem, type TrendSource } from "@/lib/api";
+import { formatCount } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { Chips, Topbar, useToast } from "@/components/ui";
 
-// A chave é o que a API entende; o rótulo é o que o idioma escolhido mostra.
+// The key is what the API understands; the label is what the chosen language shows.
 const NICHE_KEYS = [
   "tecnologia", "ciberseguranca", "programacao", "cinema", "historia",
   "ciencia", "curiosidades", "negocios", "generico",
@@ -14,7 +15,7 @@ const NICHE_KEYS = [
 
 const GEO_KEYS = ["BR", "US", "PT", "ES", "RU", "CN"] as const;
 
-/** Filtro "todas as fontes": valor técnico, não muda com o idioma. */
+/** "All sources" filter: technical value, does not change with the language. */
 const ALL_SOURCES = "todas";
 
 export default function Tendencias() {
@@ -35,6 +36,19 @@ export default function Tendencias() {
   const sourceLabel = (key: string) =>
     (t.trends.sourceNames as Record<string, string>)[key] ?? key;
 
+  /** The heat line comes from the backend as numbers, so the wording follows
+   *  the chosen language instead of being frozen in Portuguese. */
+  const heatLabel = (item: TrendItem) => {
+    const template = (t.trends.heat as Record<string, string>)[item.heat_kind];
+    if (!template) return "";
+    const data = { ...item.heat_data } as Record<string, string | number>;
+    // large counts read better abbreviated on a phone
+    for (const key of ["views", "points", "comments"]) {
+      if (typeof data[key] === "number") data[key] = formatCount(data[key] as number);
+    }
+    return f(template, data);
+  };
+
   useEffect(() => {
     let vivo = true;
     setLoading(true);
@@ -42,7 +56,7 @@ export default function Tendencias() {
       .then((r) => { if (vivo) { setItems(r.items); setFeeds(r.sources); } })
       .catch(() => { if (vivo) { setItems([]); setFeeds([]); } })
       .finally(() => { if (vivo) setLoading(false); });
-    // troca rápida de nicho: descarta a resposta da consulta abandonada
+    // quick niche switching: discards the response of the abandoned query
     return () => { vivo = false; };
   }, [niche, geo]);
 
@@ -92,8 +106,8 @@ export default function Tendencias() {
           </div>
         </section>
 
-        {/* com itens em tela, uma nova consulta não apaga a lista: só o ponto
-            pulsando na barra de título indica que está atualizando */}
+        {/* with items on screen, a new query does not wipe the list: only the
+            pulsing dot in the title bar signals that it is refreshing */}
         {loading && items.length === 0 ? (
           <div className="empty">{t.trends.loading}</div>
         ) : visible.length === 0 ? (
@@ -115,7 +129,7 @@ export default function Tendencias() {
                   <div style={{ minWidth: 0 }}>
                     <div className="row wrap" style={{ gap: 8, marginBottom: 4 }}>
                       <span className="tag">{sourceLabel(item.source)}</span>
-                      <span className="mono dimmer" style={{ fontSize: 11 }}>{item.heat_label}</span>
+                      <span className="mono dimmer" style={{ fontSize: 11 }}>{heatLabel(item)}</span>
                     </div>
                     <h3 style={{ margin: 0, fontSize: 15, lineHeight: 1.4 }}>{item.title}</h3>
                     {item.snippet ? (

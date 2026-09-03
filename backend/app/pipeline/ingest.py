@@ -1,4 +1,4 @@
-"""Ingestão: artigo, vídeo (link ou upload), repositório GitHub, imagens ou texto/roteiro."""
+"""Ingestion: article, video (link or upload), GitHub repository, images or text/script."""
 from __future__ import annotations
 
 import json
@@ -22,7 +22,7 @@ VIDEO_HOSTS = (
 
 GITHUB_HOSTS = ("github.com", "www.github.com")
 
-# Arquivos que valem a pena ler na íntegra para entender o projeto — nessa ordem.
+# Files worth reading in full to understand the project — in this order.
 GITHUB_PRIORITY_FILES = (
     "README.md", "readme.md", "README.rst", "README",
     "package.json", "pyproject.toml", "Cargo.toml", "go.mod",
@@ -80,14 +80,14 @@ def ingest(job: JobInput, job_dir: Path, log=lambda m: None) -> SourceMaterial:
         return _ingest_images(job.attachments, job_dir, log)
 
     if source_type == "github" or (is_url(source) and is_github_url(source)):
-        log(f"Clonando repositório {source}")
+        log(f"Cloning repository {source}")
         return _ingest_github(source, log)
 
     if source_type == "video":
         if job.attachments:
-            log(f"Usando {len(job.attachments)} vídeo(s) enviado(s) por upload")
+            log(f"Using {len(job.attachments)} uploaded video(s)")
             return _ingest_local_videos(job.attachments, job_dir, log)
-        log(f"Baixando vídeo de {source}")
+        log(f"Downloading video from {source}")
         return _ingest_video(source, job_dir, log)
 
     if source_type == "texto" or (source_type == "tema" and len(source) > 400):
@@ -100,10 +100,10 @@ def ingest(job: JobInput, job_dir: Path, log=lambda m: None) -> SourceMaterial:
         return SourceMaterial(kind="tema", title=source, text=source)
 
     if is_video_url(source):
-        log(f"Baixando vídeo de {source}")
+        log(f"Downloading video from {source}")
         return _ingest_video(source, job_dir, log)
 
-    log(f"Extraindo artigo de {source}")
+    log(f"Extracting article from {source}")
     return _ingest_article(source)
 
 
@@ -113,14 +113,14 @@ def _first_line(text: str) -> str:
         if line:
             break
     else:
-        return "Roteiro"
+        return "Script"
     sentence = re.split(r"(?<=[.!?])\s", line, maxsplit=1)[0]
     if len(sentence) <= 90:
         return sentence
     return sentence[:87].rsplit(" ", 1)[0] + "…"
 
 
-# ---------------------------- artigo ----------------------------
+# ---------------------------- article ----------------------------
 
 def _ingest_article(url: str) -> SourceMaterial:
     from bs4 import BeautifulSoup
@@ -149,7 +149,7 @@ def _ingest_article(url: str) -> SourceMaterial:
     return SourceMaterial(kind="artigo", title=title, text=text[:40000], url=url)
 
 
-# ---------------------------- vídeo (link) ----------------------------
+# ---------------------------- video (link) ----------------------------
 
 def _ingest_video(url: str, job_dir: Path, log) -> SourceMaterial:
     out_tpl = str(job_dir / "source.%(ext)s")
@@ -159,11 +159,11 @@ def _ingest_video(url: str, job_dir: Path, log) -> SourceMaterial:
         "--merge-output-format", "mp4",
         "--write-info-json",
         "--write-auto-subs", "--write-subs",
-        # Idiomas exatos, não glob: "pt.*" casa com dezenas de variantes
-        # traduzidas e o YouTube responde 429, abortando o download inteiro.
+        # Exact languages, not a glob: "pt.*" matches dozens of translated
+        # variants and YouTube answers 429, aborting the whole download.
         "--sub-langs", "pt-BR,pt,en",
         "--convert-subs", "srt",
-        # legenda é opcional; falha nela não pode derrubar o vídeo
+        # subtitles are optional; a failure there must not take the video down
         "--ignore-errors",
         "-o", out_tpl, url,
     ]
@@ -173,7 +173,7 @@ def _ingest_video(url: str, job_dir: Path, log) -> SourceMaterial:
     )
     if proc.returncode != 0 and not video_exists:
         tail = (proc.stderr or proc.stdout).strip()[-500:]
-        raise RuntimeError(f"yt-dlp falhou: {tail}")
+        raise RuntimeError(f"yt-dlp failed: {tail}")
 
     video_path = next(iter(sorted(job_dir.glob("source.mp4"))), None)
     if video_path is None:
@@ -188,7 +188,7 @@ def _ingest_video(url: str, job_dir: Path, log) -> SourceMaterial:
 
     transcript = _read_subtitles(job_dir)
     if not transcript and video_path:
-        log("Sem legenda disponível; tentando transcrever com faster-whisper")
+        log("No subtitles available; trying to transcribe with faster-whisper")
         transcript = _whisper_transcribe(video_path, log)
 
     return SourceMaterial(
@@ -208,12 +208,12 @@ def _ingest_video(url: str, job_dir: Path, log) -> SourceMaterial:
     )
 
 
-# ---------------------------- vídeo (upload local: episódio, trailer etc.) ----------------------------
+# ---------------------------- video (local upload: episode, trailer, etc.) ----------------------------
 
 def _ingest_local_videos(attachment_ids: list[str], job_dir: Path,
                         log) -> SourceMaterial:
-    """Aceita 1 ou N vídeos. Com vários, o material é tratado como uma
-    sequência: os trechos de fundo são distribuídos entre todos eles."""
+    """Accepts 1 or N videos. With several, the material is treated as one
+    sequence: the background excerpts are distributed across all of them."""
     paths: list[Path] = []
     durations: list[float] = []
     transcripts: list[str] = []
@@ -225,17 +225,17 @@ def _ingest_local_videos(attachment_ids: list[str], job_dir: Path,
         duration = _probe_duration(dest)
         paths.append(dest)
         durations.append(duration)
-        log(f"Vídeo {index + 1}/{len(attachment_ids)}: {src.name} ({duration:.0f}s)")
+        log(f"Video {index + 1}/{len(attachment_ids)}: {src.name} ({duration:.0f}s)")
 
         if duration:
             text = _whisper_transcribe(dest, log)
             if text:
-                prefix = f"[vídeo {index + 1}] " if len(attachment_ids) > 1 else ""
+                prefix = f"[video {index + 1}] " if len(attachment_ids) > 1 else ""
                 transcripts.append(prefix + text)
 
     total = sum(durations)
     if len(paths) > 1:
-        log(f"{len(paths)} vídeos, {total:.0f}s de material somado")
+        log(f"{len(paths)} videos, {total:.0f}s of material combined")
 
     return SourceMaterial(
         kind="video",
@@ -265,16 +265,16 @@ def _probe_duration(path: Path) -> float:
 
 def _ingest_github(url: str, log) -> SourceMaterial:
     if not shutil.which("git"):
-        raise RuntimeError("git não encontrado no PATH — necessário para ler repositórios.")
+        raise RuntimeError("git not found on PATH — required to read repositories.")
 
     match = re.search(r"github\.com[/:]([^/]+)/([^/#?]+)", url)
     if not match:
-        raise RuntimeError(f"URL de GitHub não reconhecida: {url}")
+        raise RuntimeError(f"Unrecognized GitHub URL: {url}")
     owner, repo = match.group(1), match.group(2).removesuffix(".git")
     dest = settings.repos_dir / f"{owner}__{repo}"
 
     if dest.exists():
-        log(f"Repositório em cache: {owner}/{repo}")
+        log(f"Repository in cache: {owner}/{repo}")
         subprocess.run(["git", "-C", str(dest), "pull", "--ff-only"],
                        capture_output=True, text=True, timeout=60)
     else:
@@ -284,11 +284,11 @@ def _ingest_github(url: str, log) -> SourceMaterial:
             capture_output=True, text=True, timeout=120,
         )
         if proc.returncode != 0:
-            raise RuntimeError(f"Falha ao clonar {clone_url}: {proc.stderr.strip()[-400:]}")
+            raise RuntimeError(f"Failed to clone {clone_url}: {proc.stderr.strip()[-400:]}")
 
     files = _list_repo_files(dest)
     tree = _render_tree(dest, files)
-    log(f"{len(files)} arquivos relevantes encontrados; lendo os principais")
+    log(f"{len(files)} relevant files found; reading the main ones")
 
     picked = _pick_key_files(dest, files)
     chunks: list[str] = []
@@ -326,13 +326,14 @@ def _list_repo_files(root: Path) -> list[Path]:
 
 def _render_tree(root: Path, files: list[Path], max_lines: int = 90) -> str:
     lines = [str(f) for f in files[:max_lines]]
-    header = f"Estrutura de {root.name} ({len(files)} arquivos):"
+    header = f"Structure of {root.name} ({len(files)} files):"
     return header + "\n" + "\n".join(lines)
 
 
 def _pick_key_files(root: Path, files: list[Path]) -> list[Path]:
-    # nomes duplicados (README.md na raiz vs numa subpasta) devem preferir o
-    # arquivo mais raso — é o que de fato descreve o projeto como um todo.
+    # duplicate names (README.md at the root vs. inside a subfolder) should
+    # prefer the shallower file — that is the one actually describing the
+    # project as a whole.
     by_name: dict[str, Path] = {}
     for f in sorted(files, key=lambda f: len(f.parts)):
         by_name.setdefault(f.name, f)
@@ -344,8 +345,8 @@ def _pick_key_files(root: Path, files: list[Path]) -> list[Path]:
         candidate = Path(hint)
         if candidate in files and candidate not in picked:
             picked.append(candidate)
-    # completa com os arquivos de código mais "centrais" (menor profundidade primeiro,
-    # ignorando testes/docs/exemplos — eles raramente explicam o que o projeto faz)
+    # fill up with the most "central" code files (shallowest first, skipping
+    # tests/docs/examples — they rarely explain what the project does)
     code_ext = {".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".rb", ".php"}
     noise_dirs = {"tests", "test", "docs", "doc", "examples", "example", "__tests__"}
     remaining = sorted(
@@ -375,11 +376,11 @@ def _guess_languages(files: list[Path]) -> list[str]:
     return [lang for lang, _ in sorted(counts.items(), key=lambda kv: -kv[1])][:5]
 
 
-# ---------------------------- imagens ----------------------------
+# ---------------------------- images ----------------------------
 
 def _ingest_images(attachment_ids: list[str], job_dir: Path, log) -> SourceMaterial:
     if not attachment_ids:
-        raise RuntimeError("Nenhuma imagem enviada. Faça upload antes de criar o job.")
+        raise RuntimeError("No image supplied. Upload one before creating the job.")
 
     paths: list[Path] = []
     for i, attachment_id in enumerate(attachment_ids):
@@ -388,14 +389,14 @@ def _ingest_images(attachment_ids: list[str], job_dir: Path, log) -> SourceMater
         shutil.copy(src, dest)
         paths.append(dest)
 
-    log(f"{len(paths)} imagem(ns) recebida(s)")
+    log(f"{len(paths)} image(s) received")
     return SourceMaterial(kind="imagem", title="", text="", image_paths=paths)
 
 
-# ---------------------------- utilidades compartilhadas ----------------------------
+# ---------------------------- shared utilities ----------------------------
 
 def ytdlp_command() -> list[str]:
-    """yt-dlp pode estar no PATH ou apenas dentro do venv — resolve os dois casos."""
+    """yt-dlp may be on PATH or only inside the venv — this resolves both cases."""
     binary = shutil.which("yt-dlp")
     if binary:
         return [binary]
@@ -403,7 +404,7 @@ def ytdlp_command() -> list[str]:
         import yt_dlp  # noqa: F401
     except ImportError as exc:
         raise RuntimeError(
-            "yt-dlp não encontrado. Instale com: pip install yt-dlp"
+            "yt-dlp not found. Install it with: pip install yt-dlp"
         ) from exc
     return [sys.executable, "-m", "yt_dlp"]
 
@@ -433,12 +434,12 @@ def _whisper_transcribe(video_path: Path, log) -> str:
 
 
 def whisper_segments(video_path: Path, log=lambda m: None) -> list[dict]:
-    """Transcreve devolvendo os segmentos com tempo — o clipper precisa dos
-    timestamps para escolher início e fim de cada trecho."""
+    """Transcribe, returning the timed segments — the clipper needs the
+    timestamps to choose the start and end of each excerpt."""
     try:
         from faster_whisper import WhisperModel
     except ImportError:
-        log("faster-whisper não instalado; seguindo sem transcrição")
+        log("faster-whisper not installed; carrying on without a transcript")
         return []
     model = WhisperModel(settings.whisper_model, device="cpu", compute_type="int8")
     segments, _ = model.transcribe(str(video_path), language=None, vad_filter=True)

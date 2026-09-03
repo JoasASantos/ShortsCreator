@@ -1,17 +1,18 @@
-"""Catálogo de conectores externos + guarda das credenciais.
+"""Catalog of external connectors + credential custody.
 
-Um conector é qualquer serviço de terceiro que o ShortsCreator sabe chamar:
-publicação (YouTube, TikTok...), geração de vídeo por IA (Higgsfield),
-avatar falante (HeyGen), voz (Fish Audio, ElevenLabs) e banco de b-roll
+A connector is any third-party service ShortsCreator knows how to call:
+publishing (YouTube, TikTok...), AI video generation (Higgsfield), talking
+avatar (HeyGen), voice (Fish Audio, ElevenLabs) and b-roll stock banks
 (Pexels, Pixabay).
 
-Duas fontes de credencial, nessa ordem:
-  1. tabela `connector_credentials` no banco — o que a tela de Contas grava;
-  2. variável de ambiente do .env — mantém funcionando quem já configurou
-     por lá antes desta tela existir.
+Two credential sources, in this order:
+  1. the `connector_credentials` table in the database — what the Accounts
+     screen writes;
+  2. an environment variable from .env — keeps working for anyone who had
+     already configured it there before this screen existed.
 
-Quem consome credencial deve chamar `credentials(<id>)` em vez de ler
-settings direto, para respeitar essa precedência.
+Whoever consumes a credential must call `credentials(<id>)` instead of reading
+settings directly, so that this precedence is respected.
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ TIMEOUT = 25.0
 class Field:
     key: str
     label: str
-    env: str = ""          # variável de ambiente equivalente (fallback)
+    env: str = ""          # equivalent environment variable (fallback)
     secret: bool = True
     hint: str = ""
 
@@ -40,9 +41,9 @@ class Field:
 class Connector:
     id: str
     name: str
-    # publicacao: posta o short pronto | video: gera imagem em movimento
-    # avatar: apresentador falante | voz: TTS | broll: banco de estoque
-    # notificacao: avisa quando o job termina ou a publicação sai
+    # publicacao: posts the finished short | video: generates moving imagery
+    # avatar: talking presenter | voz: TTS | broll: stock footage bank
+    # notificacao: warns when the job finishes or the publication goes out
     category: str
     auth: str              # "oauth" | "api_key"
     detail: str
@@ -50,12 +51,12 @@ class Connector:
     status: str = "pronto"  # pronto | beta | planejado
     fields: list[Field] = field(default_factory=list)
     requirement: str = ""
-    # Função que faz uma chamada real e barata só para provar que a
-    # credencial vale. Retorna texto curto pra mostrar na tela.
+    # Function that makes a real, cheap call just to prove the credential is
+    # good. Returns a short piece of text to show on screen.
     check: Callable[[dict], str] | None = None
 
 
-# ---------------------------------------------------------------- checagens
+# ------------------------------------------------------------------- checks
 
 def _get(url: str, headers: dict, params: dict | None = None) -> httpx.Response:
     return httpx.get(url, headers=headers, params=params, timeout=TIMEOUT,
@@ -78,10 +79,10 @@ def _check_elevenlabs(creds: dict) -> str:
     key = creds.get("api_key", "")
     r = _get("https://api.elevenlabs.io/v1/user", {"xi-api-key": key})
     if r.status_code == 401:
-        raise RuntimeError("Chave recusada pela ElevenLabs (401)")
+        raise RuntimeError("Key rejected by ElevenLabs (401)")
     r.raise_for_status()
     tier = (r.json().get("subscription") or {}).get("tier", "?")
-    return f"Conta ElevenLabs válida (plano {tier})"
+    return f"Valid ElevenLabs account ({tier} plan)"
 
 
 def _check_fishaudio(creds: dict) -> str:
@@ -89,10 +90,10 @@ def _check_fishaudio(creds: dict) -> str:
     r = _get("https://api.fish.audio/model",
              {"Authorization": f"Bearer {key}"}, {"page_size": 1})
     if r.status_code in (401, 403):
-        raise RuntimeError("Chave recusada pela Fish Audio")
+        raise RuntimeError("Key rejected by Fish Audio")
     r.raise_for_status()
     total = r.json().get("total", "?")
-    return f"Fish Audio respondendo ({total} vozes no catálogo)"
+    return f"Fish Audio responding ({total} voices in the catalog)"
 
 
 def _check_pexels(creds: dict) -> str:
@@ -100,24 +101,24 @@ def _check_pexels(creds: dict) -> str:
              {"Authorization": creds.get("api_key", "")},
              {"query": "city", "per_page": 1})
     if r.status_code == 401:
-        raise RuntimeError("Chave recusada pela Pexels (401)")
+        raise RuntimeError("Key rejected by Pexels (401)")
     r.raise_for_status()
-    return "Pexels respondendo — b-roll em vídeo liberado"
+    return "Pexels responding — video b-roll enabled"
 
 
 def _check_pixabay(creds: dict) -> str:
     r = _get("https://pixabay.com/api/videos/", {},
              {"key": creds.get("api_key", ""), "q": "city", "per_page": 3})
     if r.status_code in (400, 401):
-        raise RuntimeError("Chave recusada pela Pixabay")
+        raise RuntimeError("Key rejected by Pixabay")
     r.raise_for_status()
-    return "Pixabay respondendo — b-roll em vídeo liberado"
+    return "Pixabay responding — video b-roll enabled"
 
 
 def _check_tiktok_app(creds: dict) -> str:
     if not creds.get("client_key") or not creds.get("client_secret"):
-        raise RuntimeError("Faltam client_key/client_secret")
-    return "App TikTok configurado — conecte a conta pelo botão Conectar"
+        raise RuntimeError("Missing client_key/client_secret")
+    return "TikTok app configured — connect the account with the Connect button"
 
 
 def _check_instagram(creds: dict) -> str:
@@ -150,7 +151,7 @@ def _check_webhook(creds: dict) -> str:
     return notify.check_webhook(creds)
 
 
-# ------------------------------------------------------------------ catálogo
+# ------------------------------------------------------------------- catalog
 
 CATALOG: list[Connector] = [
     Connector(
@@ -278,8 +279,8 @@ CATALOG: list[Connector] = [
         fields=[Field("url", "URL", "NOTIFY_WEBHOOK_URL", secret=False)],
         check=_check_webhook,
     ),
-    # Abaixo: previstos, sem implementação ainda. Ficam listados de
-    # propósito — a chave pode ser guardada agora e o uso entra depois.
+    # Below: planned, not implemented yet. They are listed on purpose — the
+    # key can be stored now and the usage lands later.
     Connector(
         id="runway", name="Runway Gen-4", category="video", auth="api_key",
         status="planejado",
@@ -305,14 +306,14 @@ BY_ID = {c.id: c for c in CATALOG}
 
 def get(connector_id: str) -> Connector:
     if connector_id not in BY_ID:
-        raise KeyError(f"Conector desconhecido: {connector_id}")
+        raise KeyError(f"Unknown connector: {connector_id}")
     return BY_ID[connector_id]
 
 
-# --------------------------------------------------------------- credenciais
+# --------------------------------------------------------------- credentials
 
 def credentials(connector_id: str) -> dict:
-    """Credencial efetiva: o que está no banco vence o que está no .env."""
+    """Effective credential: what is in the database beats what is in .env."""
     connector = get(connector_id)
     saved = db.get_connector(connector_id) or {}
     out: dict[str, str] = {}
@@ -324,8 +325,8 @@ def credentials(connector_id: str) -> dict:
 
 
 def source(connector_id: str) -> str:
-    """De onde veio a credencial — a tela mostra isso para evitar confusão
-    quando .env e banco discordam."""
+    """Where the credential came from — the screen shows this to avoid
+    confusion when .env and the database disagree."""
     connector = get(connector_id)
     saved = db.get_connector(connector_id) or {}
     if any(saved.get(f.key) for f in connector.fields):
@@ -373,7 +374,8 @@ def describe_all() -> list[dict]:
 
 
 def save(connector_id: str, values: dict) -> dict:
-    """Grava só os campos declarados. Valor vazio apaga o campo (volta pro .env)."""
+    """Stores only the declared fields. An empty value clears the field (falling
+    back to .env)."""
     connector = get(connector_id)
     saved = dict(db.get_connector(connector_id) or {})
     for f in connector.fields:
@@ -397,18 +399,19 @@ def clear(connector_id: str) -> dict:
     return describe(connector_id)
 
 
-# Publicadores cuja "conta" é o próprio token salvo no conector — não têm
-# fluxo OAuth com redirect. Ao salvar, viram uma conta publicável na hora.
+# Publishers whose "account" is the token saved in the connector itself — they
+# have no OAuth redirect flow. On save, they immediately become a publishable
+# account.
 TOKEN_PUBLISHERS = {"instagram", "linkedin"}
 
 
 def _sync_token_account(connector_id: str) -> None:
-    """Cria/atualiza a conta publicável — mas só se o token responder.
+    """Creates/updates the publishable account — but only if the token answers.
 
-    Buscar o nome do perfil já valida a credencial de graça. Sem isso, um
-    token errado virava uma conta com nome genérico que só falhava na hora
-    de publicar; agora o conector fica salvo e a conta não aparece, e o
-    "Testar conexão" explica o motivo.
+    Fetching the profile name validates the credential for free. Without this,
+    a wrong token turned into an account with a generic name that only failed
+    at publish time; now the connector stays saved, the account does not show
+    up, and "Test connection" explains why.
     """
     if connector_id not in TOKEN_PUBLISHERS or not is_configured(connector_id):
         return
@@ -424,7 +427,7 @@ def _sync_token_account(connector_id: str) -> None:
 
     try:
         name = module.profile_name(creds)
-    except Exception:  # noqa: BLE001 — token inválido ou serviço fora do ar
+    except Exception:  # noqa: BLE001 — invalid token or service down
         db.delete_accounts_for_platform(connector_id)
         return
     db.upsert_account_for_platform(connector_id, name, creds)
@@ -433,9 +436,9 @@ def _sync_token_account(connector_id: str) -> None:
 def test(connector_id: str) -> str:
     connector = get(connector_id)
     if connector.check is None:
-        raise RuntimeError(f"{connector.name} ainda não tem teste automático")
+        raise RuntimeError(f"{connector.name} has no automated test yet")
     creds = credentials(connector_id)
     missing = [f.label for f in connector.fields if not creds.get(f.key)]
     if missing:
-        raise RuntimeError(f"Faltando: {', '.join(missing)}")
+        raise RuntimeError(f"Missing: {', '.join(missing)}")
     return connector.check(creds)
