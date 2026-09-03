@@ -10,11 +10,13 @@ user, not developer-facing strings.
 """
 from __future__ import annotations
 
+import json
 import threading
 
 import httpx
 
 from .. import db
+from ..config import settings
 from . import connectors
 
 TIMEOUT = 12.0
@@ -74,36 +76,114 @@ def _deliver(targets, title: str, body: str, url: str, level: str) -> None:
             continue
 
 
+# ---------------------------------------------------------------- messages
+#
+# These reach a person on their phone, so they follow the language the job was
+# made in — someone producing in Spanish should not get a Portuguese alert.
+# The interface language lives in the browser, out of reach here, but
+# `job.language` travels with the job and is the same choice.
+MESSAGES = {
+    "pt": {
+        "done": "Short pronto: {title}",
+        "done_body": "{duration}s · QA {score}/100 · {verdict}",
+        "approved": "aprovado",
+        "rejected": "reprovado",
+        "failed": "Short falhou: {title}",
+        "published": "Publicado no {platform}: {title}",
+        "publish_failed": "Falha ao publicar no {platform}: {title}",
+    },
+    "en": {
+        "done": "Short ready: {title}",
+        "done_body": "{duration}s · QA {score}/100 · {verdict}",
+        "approved": "passed",
+        "rejected": "failed",
+        "failed": "Short failed: {title}",
+        "published": "Published to {platform}: {title}",
+        "publish_failed": "Could not publish to {platform}: {title}",
+    },
+    "es": {
+        "done": "Short listo: {title}",
+        "done_body": "{duration}s · QA {score}/100 · {verdict}",
+        "approved": "aprobado",
+        "rejected": "rechazado",
+        "failed": "El short falló: {title}",
+        "published": "Publicado en {platform}: {title}",
+        "publish_failed": "Fallo al publicar en {platform}: {title}",
+    },
+    "ru": {
+        "done": "Short готов: {title}",
+        "done_body": "{duration}с · QA {score}/100 · {verdict}",
+        "approved": "пройдено",
+        "rejected": "не пройдено",
+        "failed": "Short не собрался: {title}",
+        "published": "Опубликовано в {platform}: {title}",
+        "publish_failed": "Не удалось опубликовать в {platform}: {title}",
+    },
+    "zh": {
+        "done": "短视频已完成：{title}",
+        "done_body": "{duration}秒 · 质检 {score}/100 · {verdict}",
+        "approved": "通过",
+        "rejected": "未通过",
+        "failed": "短视频失败：{title}",
+        "published": "已发布到 {platform}：{title}",
+        "publish_failed": "发布到 {platform} 失败：{title}",
+    },
+}
+
+
+def _strings(job_id: str) -> dict:
+    """Message set for the language this job was made in."""
+    job = db.get_job(job_id)
+    tag = "pt"
+    if job:
+        try:
+            tag = (json.loads(job["input_json"]).get("language") or "pt")
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+    return MESSAGES.get(tag.split("-")[0].lower(), MESSAGES["pt"])
+
+
 # ------------------------------------------------------------- shortcuts
 
 def job_done(job_id: str, title: str, duration: float, qa_score: int, passed: bool) -> None:
+    s = _strings(job_id)
     send(
-        f"Short pronto: {title}",
-        f"{duration:.0f}s · QA {qa_score}/100 · {'aprovado' if passed else 'reprovado'}",
+        s["done"].format(title=title),
+        s["done_body"].format(duration=f"{duration:.0f}", score=qa_score,
+                              verdict=s["approved"] if passed else s["rejected"]),
         _job_url(job_id),
         "info" if passed else "warn",
     )
 
 
 def job_failed(job_id: str, title: str, error: str) -> None:
-    send(f"Short falhou: {title or job_id}", error[:300], _job_url(job_id), "error")
+    s = _strings(job_id)
+    send(s["failed"].format(title=title or job_id), error[:300],
+         _job_url(job_id), "error")
 
 
 def published(job_id: str, platform: str, url: str) -> None:
     job = db.get_job(job_id)
     title = (job or {}).get("title") or job_id
-    send(f"Publicado no {platform}: {title}", "", url or _job_url(job_id))
+    s = _strings(job_id)
+    send(s["published"].format(platform=platform, title=title), "",
+         url or _job_url(job_id))
 
 
 def publish_failed(job_id: str, platform: str, error: str) -> None:
     job = db.get_job(job_id)
     title = (job or {}).get("title") or job_id
-    send(f"Falha ao publicar no {platform}: {title}", error[:300],
-         _job_url(job_id), "error")
+    s = _strings(job_id)
+    send(s["publish_failed"].format(platform=platform, title=title),
+         error[:300], _job_url(job_id), "error")
 
 
 def _job_url(job_id: str) -> str:
-    return f"http://localhost:3000/job/{job_id}"
+    """Link back to the job. The interface is not always on localhost — when
+    PUBLIC_API_URL points at a tunnel, the notice should be clickable from a
+    phone too."""
+    base = settings.public_web_url.rstrip("/")
+    return f"{base}/job/{job_id}"
 
 
 # ------------------------------------------------------------- checks

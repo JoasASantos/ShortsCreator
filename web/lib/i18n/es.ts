@@ -630,6 +630,101 @@ export const es: Dictionary = {
     connectFailed: "Fallo al conectar: {message}",
   },
 
+  connectors: {
+    youtube: {
+      detail:
+        "Subida reanudable con la Data API v3. Admite programación nativa (publishAt) y privacidad por vídeo.",
+      requirement: "client_secret de OAuth en data/secrets/youtube_client_secret.json",
+    },
+    tiktok: {
+      detail:
+        "Content Posting API v2. Una cuenta sin auditoría cae en la bandeja de borradores de la app; con la auditoría aprobada, publica directo.",
+      requirement: "TIKTOK_CLIENT_KEY y TIKTOK_CLIENT_SECRET",
+    },
+    higgsfield: {
+      detail:
+        "Genera el fondo del short con IA (Sora 2, Veo 3.1, Kling 2.5, Seedance, Hailuo) ya en 9:16. Activa el modo de fondo 'ia_video'.",
+      requirement: "Par de claves creado en cloud.higgsfield.ai",
+    },
+    heygen: {
+      detail:
+        "Presentador que habla a partir del guion. El clip generado entra como adjunto y puede convertirse en el vídeo de origen del short.",
+      requirement: "API key de la cuenta de HeyGen (Settings > API)",
+    },
+    fishaudio: {
+      detail:
+        "Voces de personaje y narración del catálogo de Fish. Ya es el proveedor de las voces instaladas en la pantalla de Voces.",
+      requirement: "FISHAUDIO_API_KEY",
+    },
+    elevenlabs: {
+      detail:
+        "TTS alternativo con marca de tiempo por carácter: el proveedor con los subtítulos karaoke más precisos después de edge-tts.",
+      requirement: "ELEVENLABS_API_KEY",
+    },
+    pexels: {
+      detail:
+        "Banco de vídeo gratuito usado en el fondo automático (fondo 'broll') cuando el trabajo no trae medios propios.",
+      requirement: "PEXELS_API_KEY",
+    },
+    pixabay: {
+      detail:
+        "Segundo banco de b-roll. Entra como reserva cuando Pexels no tiene resultados para la consulta del segmento.",
+      requirement: "PIXABAY_API_KEY",
+    },
+    instagram: {
+      detail:
+        "Publicación de Reels con la Graph API (contenedor + publish). Exige una cuenta profesional vinculada a una página de Facebook, y la API necesita descargar el MP4 desde una URL pública: PUBLIC_API_URL tiene que ser accesible desde internet (ngrok, cloudflared...).",
+      requirement: "Token de larga duración + IG User ID",
+    },
+    linkedin: {
+      detail:
+        "Publicación de vídeo nativo con la Posts API. Sirve para los nichos de tecnología y seguridad, donde el alcance allí es mejor.",
+      requirement:
+        "Access token con w_member_social (y openid/profile para descubrir el URN por sí solo)",
+    },
+    telegram: {
+      detail:
+        "Aviso cuando un short termina, falla o se publica. Crea un bot en @BotFather, mándale /start y consigue tu chat_id en @userinfobot.",
+      requirement: "Token del bot + chat_id",
+    },
+    discord: {
+      detail: "Los mismos avisos, en un canal de Discord mediante un webhook de integración.",
+      requirement: "URL del webhook del canal",
+    },
+    webhook: {
+      detail:
+        "POST JSON {title, body, url, level} a cualquier URL: n8n, Zapier, Make o tu propio servicio.",
+      requirement: "Una URL que acepte POST",
+    },
+    runway: {
+      detail:
+        "Generador de vídeo alternativo a Higgsfield, con control fino de cámara. Se enruta por el mismo modo de fondo 'ia_video'.",
+      requirement: "RUNWAY_API_KEY",
+    },
+    did: {
+      detail:
+        "Avatar que habla a partir de una foto: alternativa más barata a HeyGen cuando la cara es una imagen tuya.",
+      requirement: "DID_API_KEY",
+    },
+    fields: {
+      client_key: "Client key",
+      client_secret: "Client secret",
+      api_key: "API key",
+      key_id: "API key id",
+      key_secret: "API key secret",
+      access_token: "Access token",
+      ig_user_id: "IG user id",
+      author_urn: "URN del autor",
+      bot_token: "Token del bot",
+      chat_id: "Chat id",
+      webhook_url: "URL del webhook",
+      url: "URL",
+    },
+    hints: {
+      author_urn: "urn:li:person:xxxx — vacío = lo descubre por el token",
+    },
+  },
+
   voices: {
     title: "Voces",
   },

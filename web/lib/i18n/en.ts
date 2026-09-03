@@ -629,6 +629,101 @@ export const en: Dictionary = {
     connectFailed: "Could not connect: {message}",
   },
 
+  connectors: {
+    youtube: {
+      detail:
+        "Resumable upload through the Data API v3. Supports native scheduling (publishAt) and per-video privacy.",
+      requirement: "OAuth client_secret at data/secrets/youtube_client_secret.json",
+    },
+    tiktok: {
+      detail:
+        "Content Posting API v2. An unaudited account lands in the app's draft inbox; once the audit is approved, it publishes straight away.",
+      requirement: "TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET",
+    },
+    higgsfield: {
+      detail:
+        "Generates the short's background with AI (Sora 2, Veo 3.1, Kling 2.5, Seedance, Hailuo) already in 9:16. Powers the 'ia_video' background mode.",
+      requirement: "Key pair created at cloud.higgsfield.ai",
+    },
+    heygen: {
+      detail:
+        "Talking presenter built from the script. The generated clip comes in as an attachment and can become the short's source video.",
+      requirement: "API key from the HeyGen account (Settings > API)",
+    },
+    fishaudio: {
+      detail:
+        "Character and narration voices from the Fish catalog. Already the provider behind the voices installed on the Voices screen.",
+      requirement: "FISHAUDIO_API_KEY",
+    },
+    elevenlabs: {
+      detail:
+        "Alternative TTS with per-character timestamps — the provider with the most accurate karaoke captions after edge-tts.",
+      requirement: "ELEVENLABS_API_KEY",
+    },
+    pexels: {
+      detail:
+        "Free video bank used for the automatic background (the 'broll' background) when the job brings no media of its own.",
+      requirement: "PEXELS_API_KEY",
+    },
+    pixabay: {
+      detail:
+        "Second b-roll bank. Steps in as a fallback when Pexels has no result for the segment's query.",
+      requirement: "PIXABAY_API_KEY",
+    },
+    instagram: {
+      detail:
+        "Reels publishing through the Graph API (container + publish). Requires a professional account linked to a Facebook page, and the API has to download the MP4 from a public URL — PUBLIC_API_URL must be reachable from the internet (ngrok, cloudflared...).",
+      requirement: "Long-lived token + IG User ID",
+    },
+    linkedin: {
+      detail:
+        "Native video post through the Posts API. Useful for the technology and security niches, where reach is better there.",
+      requirement:
+        "Access token with w_member_social (plus openid/profile to discover the URN on its own)",
+    },
+    telegram: {
+      detail:
+        "Notice when a short finishes, fails or gets published. Create a bot with @BotFather, send it /start and grab your chat_id from @userinfobot.",
+      requirement: "Bot token + chat_id",
+    },
+    discord: {
+      detail: "The same notices, in a Discord channel through an integration webhook.",
+      requirement: "Channel webhook URL",
+    },
+    webhook: {
+      detail:
+        "POST JSON {title, body, url, level} to any URL — n8n, Zapier, Make or your own service.",
+      requirement: "A URL that accepts POST",
+    },
+    runway: {
+      detail:
+        "Alternative video generator to Higgsfield, with fine-grained camera control. Routes through the same 'ia_video' background mode.",
+      requirement: "RUNWAY_API_KEY",
+    },
+    did: {
+      detail:
+        "Talking avatar from a single photo — a cheaper alternative to HeyGen when the face is a picture of you.",
+      requirement: "DID_API_KEY",
+    },
+    fields: {
+      client_key: "Client key",
+      client_secret: "Client secret",
+      api_key: "API key",
+      key_id: "API key id",
+      key_secret: "API key secret",
+      access_token: "Access token",
+      ig_user_id: "IG user id",
+      author_urn: "Author URN",
+      bot_token: "Bot token",
+      chat_id: "Chat id",
+      webhook_url: "Webhook URL",
+      url: "URL",
+    },
+    hints: {
+      author_urn: "urn:li:person:xxxx — empty = discovered from the token",
+    },
+  },
+
   voices: {
     title: "Voices",
   },

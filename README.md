@@ -179,6 +179,11 @@ each short to finish rendering and pass QA before going up.
 Telegram, Discord or a generic webhook when a short finishes, fails or gets
 published. Optional — with no credential configured, nothing is sent.
 
+Each notice follows the language the job was made in, so a Spanish production
+sends a Spanish alert. Set `PUBLIC_WEB_URL` if you run behind a tunnel:
+otherwise the link in the message points at `localhost` and is useless on a
+phone.
+
 ## Tests
 
 ```bash
@@ -231,12 +236,11 @@ web/
 
 SQLite with no ORM. In-thread job queue, no external broker.
 
-Code, comments and commit history are in English. Two things stay in
-Portuguese on purpose: the **LLM prompts** in `script.py` and `clipper.py`
-(they are calibrated in Portuguese and their JSON responses use Portuguese
-keys — the *output* language is controlled separately by `job.language`), and
-the **connector descriptions** in `connectors.py`, which the Accounts screen
-renders directly and would need their own i18n pass.
+Code, comments and commit history are in English. One thing stays in
+Portuguese on purpose: the **LLM prompts** in `script.py` and `clipper.py`.
+They are calibrated in Portuguese and their JSON responses use Portuguese
+keys, which the pipeline reads by name — the *output* language is a separate
+concern, controlled by `job.language`.
 
 ## License
 

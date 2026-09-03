@@ -640,6 +640,105 @@ export const ptBR = {
     connectFailed: "Falha ao conectar: {message}",
   },
 
+  /** Textos exibíveis dos conectores, indexados pelo id que a API manda.
+   *  O `name` continua vindo da API: são nomes de produto (YouTube Shorts,
+   *  TikTok, Higgsfield...) e não se traduzem. `fields` e `hints` são
+   *  compartilhados — a mesma chave de campo aparece em vários conectores. */
+  connectors: {
+    youtube: {
+      detail:
+        "Upload resumível pela Data API v3. Aceita agendamento nativo (publishAt) e privacidade por vídeo.",
+      requirement: "client_secret OAuth em data/secrets/youtube_client_secret.json",
+    },
+    tiktok: {
+      detail:
+        "Content Posting API v2. Conta sem auditoria cai na caixa de rascunhos do app; com auditoria aprovada, publica direto.",
+      requirement: "TIKTOK_CLIENT_KEY e TIKTOK_CLIENT_SECRET",
+    },
+    higgsfield: {
+      detail:
+        "Gera o fundo do short por IA (Sora 2, Veo 3.1, Kling 2.5, Seedance, Hailuo) já em 9:16. Vira o modo de fundo 'ia_video'.",
+      requirement: "Par de chaves criado em cloud.higgsfield.ai",
+    },
+    heygen: {
+      detail:
+        "Apresentador falante a partir do roteiro. O clipe gerado entra como anexo e pode virar o vídeo de origem do short.",
+      requirement: "API key da conta HeyGen (Settings > API)",
+    },
+    fishaudio: {
+      detail:
+        "Vozes de personagem e narração do catálogo Fish. Já é o provedor das vozes instaladas na tela de Vozes.",
+      requirement: "FISHAUDIO_API_KEY",
+    },
+    elevenlabs: {
+      detail:
+        "TTS alternativo com timestamp por caractere — é o provedor com a legenda karaokê mais precisa depois do edge-tts.",
+      requirement: "ELEVENLABS_API_KEY",
+    },
+    pexels: {
+      detail:
+        "Banco de vídeo gratuito usado no fundo automático (background 'broll') quando o job não traz mídia própria.",
+      requirement: "PEXELS_API_KEY",
+    },
+    pixabay: {
+      detail:
+        "Segundo banco de b-roll. Entra como reserva quando a Pexels não tem resultado para a consulta do segmento.",
+      requirement: "PIXABAY_API_KEY",
+    },
+    instagram: {
+      detail:
+        "Publicação de Reels pela Graph API (container + publish). Exige conta profissional ligada a uma página do Facebook, e a API precisa baixar o MP4 por uma URL pública — PUBLIC_API_URL tem que ser alcançável da internet (ngrok, cloudflared...).",
+      requirement: "Token de longa duração + IG User ID",
+    },
+    linkedin: {
+      detail:
+        "Post de vídeo nativo pela Posts API. Serve para os nichos de tecnologia e segurança, onde o alcance ali é melhor.",
+      requirement:
+        "Access token com w_member_social (e openid/profile para descobrir o URN sozinho)",
+    },
+    telegram: {
+      detail:
+        "Aviso quando um short termina, falha ou é publicado. Crie um bot no @BotFather, mande /start pra ele e pegue seu chat_id em @userinfobot.",
+      requirement: "Token do bot + chat_id",
+    },
+    discord: {
+      detail: "Mesmos avisos, num canal do Discord via webhook de integração.",
+      requirement: "URL do webhook do canal",
+    },
+    webhook: {
+      detail:
+        "POST JSON {title, body, url, level} para qualquer URL — n8n, Zapier, Make ou seu próprio serviço.",
+      requirement: "URL que aceite POST",
+    },
+    runway: {
+      detail:
+        "Gerador de vídeo alternativo ao Higgsfield, com controle fino de câmera. Roteia pelo mesmo modo de fundo 'ia_video'.",
+      requirement: "RUNWAY_API_KEY",
+    },
+    did: {
+      detail:
+        "Avatar falante a partir de uma foto — alternativa mais barata ao HeyGen quando o rosto é uma imagem sua.",
+      requirement: "DID_API_KEY",
+    },
+    fields: {
+      client_key: "Client key",
+      client_secret: "Client secret",
+      api_key: "API key",
+      key_id: "API key id",
+      key_secret: "API key secret",
+      access_token: "Access token",
+      ig_user_id: "IG user id",
+      author_urn: "URN do autor",
+      bot_token: "Token do bot",
+      chat_id: "Chat id",
+      webhook_url: "URL do webhook",
+      url: "URL",
+    },
+    hints: {
+      author_urn: "urn:li:person:xxxx — vazio = descobre pelo token",
+    },
+  },
+
   voices: {
     title: "Vozes",
   },
