@@ -96,3 +96,58 @@ def test_empty_word_list_does_not_break(tmp_path):
     out = captions.build_ass([], tmp_path / "vazio.ass")
     assert out.exists()
     assert "[Events]" in out.read_text("utf-8")
+
+
+# ------------------------------------------------------------- watermark
+
+def _mark_style(ass_text: str) -> list[str]:
+    """Fields of the `Marca` style line. Splitting on the first ':' drops the
+    `Style` prefix, so index 0 is the style name and the rest lines up with the
+    Format row: 2 = fontsize, 18 = alignment, 21 = MarginV."""
+    line = next(l for l in ass_text.splitlines() if l.startswith("Style: Marca"))
+    return [field.strip() for field in line.split(":", 1)[1].split(",")]
+
+
+def test_watermark_alpha_is_inverted_in_ass():
+    """ASS colours are &HAABBGGRR and the alpha byte runs backwards: 0x00 is
+    fully opaque. Getting this the wrong way round makes the mark vanish."""
+    assert captions._watermark_colour(1.0) == "&H00FFFFFF"   # noqa: SLF001
+    assert captions._watermark_colour(0.0) == "&HFFFFFFFF"   # noqa: SLF001
+    assert captions._watermark_colour(0.6) == "&H66FFFFFF"   # noqa: SLF001
+
+
+def test_watermark_position_maps_to_the_ass_alignment(tmp_path, words):
+    for position, align in captions.WATERMARK_ALIGN.items():
+        text = captions.build_ass(words, tmp_path / f"{position}.ass",
+                                  watermark="@channel",
+                                  watermark_position=position).read_text("utf-8")
+        style = _mark_style(text)
+        assert style[18] == str(align), position
+
+
+def test_watermark_size_changes_the_font_size(tmp_path, words):
+    sizes = []
+    for size in ("pequeno", "medio", "grande"):
+        text = captions.build_ass(words, tmp_path / f"{size}.ass",
+                                  watermark="@channel",
+                                  watermark_size=size).read_text("utf-8")
+        style = _mark_style(text)
+        sizes.append(float(style[2]))
+    assert sizes == sorted(sizes) and sizes[0] < sizes[-1]
+
+
+def test_top_anchored_watermark_clears_the_app_interface(tmp_path, words):
+    """Both anchors have to stay out of the app's own chrome — the bottom band
+    it covers and the top row of buttons."""
+    for position in ("topo_centro", "baixo_centro"):
+        text = captions.build_ass(words, tmp_path / f"{position}.ass",
+                                  watermark="@channel",
+                                  watermark_position=position).read_text("utf-8")
+        style = _mark_style(text)
+        assert float(style[21]) >= 120, position
+
+
+def test_no_watermark_means_no_mark_event(tmp_path, words):
+    text = captions.build_ass(words, tmp_path / "none.ass").read_text("utf-8")
+    assert not [l for l in text.splitlines()
+                if l.startswith("Dialogue:") and ",Marca," in l]

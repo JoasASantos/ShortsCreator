@@ -28,6 +28,14 @@ Angle = Literal[
     "explicacao", "enredo", "curiosidade", "tutorial",
 ]
 
+# Watermark placement. Bottom-centre is the default because it stays clear of
+# the app's own interface on both TikTok and Shorts.
+WatermarkPosition = Literal[
+    "baixo_centro", "baixo_esquerda", "baixo_direita",
+    "topo_centro", "topo_esquerda", "topo_direita",
+]
+WatermarkSize = Literal["pequeno", "medio", "grande"]
+
 BackgroundMode = Literal[
     "auto", "broll", "gradiente", "video_fonte", "imagem_kenburns",
     "codigo_scroll", "ia_video", "upload",
@@ -67,6 +75,11 @@ class JobInput(BaseModel):
     cta: str = "Segue pra mais."
     title_overlay: bool = True
     watermark: str = ""
+    # Where the handle sits, how big and how visible. A single fixed style did
+    # not survive every background — a light b-roll swallows a subtle mark.
+    watermark_position: WatermarkPosition = "baixo_centro"
+    watermark_size: WatermarkSize = "medio"
+    watermark_opacity: float = 0.6
     variants: int = 1
     qa_autofix: bool = True
     qa_max_attempts: int = 3
@@ -127,6 +140,9 @@ class ScriptEdit(BaseModel):
     music_track: str | None = None
     music_volume: float | None = None
     watermark: str | None = None
+    watermark_position: WatermarkPosition | None = None
+    watermark_size: WatermarkSize | None = None
+    watermark_opacity: float | None = None
     background: str | None = None
     background_query: str | None = None
     scroll: str | None = None

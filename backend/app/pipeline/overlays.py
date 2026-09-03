@@ -15,7 +15,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from ..config import settings
-from .captions import ACTIVE_COLOR, POSITION_MARGIN_V, SIDE_MARGIN, group_lines
+from .captions import (ACTIVE_COLOR, POSITION_MARGIN_V, SAFE_TOP, SIDE_MARGIN,
+                       group_lines)
 
 W, H = settings.width, settings.height
 
@@ -167,23 +168,60 @@ def render_title(text: str, out_dir: Path, duration: float = 3.2,
     return Overlay(path, 0.0, duration, 80, 190, kind="title")
 
 
+# Font size per watermark size setting.
+WATERMARK_SIZES = {"pequeno": 26, "medio": 34, "grande": 48}
+
+# Side inset for the corner placements.
+WATERMARK_SIDE_INSET = 48
+
+
 def render_watermark(text: str, out_dir: Path, duration: float,
-                     font_size: int = 34) -> Overlay | None:
+                     position: str = "baixo_centro", size: str = "medio",
+                     opacity: float = 0.6) -> Overlay | None:
+    """The channel handle burned over the video.
+
+    Position, size and opacity are settings because one fixed style does not
+    survive every background: a subtle mark disappears over light b-roll, and
+    a bottom-centre mark collides with on-screen text in some layouts.
+    """
     if not text:
         return None
     out_dir.mkdir(parents=True, exist_ok=True)
+    font_size = WATERMARK_SIZES.get(size, WATERMARK_SIZES["medio"])
     font = _font(font_size)
     scratch = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
     width, height = _measure(scratch, text, font, 3)
+
+    alpha = max(0, min(int(round(opacity * 255)), 255))
     image = Image.new("RGBA", (width + 12, height + 12), (0, 0, 0, 0))
-    ImageDraw.Draw(image).text((6, 4), text, font=font, fill=(255, 255, 255, 150),
-                               stroke_width=3, stroke_fill=(0, 0, 0, 160))
+    ImageDraw.Draw(image).text(
+        (6, 4), text, font=font, fill=(255, 255, 255, alpha),
+        # the outline keeps it readable over a busy frame; it fades with the text
+        stroke_width=3, stroke_fill=(0, 0, 0, min(alpha + 30, 255)))
     path = out_dir / "watermark.png"
     image.save(path)
-    # above the band the app UI occupies, otherwise it ends up covered
-    return Overlay(path, 0.0, duration, (W - width) // 2,
-                   H - POSITION_MARGIN_V["baixo"] - height - 30,
-                   kind="watermark")
+
+    x, y = _watermark_xy(position, width, height)
+    return Overlay(path, 0.0, duration, x, y, kind="watermark")
+
+
+def _watermark_xy(position: str, width: int, height: int) -> tuple[int, int]:
+    """Both vertical anchors stay clear of the app's own interface: the bottom
+    band it covers, and the top row of buttons."""
+    bottom = H - POSITION_MARGIN_V["baixo"] - height - 30
+    top = SAFE_TOP - height // 2
+    left = WATERMARK_SIDE_INSET
+    right = W - width - WATERMARK_SIDE_INSET
+    center = (W - width) // 2
+
+    return {
+        "baixo_centro": (center, bottom),
+        "baixo_esquerda": (left, bottom),
+        "baixo_direita": (right, bottom),
+        "topo_centro": (center, top),
+        "topo_esquerda": (left, top),
+        "topo_direita": (right, top),
+    }.get(position, (center, bottom))
 
 
 def render_scroll_panel(text: str, out_dir: Path, mono: bool = False,

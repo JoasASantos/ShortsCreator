@@ -80,3 +80,38 @@ def test_preview_gif_is_small_and_animated(sample_video, tmp_path):
     with Image.open(gif) as im:
         assert im.n_frames > 1, "the GIF came out with a single frame"
         assert im.width == 270
+
+
+# --------------------------------------------------- watermark as an overlay
+
+@needs_ffmpeg
+def test_watermark_overlay_honours_position_size_and_opacity(tmp_path):
+    """The PNG path is what runs when FFmpeg has no libass, so it has to
+    respect the same three settings the ASS path does."""
+    from app.pipeline import overlays
+
+    small = overlays.render_watermark("@channel", tmp_path, 5.0, size="pequeno")
+    large = overlays.render_watermark("@channel", tmp_path / "l", 5.0, size="grande")
+    assert small and large
+    assert Image.open(large.path).width > Image.open(small.path).width
+
+    left = overlays.render_watermark("@channel", tmp_path / "a", 5.0,
+                                     position="baixo_esquerda")
+    right = overlays.render_watermark("@channel", tmp_path / "b", 5.0,
+                                      position="baixo_direita")
+    top = overlays.render_watermark("@channel", tmp_path / "c", 5.0,
+                                    position="topo_centro")
+    assert left.x < right.x
+    assert top.y < left.y            # the top anchor sits higher up the frame
+
+    faint = overlays.render_watermark("@c", tmp_path / "d", 5.0, opacity=0.2)
+    solid = overlays.render_watermark("@c", tmp_path / "e", 5.0, opacity=1.0)
+    # the alpha channel is what carries the opacity
+    assert ImageStat.Stat(Image.open(faint.path).getchannel("A")).mean[0] < \
+        ImageStat.Stat(Image.open(solid.path).getchannel("A")).mean[0]
+
+
+def test_empty_watermark_renders_no_overlay(tmp_path):
+    from app.pipeline import overlays
+
+    assert overlays.render_watermark("", tmp_path, 5.0) is None

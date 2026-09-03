@@ -4,15 +4,22 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   api, type Job, type MusicTrack, type ScriptDraft, type ScriptEdit,
-  type ScriptSegment, type Voice,
+  type ScriptSegment, type Voice, type WatermarkPosition, type WatermarkSize,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { readDefaultWatermark, saveDefaultWatermark } from "@/lib/watermark";
 import { Chips, Field } from "@/components/ui";
 import { VoiceBrowser } from "@/components/VoiceBrowser";
 
 // Technical values sent to the backend; the label comes from the dictionary.
 const KINDS = ["hook", "corpo", "cta"];
 const AUTOSAVE_MS = 1200;
+
+const WATERMARK_POSITIONS: WatermarkPosition[] = [
+  "baixo_centro", "baixo_esquerda", "baixo_direita",
+  "topo_centro", "topo_esquerda", "topo_direita",
+];
+const WATERMARK_SIZES: WatermarkSize[] = ["pequeno", "medio", "grande"];
 
 export function Editor({ job, onApplied, toast }: {
   job: Job;
@@ -32,6 +39,14 @@ export function Editor({ job, onApplied, toast }: {
   const [music, setMusic] = useState(job.input.music);
   const [musicTrack, setMusicTrack] = useState(job.input.music_track ?? "");
   const [musicVolume, setMusicVolume] = useState(job.input.music_volume);
+  const [watermark, setWatermark] = useState(job.input.watermark ?? "");
+  const [markPosition, setMarkPosition] =
+    useState<WatermarkPosition>(job.input.watermark_position ?? "baixo_centro");
+  const [markSize, setMarkSize] =
+    useState<WatermarkSize>(job.input.watermark_size ?? "medio");
+  const [markOpacity, setMarkOpacity] = useState(job.input.watermark_opacity ?? 0.6);
+  // whether this handle should come pre-filled on the next shorts
+  const [rememberBrand, setRememberBrand] = useState(false);
   const [busy, setBusy] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [refining, setRefining] = useState(false);
@@ -66,6 +81,10 @@ export function Editor({ job, onApplied, toast }: {
         setMusic(draft.music);
         setMusicTrack(draft.music_track);
         setMusicVolume(draft.music_volume);
+        if (draft.watermark !== undefined) setWatermark(draft.watermark);
+        if (draft.watermark_position) setMarkPosition(draft.watermark_position);
+        if (draft.watermark_size) setMarkSize(draft.watermark_size);
+        if (draft.watermark_opacity !== undefined) setMarkOpacity(draft.watermark_opacity);
         setSalvoEm(draft.saved_at ?? null);
         setRascunho("salvo");
         editando.current = true;   // keeps polling from overwriting it
@@ -73,6 +92,16 @@ export function Editor({ job, onApplied, toast }: {
       .catch(() => undefined)
       .finally(() => setCarregado(true));
   }, [job.id]);
+
+  // A watermark saved as the default shows as already ticked, and an empty
+  // field on an existing job is filled with it — retyping your own handle on
+  // every short is the friction this removes.
+  useEffect(() => {
+    const saved = readDefaultWatermark();
+    if (!saved) return;
+    setRememberBrand(saved === (job.input.watermark ?? "").trim());
+    if (!(job.input.watermark ?? "").trim()) setWatermark(saved);
+  }, [job.input.watermark]);
 
   // The script can change outside this component (prompt refinement,
   // re-rendering). We sync with the server, but NEVER on top of an edit in
@@ -92,7 +121,9 @@ export function Editor({ job, onApplied, toast }: {
   const draftAtual = (): ScriptDraft => ({
     segments, title, voice_id: voiceId, caption_style: captionStyle,
     caption_position: captionPosition, caption_offset: offset,
-    music, music_track: musicTrack, music_volume: musicVolume,
+    music, music_track: musicTrack, music_volume: musicVolume, watermark,
+    watermark_position: markPosition, watermark_size: markSize,
+    watermark_opacity: markOpacity,
   });
   const draftKey = JSON.stringify(draftAtual());
 
@@ -173,6 +204,10 @@ export function Editor({ job, onApplied, toast }: {
       music,
       music_track: musicTrack,
       music_volume: musicVolume,
+      watermark,
+      watermark_position: markPosition,
+      watermark_size: markSize,
+      watermark_opacity: markOpacity,
     };
     if (withScript) {
       edit.segments = clean;
@@ -445,6 +480,80 @@ export function Editor({ job, onApplied, toast }: {
                      onChange={(e) => { tocar(); setMusicVolume(Number(e.target.value)); }} />
             </Field>
           ) : null}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <span className="label">{t.editor.brandTitle}</span>
+          <div className="grow" />
+          <span className="label">
+            {watermark.trim() ? watermark : t.editor.watermarkNone}
+          </span>
+        </div>
+        <div className="panel-body grid" style={{ gap: 10 }}>
+          <Field label={t.editor.watermarkField} hint={t.editor.watermarkHint}>
+            <input
+              className="input"
+              placeholder={t.editor.watermarkPlaceholder}
+              value={watermark}
+              onChange={(e) => { tocar(); setWatermark(e.target.value); }}
+            />
+          </Field>
+
+          {watermark.trim() ? (
+            <>
+              <Field label={t.editor.watermarkPositionField}>
+                <Chips
+                  value={markPosition}
+                  onChange={(v) => { tocar(); setMarkPosition(v); }}
+                  options={WATERMARK_POSITIONS.map((value) => ({
+                    value, label: t.editor.watermarkPositions[value],
+                  }))}
+                />
+              </Field>
+              <div className="two">
+                <Field label={t.editor.watermarkSizeField}>
+                  <Chips
+                    value={markSize}
+                    onChange={(v) => { tocar(); setMarkSize(v); }}
+                    options={WATERMARK_SIZES.map((value) => ({
+                      value, label: t.editor.watermarkSizes[value],
+                    }))}
+                  />
+                </Field>
+                <Field label={t.editor.watermarkOpacityField}
+                       hint={`${Math.round(markOpacity * 100)}%`}>
+                  <input type="range" min={0.15} max={1} step={0.05}
+                         value={markOpacity}
+                         onChange={(e) => {
+                           tocar(); setMarkOpacity(Number(e.target.value));
+                         }} />
+                </Field>
+              </div>
+            </>
+          ) : null}
+
+          <button
+            type="button"
+            className="chip"
+            data-on={rememberBrand}
+            style={{ justifySelf: "start" }}
+            onClick={() => {
+              const next = !rememberBrand;
+              setRememberBrand(next);
+              saveDefaultWatermark(next ? watermark : "");
+              toast(next && watermark.trim()
+                ? f(t.editor.watermarkSavedDefault, { name: watermark.trim() })
+                : t.editor.watermarkClearedDefault);
+            }}
+          >
+            {rememberBrand ? "✓ " : "○ "}
+            {t.editor.watermarkRemembered}
+          </button>
+          <p className="dimmer" style={{ margin: 0, fontSize: 11.5, lineHeight: 1.5 }}>
+            {t.editor.watermarkRememberedHint}
+          </p>
         </div>
       </section>
 
