@@ -81,3 +81,46 @@ def test_the_job_message_carries_the_score_and_the_link():
     finally:
         notify._deliver = original  # noqa: SLF001
     assert sent and "QA 92/100" in sent[0][1]
+
+
+# ------------------------------------------------------- language of a notice
+
+def _job_in(language: str) -> str:
+    return db.create_job({"source_type": "tema", "source": "x",
+                          "language": language}, "Strong password")
+
+
+def test_a_notice_follows_the_language_the_job_was_made_in():
+    """These land on someone's phone: a Spanish producer should not get a
+    Portuguese alert. The interface language lives in the browser, out of the
+    backend's reach, but `job.language` travels with the job."""
+    assert notify._strings(_job_in("pt-BR"))["done"].startswith("Short pronto")  # noqa: SLF001
+    assert notify._strings(_job_in("en-US"))["done"].startswith("Short ready")   # noqa: SLF001
+    assert notify._strings(_job_in("es-ES"))["done"].startswith("Short listo")   # noqa: SLF001
+    assert "готов" in notify._strings(_job_in("ru-RU"))["done"]                  # noqa: SLF001
+    assert "短视频" in notify._strings(_job_in("zh-CN"))["done"]                  # noqa: SLF001
+
+
+def test_an_unknown_language_falls_back_to_portuguese():
+    assert notify._strings(_job_in("sw-KE")) is notify.MESSAGES["pt"]   # noqa: SLF001
+
+
+def test_a_missing_job_does_not_break_the_notice():
+    """The notice fires after the job finishes; a deleted job must not turn
+    into an exception in the worker."""
+    assert notify._strings("job_gone") is notify.MESSAGES["pt"]         # noqa: SLF001
+
+
+def test_every_language_carries_the_same_message_keys():
+    reference = set(notify.MESSAGES["pt"])
+    for tag, messages in notify.MESSAGES.items():
+        assert set(messages) == reference, tag
+        assert all(v.strip() for v in messages.values()), tag
+
+
+def test_the_notice_link_follows_the_configured_web_url(monkeypatch):
+    """Behind a tunnel a localhost link is useless on a phone."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "public_web_url", "https://studio.example.com/")
+    assert notify._job_url("job_1") == "https://studio.example.com/job/job_1"   # noqa: SLF001

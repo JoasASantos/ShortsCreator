@@ -100,6 +100,10 @@ class Settings:
 
         # App
         self.public_api_url = os.getenv("PUBLIC_API_URL", "http://localhost:8000")
+        # Where the interface answers, used in notification links. Behind a
+        # tunnel the notice has to be clickable from a phone, which a
+        # localhost link never is.
+        self.public_web_url = os.getenv("PUBLIC_WEB_URL", "http://localhost:3000")
         self.whisper_model = os.getenv("WHISPER_MODEL", "base")
         self.max_short_seconds = int(os.getenv("MAX_SHORT_SECONDS", "90"))
         self.min_short_seconds = int(os.getenv("MIN_SHORT_SECONDS", "15"))

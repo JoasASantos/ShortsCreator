@@ -179,6 +179,11 @@ short terminar de renderizar e passar no QA antes de subir.
 Telegram, Discord ou webhook genérico quando um short termina, falha ou é
 publicado. Opcional — sem credencial configurada, nada é enviado.
 
+Cada aviso sai no idioma em que o short foi feito, então uma produção em
+espanhol manda alerta em espanhol. Defina `PUBLIC_WEB_URL` se você roda atrás
+de um túnel: sem isso o link da mensagem aponta para `localhost` e não serve no
+celular.
+
 ## Testes
 
 ```bash
@@ -230,12 +235,11 @@ web/
 
 Banco em SQLite puro, sem ORM. Fila de jobs em thread, sem broker externo.
 
-Código, comentários e histórico de commits estão em inglês. Duas coisas ficam
-em português de propósito: os **prompts do LLM** em `script.py` e `clipper.py`
-(são calibrados em português e suas respostas JSON usam chaves portuguesas — o
-idioma da *saída* é controlado separadamente pelo `job.language`) e as
-**descrições dos conectores** em `connectors.py`, que a tela de Contas exibe
-direto e precisariam de i18n própria.
+Código, comentários e histórico de commits estão em inglês. Uma coisa fica em
+português de propósito: os **prompts do LLM** em `script.py` e `clipper.py`.
+São calibrados em português e suas respostas JSON usam chaves portuguesas, que
+o pipeline lê por nome — o idioma da *saída* é outro assunto, controlado pelo
+`job.language`.
 
 ## Licença
 

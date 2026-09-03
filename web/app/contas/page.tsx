@@ -2,14 +2,44 @@
 
 import { useEffect, useState } from "react";
 
-import { api, PLATFORM_LABEL, type Account, type Connector } from "@/lib/api";
-import { useI18n } from "@/lib/i18n";
+import { api, PLATFORM_LABEL, type Account, type Connector, type ConnectorField } from "@/lib/api";
+import { useI18n, type Dictionary } from "@/lib/i18n";
 import { TableWrap, Topbar, useToast } from "@/components/ui";
 
 // the category order does not change with the language; only the label comes from the dictionary
 const CATEGORY_ORDER: Connector["category"][] = [
   "publicacao", "notificacao", "video", "avatar", "voz", "broll",
 ];
+
+/* The API owns the structure of a connector (which ones exist, which fields
+   each one takes); the dictionary owns the prose. `t.connectors` is typed with
+   one entry per connector id known when the dictionary was written, so looking
+   one up by the id the API sent means indexing by a plain string — and a
+   connector added to the backend before it reaches the dictionaries has to
+   fall back to the English text the API carries, not to a blank card. The
+   three helpers below hold that cast in one place; widening to a Record is
+   safe because the dictionary is an object literal, and every caller supplies
+   the fallback. */
+
+type ConnectorCopy = { detail?: string; requirement?: string };
+
+function connectorCopy(t: Dictionary, id: string): ConnectorCopy {
+  const table: Record<string, unknown> = t.connectors;
+  const entry = table[id];
+  // `fields`/`hints` share the namespace with the ids; neither has `detail`,
+  // so a collision would simply fall through to the API text.
+  return entry && typeof entry === "object" ? (entry as ConnectorCopy) : {};
+}
+
+function fieldLabel(t: Dictionary, field: ConnectorField): string {
+  const labels: Record<string, string> = t.connectors.fields;
+  return labels[field.key] ?? field.label;
+}
+
+function fieldHint(t: Dictionary, field: ConnectorField): string {
+  const hints: Record<string, string> = t.connectors.hints;
+  return hints[field.key] ?? field.hint;
+}
 
 export default function Contas() {
   const { t, f, dateTime } = useI18n();
@@ -140,6 +170,7 @@ function ConnectorCard({ connector, onConnectOAuth, onSaved, toast }: {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const planned = connector.status === "planejado";
+  const copy = connectorCopy(t, connector.id);
 
   const set = (key: string, v: string) => setValues((prev) => ({ ...prev, [key]: v }));
 
@@ -200,9 +231,11 @@ function ConnectorCard({ connector, onConnectOAuth, onSaved, toast }: {
         </div>
       </div>
       <div className="panel-body grid" style={{ gap: 12 }}>
-        <p className="dim" style={{ margin: 0, lineHeight: 1.65, fontSize: 13 }}>{connector.detail}</p>
+        <p className="dim" style={{ margin: 0, lineHeight: 1.65, fontSize: 13 }}>
+          {copy.detail ?? connector.detail}
+        </p>
         <p className="mono dimmer" style={{ margin: 0, fontSize: 11, lineHeight: 1.6 }}>
-          {f(t.accounts.requires, { what: connector.requirement })}
+          {f(t.accounts.requires, { what: copy.requirement ?? connector.requirement })}
           {" — "}
           <a href={connector.docs} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>
             {t.common.docs} ↗
@@ -222,7 +255,7 @@ function ConnectorCard({ connector, onConnectOAuth, onSaved, toast }: {
             <div className="grid" style={{ gap: 8 }}>
               {connector.fields.map((field) => (
                 <div className="field" key={field.key}>
-                  <label className="dim" style={{ fontSize: 11.5 }}>{field.label}</label>
+                  <label className="dim" style={{ fontSize: 11.5 }}>{fieldLabel(t, field)}</label>
                   <input
                     className="input"
                     type={field.secret ? "password" : "text"}
@@ -232,6 +265,11 @@ function ConnectorCard({ connector, onConnectOAuth, onSaved, toast }: {
                     value={values[field.key] ?? ""}
                     onChange={(e) => set(field.key, e.target.value)}
                   />
+                  {fieldHint(t, field) && (
+                    <span className="mono dimmer" style={{ fontSize: 10.5 }}>
+                      {fieldHint(t, field)}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>

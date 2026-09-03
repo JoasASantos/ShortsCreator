@@ -628,6 +628,101 @@ export const ru: Dictionary = {
     connectFailed: "Не удалось подключить: {message}",
   },
 
+  connectors: {
+    youtube: {
+      detail:
+        "Возобновляемая загрузка через Data API v3. Поддерживает нативное планирование (publishAt) и приватность для каждого видео.",
+      requirement: "OAuth client_secret в data/secrets/youtube_client_secret.json",
+    },
+    tiktok: {
+      detail:
+        "Content Posting API v2. Аккаунт без пройденного аудита попадает в черновики приложения; после одобрения аудита публикует напрямую.",
+      requirement: "TIKTOK_CLIENT_KEY и TIKTOK_CLIENT_SECRET",
+    },
+    higgsfield: {
+      detail:
+        "Генерирует фон шорта с помощью ИИ (Sora 2, Veo 3.1, Kling 2.5, Seedance, Hailuo) сразу в 9:16. Включает режим фона «ia_video».",
+      requirement: "Пара ключей, созданная на cloud.higgsfield.ai",
+    },
+    heygen: {
+      detail:
+        "Говорящий ведущий по сценарию. Готовый клип приходит вложением и может стать исходным видео шорта.",
+      requirement: "API-ключ аккаунта HeyGen (Settings > API)",
+    },
+    fishaudio: {
+      detail:
+        "Голоса персонажей и озвучка из каталога Fish. Уже используется для голосов, установленных на экране «Голоса».",
+      requirement: "FISHAUDIO_API_KEY",
+    },
+    elevenlabs: {
+      detail:
+        "Альтернативный TTS с таймкодом по каждому символу — самые точные караоке-субтитры после edge-tts.",
+      requirement: "ELEVENLABS_API_KEY",
+    },
+    pexels: {
+      detail:
+        "Бесплатный банк видео для автоматического фона (фон «broll»), когда у задачи нет своих медиафайлов.",
+      requirement: "PEXELS_API_KEY",
+    },
+    pixabay: {
+      detail:
+        "Второй банк b-roll. Подключается как резерв, когда у Pexels нет результатов по запросу фрагмента.",
+      requirement: "PIXABAY_API_KEY",
+    },
+    instagram: {
+      detail:
+        "Публикация Reels через Graph API (контейнер + publish). Нужен профессиональный аккаунт, связанный со страницей Facebook, а API должен скачать MP4 по публичной ссылке — PUBLIC_API_URL обязан быть доступен из интернета (ngrok, cloudflared...).",
+      requirement: "Долгоживущий токен + IG User ID",
+    },
+    linkedin: {
+      detail:
+        "Нативный видеопост через Posts API. Подходит для технологических и security-ниш, где охват здесь выше.",
+      requirement:
+        "Access token с w_member_social (плюс openid/profile, чтобы определить URN самостоятельно)",
+    },
+    telegram: {
+      detail:
+        "Уведомление, когда шорт готов, упал или опубликован. Создайте бота у @BotFather, отправьте ему /start и узнайте свой chat_id у @userinfobot.",
+      requirement: "Токен бота + chat_id",
+    },
+    discord: {
+      detail: "Те же уведомления — в канал Discord через webhook интеграции.",
+      requirement: "URL вебхука канала",
+    },
+    webhook: {
+      detail:
+        "POST JSON {title, body, url, level} на любой URL — n8n, Zapier, Make или ваш собственный сервис.",
+      requirement: "URL, принимающий POST",
+    },
+    runway: {
+      detail:
+        "Альтернативный Higgsfield генератор видео с точным управлением камерой. Идёт через тот же режим фона «ia_video».",
+      requirement: "RUNWAY_API_KEY",
+    },
+    did: {
+      detail:
+        "Говорящий аватар из одной фотографии — дешевле HeyGen, когда лицо это ваш снимок.",
+      requirement: "DID_API_KEY",
+    },
+    fields: {
+      client_key: "Client key",
+      client_secret: "Client secret",
+      api_key: "API key",
+      key_id: "API key id",
+      key_secret: "API key secret",
+      access_token: "Access token",
+      ig_user_id: "IG user id",
+      author_urn: "URN автора",
+      bot_token: "Токен бота",
+      chat_id: "Chat id",
+      webhook_url: "URL вебхука",
+      url: "URL",
+    },
+    hints: {
+      author_urn: "urn:li:person:xxxx — пусто = определит по токену",
+    },
+  },
+
   voices: {
     title: "Голоса",
   },

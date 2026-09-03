@@ -621,6 +621,101 @@ export const zh: Dictionary = {
     connectFailed: "连接失败：{message}",
   },
 
+  connectors: {
+    youtube: {
+      detail:
+        "通过 Data API v3 断点续传上传。支持原生定时发布（publishAt）和逐个视频的隐私设置。",
+      requirement: "OAuth client_secret 放在 data/secrets/youtube_client_secret.json",
+    },
+    tiktok: {
+      detail:
+        "Content Posting API v2。未通过审核的账号只会进入应用的草稿箱；审核通过后可直接发布。",
+      requirement: "TIKTOK_CLIENT_KEY 和 TIKTOK_CLIENT_SECRET",
+    },
+    higgsfield: {
+      detail:
+        "用 AI 生成短视频背景（Sora 2、Veo 3.1、Kling 2.5、Seedance、Hailuo），直接输出 9:16。驱动「ia_video」背景模式。",
+      requirement: "在 cloud.higgsfield.ai 创建的密钥对",
+    },
+    heygen: {
+      detail:
+        "根据脚本生成会说话的主播。生成的片段作为附件加入，可以成为短视频的源视频。",
+      requirement: "HeyGen 账号的 API key（Settings > API）",
+    },
+    fishaudio: {
+      detail:
+        "Fish 目录里的角色音与旁白音色。已经是「语音」页面上已安装音色的提供方。",
+      requirement: "FISHAUDIO_API_KEY",
+    },
+    elevenlabs: {
+      detail:
+        "备选 TTS，带逐字符时间戳 —— 除 edge-tts 之外卡拉 OK 字幕最准的提供方。",
+      requirement: "ELEVENLABS_API_KEY",
+    },
+    pexels: {
+      detail:
+        "免费视频库。任务本身没有素材时，用于自动背景（「broll」背景）。",
+      requirement: "PEXELS_API_KEY",
+    },
+    pixabay: {
+      detail:
+        "第二个 b-roll 素材库。Pexels 对该片段的查询没有结果时作为备选。",
+      requirement: "PIXABAY_API_KEY",
+    },
+    instagram: {
+      detail:
+        "通过 Graph API 发布 Reels（container + publish）。需要绑定 Facebook 页面的专业账号，而且 API 必须从公开链接下载 MP4 —— PUBLIC_API_URL 必须能从公网访问（ngrok、cloudflared……）。",
+      requirement: "长期有效令牌 + IG User ID",
+    },
+    linkedin: {
+      detail:
+        "通过 Posts API 发布原生视频。适合技术与安全类内容，这些领域在这里的触达更好。",
+      requirement:
+        "带 w_member_social 的 access token（加上 openid/profile 可自动识别 URN）",
+    },
+    telegram: {
+      detail:
+        "短视频完成、失败或发布时发送提醒。在 @BotFather 创建机器人，给它发送 /start，再到 @userinfobot 获取你的 chat_id。",
+      requirement: "机器人令牌 + chat_id",
+    },
+    discord: {
+      detail: "同样的提醒，通过集成 webhook 发到 Discord 频道。",
+      requirement: "频道 webhook 的 URL",
+    },
+    webhook: {
+      detail:
+        "把 JSON {title, body, url, level} POST 到任意 URL —— n8n、Zapier、Make 或你自己的服务。",
+      requirement: "接受 POST 的 URL",
+    },
+    runway: {
+      detail:
+        "Higgsfield 之外的备选视频生成器，镜头控制更精细。走同一个「ia_video」背景模式。",
+      requirement: "RUNWAY_API_KEY",
+    },
+    did: {
+      detail:
+        "用一张照片生成会说话的数字人 —— 当人脸是你自己的照片时，比 HeyGen 更便宜。",
+      requirement: "DID_API_KEY",
+    },
+    fields: {
+      client_key: "Client key",
+      client_secret: "Client secret",
+      api_key: "API key",
+      key_id: "API key id",
+      key_secret: "API key secret",
+      access_token: "Access token",
+      ig_user_id: "IG user id",
+      author_urn: "作者 URN",
+      bot_token: "机器人令牌",
+      chat_id: "Chat id",
+      webhook_url: "Webhook URL",
+      url: "URL",
+    },
+    hints: {
+      author_urn: "urn:li:person:xxxx —— 留空则由令牌自动识别",
+    },
+  },
+
   voices: {
     title: "配音",
   },

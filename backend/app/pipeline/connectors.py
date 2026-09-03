@@ -156,16 +156,17 @@ def _check_webhook(creds: dict) -> str:
 CATALOG: list[Connector] = [
     Connector(
         id="youtube", name="YouTube Shorts", category="publicacao", auth="oauth",
-        detail="Upload resumível pela Data API v3. Aceita agendamento nativo "
-               "(publishAt) e privacidade por vídeo.",
-        requirement="client_secret OAuth em data/secrets/youtube_client_secret.json",
+        detail="Resumable upload through the Data API v3. Supports native "
+               "scheduling (publishAt) and per-video privacy.",
+        requirement="OAuth client_secret at data/secrets/youtube_client_secret.json",
         docs="https://developers.google.com/youtube/v3/guides/uploading_a_video",
     ),
     Connector(
         id="tiktok", name="TikTok", category="publicacao", auth="oauth",
-        detail="Content Posting API v2. Conta sem auditoria cai na caixa de "
-               "rascunhos do app; com auditoria aprovada, publica direto.",
-        requirement="TIKTOK_CLIENT_KEY e TIKTOK_CLIENT_SECRET",
+        detail="Content Posting API v2. An unaudited account lands in the "
+               "app's draft inbox; once the audit is approved, it publishes "
+               "straight away.",
+        requirement="TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET",
         docs="https://developers.tiktok.com/doc/content-posting-api-get-started",
         fields=[Field("client_key", "Client key", "TIKTOK_CLIENT_KEY", secret=False),
                 Field("client_secret", "Client secret", "TIKTOK_CLIENT_SECRET")],
@@ -173,9 +174,10 @@ CATALOG: list[Connector] = [
     ),
     Connector(
         id="higgsfield", name="Higgsfield", category="video", auth="api_key",
-        detail="Gera o fundo do short por IA (Sora 2, Veo 3.1, Kling 2.5, "
-               "Seedance, Hailuo) já em 9:16. Vira o modo de fundo 'ia_video'.",
-        requirement="Par de chaves criado em cloud.higgsfield.ai",
+        detail="Generates the short's background with AI (Sora 2, Veo 3.1, "
+               "Kling 2.5, Seedance, Hailuo) already in 9:16. Powers the "
+               "'ia_video' background mode.",
+        requirement="Key pair created at cloud.higgsfield.ai",
         docs="https://docs.higgsfield.ai/docs",
         fields=[Field("key_id", "API key id", "HIGGSFIELD_KEY_ID", secret=False),
                 Field("key_secret", "API key secret", "HIGGSFIELD_KEY_SECRET")],
@@ -183,17 +185,18 @@ CATALOG: list[Connector] = [
     ),
     Connector(
         id="heygen", name="HeyGen", category="avatar", auth="api_key",
-        detail="Apresentador falante a partir do roteiro. O clipe gerado entra "
-               "como anexo e pode virar o vídeo de origem do short.",
-        requirement="API key da conta HeyGen (Settings > API)",
+        detail="Talking presenter built from the script. The generated clip "
+               "comes in as an attachment and can become the short's source "
+               "video.",
+        requirement="API key from the HeyGen account (Settings > API)",
         docs="https://docs.heygen.com/reference/create-an-avatar-video-v2",
         fields=[Field("api_key", "API key", "HEYGEN_API_KEY")],
         check=_check_heygen,
     ),
     Connector(
         id="fishaudio", name="Fish Audio", category="voz", auth="api_key",
-        detail="Vozes de personagem e narração do catálogo Fish. Já é o "
-               "provedor das vozes instaladas na tela de Vozes.",
+        detail="Character and narration voices from the Fish catalog. Already "
+               "the provider behind the voices installed on the Voices screen.",
         requirement="FISHAUDIO_API_KEY",
         docs="https://docs.fish.audio/overview/capabilities",
         fields=[Field("api_key", "API key", "FISHAUDIO_API_KEY")],
@@ -201,8 +204,8 @@ CATALOG: list[Connector] = [
     ),
     Connector(
         id="elevenlabs", name="ElevenLabs", category="voz", auth="api_key",
-        detail="TTS alternativo com timestamp por caractere — é o provedor com "
-               "a legenda karaokê mais precisa depois do edge-tts.",
+        detail="Alternative TTS with per-character timestamps — the provider "
+               "with the most accurate karaoke captions after edge-tts.",
         requirement="ELEVENLABS_API_KEY",
         docs="https://elevenlabs.io/docs/api-reference",
         fields=[Field("api_key", "API key", "ELEVENLABS_API_KEY")],
@@ -210,8 +213,8 @@ CATALOG: list[Connector] = [
     ),
     Connector(
         id="pexels", name="Pexels", category="broll", auth="api_key",
-        detail="Banco de vídeo gratuito usado no fundo automático (background "
-               "'broll') quando o job não traz mídia própria.",
+        detail="Free video bank used for the automatic background (the 'broll' "
+               "background) when the job brings no media of its own.",
         requirement="PEXELS_API_KEY",
         docs="https://www.pexels.com/api/documentation/",
         fields=[Field("api_key", "API key", "PEXELS_API_KEY")],
@@ -219,8 +222,8 @@ CATALOG: list[Connector] = [
     ),
     Connector(
         id="pixabay", name="Pixabay", category="broll", auth="api_key",
-        detail="Segundo banco de b-roll. Entra como reserva quando a Pexels "
-               "não tem resultado para a consulta do segmento.",
+        detail="Second b-roll bank. Steps in as a fallback when Pexels has no "
+               "result for the segment's query.",
         requirement="PIXABAY_API_KEY",
         docs="https://pixabay.com/api/docs/",
         fields=[Field("api_key", "API key", "PIXABAY_API_KEY")],
@@ -229,11 +232,12 @@ CATALOG: list[Connector] = [
     Connector(
         id="instagram", name="Instagram Reels", category="publicacao",
         auth="api_key",
-        detail="Publicação de Reels pela Graph API (container + publish). "
-               "Exige conta profissional ligada a uma página do Facebook, e a "
-               "API precisa baixar o MP4 por uma URL pública — PUBLIC_API_URL "
-               "tem que ser alcançável da internet (ngrok, cloudflared...).",
-        requirement="Token de longa duração + IG User ID",
+        detail="Reels publishing through the Graph API (container + publish). "
+               "Requires a professional account linked to a Facebook page, and "
+               "the API has to download the MP4 from a public URL — "
+               "PUBLIC_API_URL must be reachable from the internet (ngrok, "
+               "cloudflared...).",
+        requirement="Long-lived token + IG User ID",
         docs="https://developers.facebook.com/docs/instagram-api/guides/content-publishing",
         fields=[Field("access_token", "Access token", "INSTAGRAM_ACCESS_TOKEN"),
                 Field("ig_user_id", "IG user id", "INSTAGRAM_USER_ID", secret=False)],
@@ -241,40 +245,41 @@ CATALOG: list[Connector] = [
     ),
     Connector(
         id="linkedin", name="LinkedIn", category="publicacao", auth="api_key",
-        detail="Post de vídeo nativo pela Posts API. Serve para os nichos de "
-               "tecnologia e segurança, onde o alcance ali é melhor.",
-        requirement="Access token com w_member_social (e openid/profile para "
-                    "descobrir o URN sozinho)",
+        detail="Native video post through the Posts API. Useful for the "
+               "technology and security niches, where reach is better there.",
+        requirement="Access token with w_member_social (plus openid/profile to "
+                    "discover the URN on its own)",
         docs="https://learn.microsoft.com/linkedin/marketing/community-management/shares/videos-api",
         fields=[Field("access_token", "Access token", "LINKEDIN_ACCESS_TOKEN"),
-                Field("author_urn", "URN do autor", "LINKEDIN_AUTHOR_URN", secret=False,
-                      hint="urn:li:person:xxxx — vazio = descobre pelo token")],
+                Field("author_urn", "Author URN", "LINKEDIN_AUTHOR_URN", secret=False,
+                      hint="urn:li:person:xxxx — empty = discovered from the token")],
         check=_check_linkedin,
     ),
     Connector(
         id="telegram", name="Telegram", category="notificacao", auth="api_key",
-        detail="Aviso quando um short termina, falha ou é publicado. Crie um bot "
-               "no @BotFather, mande /start pra ele e pegue seu chat_id em "
+        detail="Notice when a short finishes, fails or gets published. Create a "
+               "bot with @BotFather, send it /start and grab your chat_id from "
                "@userinfobot.",
-        requirement="Token do bot + chat_id",
+        requirement="Bot token + chat_id",
         docs="https://core.telegram.org/bots/api#sendmessage",
-        fields=[Field("bot_token", "Token do bot", "TELEGRAM_BOT_TOKEN"),
+        fields=[Field("bot_token", "Bot token", "TELEGRAM_BOT_TOKEN"),
                 Field("chat_id", "Chat id", "TELEGRAM_CHAT_ID", secret=False)],
         check=_check_telegram,
     ),
     Connector(
         id="discord", name="Discord", category="notificacao", auth="api_key",
-        detail="Mesmos avisos, num canal do Discord via webhook de integração.",
-        requirement="URL do webhook do canal",
+        detail="The same notices, in a Discord channel through an integration "
+               "webhook.",
+        requirement="Channel webhook URL",
         docs="https://discord.com/developers/docs/resources/webhook#execute-webhook",
-        fields=[Field("webhook_url", "URL do webhook", "DISCORD_WEBHOOK_URL")],
+        fields=[Field("webhook_url", "Webhook URL", "DISCORD_WEBHOOK_URL")],
         check=_check_discord,
     ),
     Connector(
-        id="webhook", name="Webhook genérico", category="notificacao", auth="api_key",
-        detail="POST JSON {title, body, url, level} para qualquer URL — n8n, "
-               "Zapier, Make ou seu próprio serviço.",
-        requirement="URL que aceite POST",
+        id="webhook", name="Generic webhook", category="notificacao", auth="api_key",
+        detail="POST JSON {title, body, url, level} to any URL — n8n, Zapier, "
+               "Make or your own service.",
+        requirement="A URL that accepts POST",
         docs="https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/",
         fields=[Field("url", "URL", "NOTIFY_WEBHOOK_URL", secret=False)],
         check=_check_webhook,
@@ -284,8 +289,9 @@ CATALOG: list[Connector] = [
     Connector(
         id="runway", name="Runway Gen-4", category="video", auth="api_key",
         status="planejado",
-        detail="Gerador de vídeo alternativo ao Higgsfield, com controle fino "
-               "de câmera. Roteia pelo mesmo modo de fundo 'ia_video'.",
+        detail="Alternative video generator to Higgsfield, with fine-grained "
+               "camera control. Routes through the same 'ia_video' background "
+               "mode.",
         requirement="RUNWAY_API_KEY",
         docs="https://docs.dev.runwayml.com",
         fields=[Field("api_key", "API key", "RUNWAY_API_KEY")],
@@ -293,8 +299,8 @@ CATALOG: list[Connector] = [
     Connector(
         id="did", name="D-ID", category="avatar", auth="api_key",
         status="planejado",
-        detail="Avatar falante a partir de uma foto — alternativa mais barata "
-               "ao HeyGen quando o rosto é uma imagem sua.",
+        detail="Talking avatar from a single photo — a cheaper alternative to "
+               "HeyGen when the face is a picture of you.",
         requirement="DID_API_KEY",
         docs="https://docs.d-id.com",
         fields=[Field("api_key", "API key", "DID_API_KEY")],
