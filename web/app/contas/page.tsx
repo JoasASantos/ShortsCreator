@@ -253,25 +253,26 @@ function ConnectorCard({ connector, onConnectOAuth, onSaved, toast }: {
         ) : (
           <>
             <div className="grid" style={{ gap: 8 }}>
-              {connector.fields.map((field) => (
-                <div className="field" key={field.key}>
-                  <label className="dim" style={{ fontSize: 11.5 }}>{fieldLabel(t, field)}</label>
-                  <input
-                    className="input"
-                    type={field.secret ? "password" : "text"}
-                    placeholder={field.filled
-                      ? t.accounts.fieldSaved
-                      : f(t.accounts.fieldPlaceholder, { env: field.env })}
-                    value={values[field.key] ?? ""}
-                    onChange={(e) => set(field.key, e.target.value)}
-                  />
-                  {fieldHint(t, field) && (
-                    <span className="mono dimmer" style={{ fontSize: 10.5 }}>
-                      {fieldHint(t, field)}
-                    </span>
-                  )}
-                </div>
-              ))}
+              {connector.fields.map((field) => {
+                const hint = fieldHint(t, field);
+                return (
+                  <div className="field" key={field.key}>
+                    <label className="dim" style={{ fontSize: 11.5 }}>{fieldLabel(t, field)}</label>
+                    <input
+                      className="input"
+                      type={field.secret ? "password" : "text"}
+                      placeholder={field.filled
+                        ? t.accounts.fieldSaved
+                        : f(t.accounts.fieldPlaceholder, { env: field.env })}
+                      value={values[field.key] ?? ""}
+                      onChange={(e) => set(field.key, e.target.value)}
+                    />
+                    {hint && (
+                      <span className="mono dimmer" style={{ fontSize: 10.5 }}>{hint}</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
               <button className="btn sm" disabled={saving} onClick={save}>
