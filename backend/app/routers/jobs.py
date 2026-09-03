@@ -28,7 +28,7 @@ ALLOWED_FILES = {
     "background.mp4": "video/mp4",
 }
 
-# prévias de gancho: hook_0.mp3, hook_1.mp3...
+# hook previews: hook_0.mp3, hook_1.mp3...
 _HOOK_FILE = re.compile(r"^hook_\d\.mp3$")
 
 
@@ -45,10 +45,10 @@ def _serialize(row: dict, with_metrics: dict | None = None) -> dict:
 @router.post("")
 def create_job(job: JobInput):
     if job.source_type == "imagem" and not job.attachments:
-        raise HTTPException(400, "Envie ao menos uma imagem antes de criar o job.")
+        raise HTTPException(400, "Upload at least one image before creating the job.")
     has_source = bool(job.source.strip()) or bool(job.attachments)
     if job.source_type != "imagem" and not has_source:
-        raise HTTPException(400, "Informe uma URL, tema, texto, repositório ou envie um arquivo.")
+        raise HTTPException(400, "Provide a URL, topic, text or repository, or upload a file.")
     job_id = db.create_job(job.model_dump())
     worker.enqueue(job_id)
     return {"job_id": job_id, "status": "queued"}
@@ -65,7 +65,7 @@ def list_jobs(limit: int = Query(100, le=500)):
 def get_job(job_id: str):
     row = db.get_job(job_id)
     if row is None:
-        raise HTTPException(404, "Job não encontrado")
+        raise HTTPException(404, "Job not found")
     out = _serialize(row)
     out["metrics"] = db.metrics_for_job(job_id)
     out["llm_calls"] = db.llm_calls_for_job(job_id)
@@ -82,11 +82,11 @@ def get_events(job_id: str, after: int = 0):
 
 @router.post("/{job_id}/retry")
 def retry_job(job_id: str, from_stage: str = Query("", alias="from")):
-    """Reprocessa. Com `?from=voz|legendas|fundo|render` retoma da etapa
-    indicada reaproveitando roteiro/narração já no disco — sem gastar LLM
-    nem TTS de novo."""
+    """Reprocess. With `?from=voz|legendas|fundo|render`, resumes from the
+    given stage reusing the script/narration already on disk — without
+    spending LLM or TTS again."""
     if db.get_job(job_id) is None:
-        raise HTTPException(404, "Job não encontrado")
+        raise HTTPException(404, "Job not found")
     if from_stage:
         try:
             orchestrator.request_resume(job_id, from_stage)
@@ -97,7 +97,7 @@ def retry_job(job_id: str, from_stage: str = Query("", alias="from")):
         (settings.jobs_dir / job_id / "resume.json").unlink(missing_ok=True)
         db.update_job(job_id, error=None, result_json=None, qa_json=None)
     worker.enqueue(job_id)
-    return {"job_id": job_id, "status": "queued", "from": from_stage or "início"}
+    return {"job_id": job_id, "status": "queued", "from": from_stage or "start"}
 
 
 @router.delete("/{job_id}")
@@ -118,24 +118,24 @@ def get_file(job_id: str, filename: str):
     elif _HOOK_FILE.match(filename):
         media = "audio/mpeg"
     else:
-        raise HTTPException(404, "Arquivo não disponível")
+        raise HTTPException(404, "File not available")
     path: Path = settings.jobs_dir / job_id / filename
     if not path.exists():
-        raise HTTPException(404, "Arquivo ainda não gerado")
+        raise HTTPException(404, "File not generated yet")
     return FileResponse(path, media_type=media, filename=f"{job_id}_{filename}")
 
 
-# ---------------------------------------------------------------- ganchos A/B
+# ------------------------------------------------------------------- A/B hooks
 
 def _current_script(job_id: str) -> tuple[dict, JobInput, ShortScript, Path]:
     row = db.get_job(job_id)
     if row is None:
-        raise HTTPException(404, "Job não encontrado")
+        raise HTTPException(404, "Job not found")
     job_dir = settings.job_dir(job_id)
     override = job_dir / "script_override.json"
     source = override if override.exists() else job_dir / "script.json"
     if not source.exists():
-        raise HTTPException(400, "Este job ainda não tem roteiro.")
+        raise HTTPException(400, "This job has no script yet.")
     job = JobInput(**json.loads(row["input_json"]))
     script = ShortScript(**json.loads(source.read_text(encoding="utf-8")))
     return row, job, script, job_dir
@@ -148,8 +148,9 @@ class HooksRequest(BaseModel):
 
 @router.post("/{job_id}/hooks")
 def build_hooks(job_id: str, request: HooksRequest | None = None):
-    """Gera ganchos alternativos para o roteiro atual, com prévia em áudio de
-    cada um na voz do job — só o gancho, poucos segundos de TTS por variante."""
+    """Generates alternative hooks for the current script, with an audio
+    preview of each in the job's voice — just the hook, a few seconds of TTS
+    per variant."""
     from ..pipeline import script as script_mod, tts as tts_mod
 
     request = request or HooksRequest()
@@ -159,7 +160,7 @@ def build_hooks(job_id: str, request: HooksRequest | None = None):
     try:
         hooks = script_mod.build_hook_variants(script, job, max(2, min(request.count, 5)))
     except Exception as exc:
-        raise HTTPException(502, f"Falha ao gerar ganchos: {exc}")
+        raise HTTPException(502, f"Failed to generate hooks: {exc}")
 
     voice = db.get_voice(job.voice_id) if job.voice_id else None
     for index, hook in enumerate(hooks):
@@ -171,14 +172,14 @@ def build_hooks(job_id: str, request: HooksRequest | None = None):
             narration = tts_mod.synthesize(hook["text"], job_dir / f"hook_{index}.mp3", voice)
             hook["audio"] = f"/api/jobs/{job_id}/file/hook_{index}.mp3"
             hook["seconds"] = round(narration.duration, 2)
-        except Exception as exc:  # noqa: BLE001 — prévia é opcional
+        except Exception as exc:  # noqa: BLE001 — the preview is optional
             hook["audio_error"] = str(exc)[:160]
 
     current = next((s.text for s in script.segments if s.kind == "hook"), "")
     result = json.loads(row["result_json"] or "{}")
     result["hook_variants"] = {"current": current, "options": hooks}
     db.update_job(job_id, result_json=json.dumps(result))
-    db.log_event(job_id, f"{len(hooks)} gancho(s) alternativo(s) gerado(s)")
+    db.log_event(job_id, f"{len(hooks)} alternative hook(s) generated")
     return result["hook_variants"]
 
 
@@ -189,11 +190,11 @@ class HookChoice(BaseModel):
 
 @router.post("/{job_id}/hooks/apply")
 def apply_hook(job_id: str, choice: HookChoice):
-    """Troca o gancho do roteiro pelo escolhido e re-renderiza este job."""
+    """Swaps the script's hook for the chosen one and re-renders this job."""
     from ..pipeline import script as script_mod
 
     if not choice.text.strip():
-        raise HTTPException(400, "Gancho vazio.")
+        raise HTTPException(400, "Empty hook.")
     row, job, script, job_dir = _current_script(job_id)
     updated = script_mod.with_hook(script, choice.text)
     (job_dir / "script_override.json").write_text(updated.model_dump_json(indent=2),
@@ -202,21 +203,21 @@ def apply_hook(job_id: str, choice: HookChoice):
     result["script"] = updated.model_dump()
     db.update_job(job_id, result_json=json.dumps(result), error=None,
                   **({"qa_json": None} if choice.render else {}))
-    db.log_event(job_id, f"Gancho trocado: {choice.text[:100]}")
+    db.log_event(job_id, f"Hook swapped: {choice.text[:100]}")
     if choice.render:
-        orchestrator.request_resume(job_id, "voz")   # roteiro pronto: pula o LLM
+        orchestrator.request_resume(job_id, "voz")   # script ready: skip the LLM
         worker.enqueue(job_id)
     return {"job_id": job_id, "script": updated.model_dump(), "rendering": choice.render}
 
 
 @router.post("/{job_id}/hooks/fork")
 def fork_with_hook(job_id: str, choice: HookChoice):
-    """Cria um NOVO job idêntico com outro gancho — o par A/B. Publique os dois
-    e compare em Desempenho."""
+    """Creates a NEW identical job with a different hook — the A/B pair.
+    Publish both and compare them under Performance."""
     from ..pipeline import script as script_mod
 
     if not choice.text.strip():
-        raise HTTPException(400, "Gancho vazio.")
+        raise HTTPException(400, "Empty hook.")
     row, job, script, job_dir = _current_script(job_id)
     variant = script_mod.with_hook(script, choice.text)
 
@@ -224,21 +225,21 @@ def fork_with_hook(job_id: str, choice: HookChoice):
     new_dir = settings.job_dir(new_id)
     (new_dir / "script_override.json").write_text(variant.model_dump_json(indent=2),
                                                   encoding="utf-8")
-    # reaproveita o vídeo já baixado (source.<ext> + source.info.json) em vez
-    # de puxar do YouTube outra vez
+    # reuse the video already downloaded (source.<ext> + source.info.json)
+    # instead of pulling it from YouTube all over again
     for src in job_dir.glob("source.*"):
         shutil.copy(src, new_dir / src.name)
-    db.log_event(new_id, f"Variante A/B de {job_id} com gancho: {choice.text[:100]}")
-    db.log_event(job_id, f"Variante A/B criada: {new_id}")
+    db.log_event(new_id, f"A/B variant of {job_id} with hook: {choice.text[:100]}")
+    db.log_event(job_id, f"A/B variant created: {new_id}")
     worker.enqueue(new_id)
     return {"job_id": new_id, "parent": job_id}
 
 
-# ---------------------------------------------------------------------- capa
+# --------------------------------------------------------------------- cover
 
 class CoverRequest(BaseModel):
     title: str = ""
-    at: float | None = None      # segundo do frame; None = escolhe automático
+    at: float | None = None      # frame's second; None = pick automatically
 
 
 @router.post("/{job_id}/cover")
@@ -248,11 +249,11 @@ def rebuild_cover(job_id: str, request: CoverRequest | None = None):
     request = request or CoverRequest()
     row = db.get_job(job_id)
     if row is None:
-        raise HTTPException(404, "Job não encontrado")
+        raise HTTPException(404, "Job not found")
     job_dir = settings.job_dir(job_id)
     video = job_dir / "short.mp4"
     if not video.exists():
-        raise HTTPException(400, "Vídeo ainda não renderizado")
+        raise HTTPException(400, "Video not rendered yet")
 
     job = JobInput(**json.loads(row["input_json"]))
     result = json.loads(row["result_json"] or "{}")
@@ -275,34 +276,33 @@ def rebuild_cover(job_id: str, request: CoverRequest | None = None):
             _, at = cover_mod.build(video, title, job.niche, job_dir / "cover.jpg",
                                     duration, job_dir)
     except Exception as exc:
-        raise HTTPException(500, f"Falha ao gerar a capa: {exc}")
+        raise HTTPException(500, f"Failed to generate the cover: {exc}")
 
     (job_dir / "cover.json").write_text(json.dumps({"at": at}), encoding="utf-8")
     result["cover"] = f"/api/jobs/{job_id}/file/cover.jpg"
     result["cover_at"] = at
     db.update_job(job_id, result_json=json.dumps(result))
-    db.log_event(job_id, f"Capa refeita (frame em {at:.1f}s)")
+    db.log_event(job_id, f"Cover rebuilt (frame at {at:.1f}s)")
     return {"cover": result["cover"], "at": at}
 
 
 @router.post("/{job_id}/edit")
 def edit_job(job_id: str, edit: ScriptEdit):
-    """Aplica edições manuais e re-renderiza.
+    """Applies manual edits and re-renders.
 
-    O roteiro editado é gravado como override, então a re-renderização não
-    chama o LLM de novo — o texto que você escreveu é exatamente o que vai
-    ser narrado.
+    The edited script is written as an override, so the re-render does not
+    call the LLM again — the text you wrote is exactly what gets narrated.
     """
     row = db.get_job(job_id)
     if row is None:
-        raise HTTPException(404, "Job não encontrado")
+        raise HTTPException(404, "Job not found")
 
     job = JobInput(**json.loads(row["input_json"]))
     changes = edit.model_dump(exclude_none=True)
 
     if edit.segments is not None:
         if not edit.segments:
-            raise HTTPException(400, "O roteiro precisa de ao menos um segmento.")
+            raise HTTPException(400, "The script needs at least one segment.")
         current = json.loads(row["result_json"] or "{}").get("script", {})
         script = ShortScript(
             title=edit.title or current.get("title") or row["title"] or "Short",
@@ -322,7 +322,7 @@ def edit_job(job_id: str, edit: ScriptEdit):
 
     db.update_job(job_id, input_json=json.dumps(job.model_dump()),
                   error=None, qa_json=None)
-    # o que estava em rascunho acabou de virar a versão oficial
+    # what was a draft has just become the official version
     (settings.job_dir(job_id) / "draft.json").unlink(missing_ok=True)
     worker.enqueue(job_id)
     return {"job_id": job_id, "status": "queued", "applied": sorted(changes)}
@@ -330,22 +330,23 @@ def edit_job(job_id: str, edit: ScriptEdit):
 
 @router.delete("/{job_id}/edit")
 def reset_edit(job_id: str):
-    """Descarta o roteiro editado e volta a gerar pelo LLM."""
+    """Discards the edited script and goes back to generating it with the LLM."""
     job_dir = settings.job_dir(job_id)
     (job_dir / "script_override.json").unlink(missing_ok=True)
     (job_dir / "draft.json").unlink(missing_ok=True)
     return {"job_id": job_id, "reset": True}
 
 
-# ------------------------------------------------------------------ rascunho
-# O editor guarda o que está sendo digitado aqui, sem renderizar nada. É o que
-# permite fechar a aba (ou trocar de máquina) e voltar de onde parou — antes o
-# texto só existia no estado do React e sumia junto com a tela.
+# --------------------------------------------------------------------- draft
+# The editor keeps whatever is being typed here, without rendering anything.
+# That is what lets you close the tab (or switch machines) and come back where
+# you left off — before, the text only lived in React state and disappeared
+# along with the screen.
 
 @router.get("/{job_id}/draft")
 def get_draft(job_id: str):
     if db.get_job(job_id) is None:
-        raise HTTPException(404, "Job não encontrado")
+        raise HTTPException(404, "Job not found")
     path = settings.job_dir(job_id) / "draft.json"
     if not path.exists():
         return {"draft": None}
@@ -359,7 +360,7 @@ def get_draft(job_id: str):
 @router.put("/{job_id}/draft")
 def save_draft(job_id: str, draft: dict = Body(...)):
     if db.get_job(job_id) is None:
-        raise HTTPException(404, "Job não encontrado")
+        raise HTTPException(404, "Job not found")
     draft = {k: v for k, v in draft.items() if k != "saved_at"}
     draft["saved_at"] = db.now()
     (settings.job_dir(job_id) / "draft.json").write_text(
@@ -380,27 +381,27 @@ class ScriptPrompt(BaseModel):
 
 @router.post("/{job_id}/script/prompt")
 def refine_script(job_id: str, request: ScriptPrompt):
-    """Reescreve o roteiro atual a partir de uma instrução em linguagem natural.
+    """Rewrites the current script from a natural-language instruction.
 
-    Ex.: "deixa o hook mais agressivo", "corta pela metade", "tira o jargão
-    técnico". O resultado vira o roteiro manual do job, então a renderização
-    seguinte usa exatamente esse texto.
+    E.g. "make the hook more aggressive", "cut it in half", "drop the
+    technical jargon". The result becomes the job's manual script, so the next
+    render uses exactly that text.
     """
     from ..pipeline import script as script_mod
 
     if not request.instruction.strip():
-        raise HTTPException(400, "Escreva o que você quer mudar no roteiro.")
+        raise HTTPException(400, "Write what you want to change in the script.")
 
     row = db.get_job(job_id)
     if row is None:
-        raise HTTPException(404, "Job não encontrado")
+        raise HTTPException(404, "Job not found")
 
     job_dir = settings.job_dir(job_id)
     override = job_dir / "script_override.json"
     base = job_dir / "script.json"
     source = override if override.exists() else base
     if not source.exists():
-        raise HTTPException(400, "Este job ainda não tem roteiro.")
+        raise HTTPException(400, "This job has no script yet.")
 
     job = JobInput(**json.loads(row["input_json"]))
     current = ShortScript(**json.loads(source.read_text(encoding="utf-8")))
@@ -409,13 +410,14 @@ def refine_script(job_id: str, request: ScriptPrompt):
     try:
         updated = script_mod.refine_script(current, request.instruction, job)
     except Exception as exc:
-        raise HTTPException(502, f"Falha ao refinar o roteiro: {exc}")
+        raise HTTPException(502, f"Failed to refine the script: {exc}")
 
     override.write_text(updated.model_dump_json(indent=2), encoding="utf-8")
 
-    # O editor e a interface leem o roteiro de result_json. Sem atualizar aqui,
-    # o texto refinado só existia no disco: qualquer recarga da página voltava a
-    # mostrar o roteiro antigo — e salvar por cima descartaria o refinamento.
+    # The editor and the UI read the script from result_json. Without updating
+    # it here, the refined text only lived on disk: any page reload went back
+    # to showing the old script — and saving over it would discard the
+    # refinement.
     result = json.loads(row["result_json"] or "{}")
     result["script"] = updated.model_dump()
     result["title"] = updated.title
@@ -425,7 +427,7 @@ def refine_script(job_id: str, request: ScriptPrompt):
     db.update_job(job_id, title=updated.title,
                   result_json=json.dumps(result),
                   error=None, **({"qa_json": None} if request.render else {}))
-    db.log_event(job_id, f"Roteiro refinado por prompt: {request.instruction[:120]}")
+    db.log_event(job_id, f"Script refined by prompt: {request.instruction[:120]}")
 
     if request.render:
         worker.enqueue(job_id)
@@ -440,20 +442,20 @@ class CaptionRequest(BaseModel):
 
 @router.post("/{job_id}/caption")
 def build_caption(job_id: str, request: CaptionRequest | None = None):
-    """Gera o texto de publicação (título, descrição, hashtags) a partir do roteiro."""
+    """Generates the post text (title, description, hashtags) from the script."""
     from ..pipeline import script as script_mod
 
     row = db.get_job(job_id)
     if row is None:
-        raise HTTPException(404, "Job não encontrado")
+        raise HTTPException(404, "Job not found")
     if not row["result_json"]:
-        raise HTTPException(400, "O short ainda não foi gerado.")
+        raise HTTPException(400, "The short has not been generated yet.")
 
     job_dir = settings.job_dir(job_id)
     override = job_dir / "script_override.json"
     source = override if override.exists() else job_dir / "script.json"
     if not source.exists():
-        raise HTTPException(400, "Este job não tem roteiro.")
+        raise HTTPException(400, "This job has no script.")
 
     job = JobInput(**json.loads(row["input_json"]))
     script = ShortScript(**json.loads(source.read_text(encoding="utf-8")))
@@ -463,29 +465,29 @@ def build_caption(job_id: str, request: CaptionRequest | None = None):
         caption = script_mod.build_post_caption(
             script, job, (request.instruction if request else ""))
     except Exception as exc:
-        raise HTTPException(502, f"Falha ao gerar a legenda do post: {exc}")
+        raise HTTPException(502, f"Failed to generate the post caption: {exc}")
 
     result = json.loads(row["result_json"])
     result["caption"] = caption
     db.update_job(job_id, result_json=json.dumps(result))
-    db.log_event(job_id, "Legenda de publicação gerada")
+    db.log_event(job_id, "Post caption generated")
     return caption
 
 
 @router.get("/{job_id}/timeline")
 def get_timeline(job_id: str):
-    """Linha do tempo editável do short (clipes, áudio e legendas)."""
+    """The short's editable timeline (clips, audio and captions)."""
     from ..pipeline import timeline as timeline_mod
 
     job_dir = settings.job_dir(job_id)
     edl = timeline_mod.load(job_dir)
     if edl is None:
-        # Jobs renderizados antes do editor existir não têm timeline.json.
-        # Reconstruímos a partir dos arquivos que já estão no disco para não
-        # transformar produções antigas em beco sem saída.
+        # Jobs rendered before the editor existed have no timeline.json. We
+        # rebuild it from the files already on disk so that older productions
+        # don't turn into a dead end.
         edl = _rebuild_timeline(job_id, job_dir)
         if edl is None:
-            raise HTTPException(404, "Este job ainda não tem linha do tempo.")
+            raise HTTPException(404, "This job has no timeline yet.")
         timeline_mod.save(job_dir, edl)
     return edl.to_dict()
 
@@ -525,7 +527,7 @@ def _rebuild_timeline(job_id: str, job_dir: Path):
 
 @router.put("/{job_id}/timeline")
 def save_timeline(job_id: str, data: dict):
-    """Salva a linha do tempo sem renderizar — usado no autosave do editor."""
+    """Saves the timeline without rendering — used by the editor's autosave."""
     from ..pipeline import timeline as timeline_mod
 
     job_dir = settings.job_dir(job_id)
@@ -536,23 +538,23 @@ def save_timeline(job_id: str, data: dict):
 
 @router.post("/{job_id}/timeline/render")
 def render_timeline(job_id: str, data: dict | None = None):
-    """Recompila o vídeo a partir da linha do tempo e reaudita no QA.
+    """Recompiles the video from the timeline and re-audits it in QA.
 
-    Não passa pelo LLM nem pelo TTS: usa exatamente os arquivos já existentes,
-    recortados e posicionados conforme o editor.
+    It goes through neither the LLM nor TTS: it uses exactly the files that
+    already exist, trimmed and positioned as set in the editor.
     """
     from ..pipeline import qa as qa_mod, render as render_mod
     from ..pipeline import timeline as timeline_mod, timeline_render
 
     row = db.get_job(job_id)
     if row is None:
-        raise HTTPException(404, "Job não encontrado")
+        raise HTTPException(404, "Job not found")
 
     job_dir = settings.job_dir(job_id)
     edl = (timeline_mod.Timeline.from_dict(data) if data
            else timeline_mod.load(job_dir))
     if edl is None:
-        raise HTTPException(400, "Sem linha do tempo para renderizar.")
+        raise HTTPException(400, "No timeline to render.")
     edl.normalize()
     timeline_mod.save(job_dir, edl)
 
@@ -565,16 +567,16 @@ def render_timeline(job_id: str, data: dict | None = None):
                                   at=min(1.0, edl.duration / 4))
         shutil.copy(final, settings.outputs_dir / f"{job_id}.mp4")
     except Exception as exc:
-        raise HTTPException(500, f"Falha ao renderizar a linha do tempo: {exc}")
+        raise HTTPException(500, f"Failed to render the timeline: {exc}")
 
     for message in events:
         db.log_event(job_id, message)
-    db.log_event(job_id, "Vídeo remontado pelo editor de linha do tempo")
+    db.log_event(job_id, "Video reassembled by the timeline editor")
 
     report = qa_mod.audit(final, None)
     db.log_event(job_id,
                  f"QA: score {report.score}/100 — "
-                 f"{'APROVADO' if report.passed else 'REPROVADO'}")
+                 f"{'PASSED' if report.passed else 'FAILED'}")
 
     result = json.loads(row["result_json"] or "{}")
     result["duration"] = round(edl.duration, 2)
@@ -592,7 +594,7 @@ def rerun_qa(job_id: str):
     job_dir = settings.jobs_dir / job_id
     video = job_dir / "short.mp4"
     if not video.exists():
-        raise HTTPException(400, "Vídeo ainda não renderizado")
+        raise HTTPException(400, "Video not rendered yet")
     report = qa_mod.audit(video, job_dir / "captions.ass")
     db.update_job(job_id, qa_json=report.model_dump_json())
     return report

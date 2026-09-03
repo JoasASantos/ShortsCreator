@@ -36,7 +36,7 @@ export function StatusTag({ status }: { status: string }) {
     pending: { tone: "amber", text: t.status.pending },
     publishing: { tone: "run", text: t.status.publishing },
     published: { tone: "ok", text: t.status.published },
-    // planos de lote: analisar é demorado e "rendered" não é "publicado"
+    // batch plans: analyzing takes a while and "rendered" is not "published"
     analisando: { tone: "run", text: t.status.analyzing },
     ready: { tone: "amber", text: t.status.clipsReady },
     rendered: { tone: "ok", text: t.status.rendered },
@@ -100,8 +100,8 @@ export function Chips<T extends string>({ options, value, onChange }: {
   );
 }
 
-/** Envolve tabelas largas para elas rolarem no celular em vez de estourar
- *  a largura da página. */
+/** Wraps wide tables so they scroll on phones instead of blowing out the
+ *  page width. */
 export function TableWrap({ children }: { children: React.ReactNode }) {
   return <div className="table-wrap">{children}</div>;
 }

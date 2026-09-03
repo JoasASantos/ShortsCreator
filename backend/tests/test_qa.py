@@ -1,4 +1,4 @@
-"""QA de formato — auditado sobre o arquivo real, com ffprobe/ffmpeg."""
+"""Format QA — audited against the real file, with ffprobe/ffmpeg."""
 from __future__ import annotations
 
 import subprocess
@@ -10,10 +10,10 @@ from conftest import needs_ffmpeg
 
 
 @needs_ffmpeg
-def test_video_9x16_valido_passa(sample_video):
+def test_valid_9x16_video_passes(sample_video):
     report = qa.audit(sample_video)
-    fatais = [i for i in report.issues if i.severity == "fatal"]
-    assert not fatais, f"reprovou um 1080x1920 válido: {[i.message for i in fatais]}"
+    fatal = [i for i in report.issues if i.severity == "fatal"]
+    assert not fatal, f"rejected a valid 1080x1920: {[i.message for i in fatal]}"
     assert report.metrics["width"] == 1080
     assert report.metrics["height"] == 1920
     assert abs(report.metrics["aspect_ratio"] - 9 / 16) < 0.001
@@ -21,7 +21,7 @@ def test_video_9x16_valido_passa(sample_video):
 
 
 @needs_ffmpeg
-def test_video_16x9_reprova_com_fatal(tmp_path):
+def test_16x9_video_fails_with_a_fatal_issue(tmp_path):
     horizontal = tmp_path / "16x9.mp4"
     subprocess.run(
         ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=1920x1080:rate=30:duration=2",
@@ -36,59 +36,59 @@ def test_video_16x9_reprova_com_fatal(tmp_path):
 
 
 @needs_ffmpeg
-def test_score_penaliza_proporcionalmente(sample_video, tmp_path):
-    """Vídeo válido tem score alto; um quadrado (proporção errada) despenca."""
-    quadrado = tmp_path / "quadrado.mp4"
+def test_score_penalizes_proportionally(sample_video, tmp_path):
+    """A valid video scores high; a square one (wrong aspect ratio) plummets."""
+    square = tmp_path / "square.mp4"
     subprocess.run(
         ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=600x600:rate=30:duration=2",
          "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-         "-t", "2", str(quadrado)],
+         "-t", "2", str(square)],
         check=True, capture_output=True,
     )
-    assert qa.audit(sample_video).score > qa.audit(quadrado).score
+    assert qa.audit(sample_video).score > qa.audit(square).score
 
 
-def test_arquivo_ausente_reprova_sem_explodir(tmp_path):
-    report = qa.audit(tmp_path / "nao_existe.mp4")
+def test_a_missing_file_fails_without_blowing_up(tmp_path):
+    report = qa.audit(tmp_path / "does_not_exist.mp4")
     assert not report.passed
     assert report.score == 0
     assert report.issues[0].severity == "fatal"
 
 
-def test_ass_com_margem_baixa_gera_issue(tmp_path, words):
-    """Legenda dentro da faixa da interface do app: o QA precisa acusar."""
-    ass = tmp_path / "invalido.ass"
-    conteudo = captions.build_ass(words, ass, position="baixo").read_text("utf-8")
-    # força margem inválida no estilo Legenda (abaixo de 60% da safe area)
-    ass.write_text(conteudo.replace(
+def test_ass_with_too_low_a_margin_raises_an_issue(tmp_path, words):
+    """A caption inside the app's UI band: QA has to call it out."""
+    ass = tmp_path / "invalid.ass"
+    content = captions.build_ass(words, ass, position="baixo").read_text("utf-8")
+    # force an invalid margin on the Legenda style (below 60% of the safe area)
+    ass.write_text(content.replace(
         f",{captions.POSITION_MARGIN_V['baixo']},1\n", ",60,1\n", 1), encoding="utf-8")
 
     checks = {i.check for i in qa._ass_safe_area(ass)}  # noqa: SLF001
     assert "safe_area_inferior" in checks
 
 
-def test_ass_nas_posicoes_padrao_nao_gera_issue(tmp_path, words):
+def test_ass_in_the_default_positions_raises_no_issue(tmp_path, words):
     for position in ("baixo", "centro", "topo"):
         ass = captions.build_ass(words, tmp_path / f"{position}.ass", position=position)
         checks = {i.check for i in qa._ass_safe_area(ass)}  # noqa: SLF001
-        assert "safe_area_inferior" not in checks, f"posição '{position}' reprovou"
+        assert "safe_area_inferior" not in checks, f"position '{position}' failed the audit"
         assert "safe_area_lateral" not in checks
         assert "legenda_vazia" not in checks
 
 
-def test_ass_ausente_gera_erro_em_vez_de_explodir(tmp_path):
-    checks = {i.check for i in qa._ass_safe_area(tmp_path / "nao_existe.ass")}  # noqa: SLF001
+def test_a_missing_ass_yields_an_issue_instead_of_blowing_up(tmp_path):
+    checks = {i.check for i in qa._ass_safe_area(tmp_path / "does_not_exist.ass")}  # noqa: SLF001
     assert "legenda_arquivo" in checks
 
 
-def test_ass_sem_dialogos_e_fatal(tmp_path):
-    ass = tmp_path / "sem_eventos.ass"
+def test_an_ass_with_no_dialogue_is_fatal(tmp_path):
+    ass = tmp_path / "no_events.ass"
     ass.write_text("[Script Info]\n[Events]\n", encoding="utf-8")
     issues = qa._ass_safe_area(ass)  # noqa: SLF001
     assert any(i.check == "legenda_vazia" and i.severity == "fatal" for i in issues)
 
 
-def test_union_seconds_soma_intervalos_sobrepostos():
+def test_union_seconds_merges_overlapping_intervals():
     assert qa._union_seconds([(0, 2), (1, 3)]) == 3.0        # noqa: SLF001
     assert qa._union_seconds([(0, 1), (2, 3)]) == 2.0        # noqa: SLF001
     assert qa._union_seconds([]) == 0.0                      # noqa: SLF001
@@ -99,7 +99,7 @@ def _report(*checks: str) -> QAReport:
         QAIssue(check=c, severity="erro", message=c, fix="") for c in checks])
 
 
-def test_suggest_fix_curto_alonga_o_roteiro():
+def test_suggest_fix_lengthens_the_script_when_too_short():
     job = JobInput(source_type="tema", source="x", duration=30)
     fix = qa.suggest_fix(_report("duracao_minima"), job)
     assert fix is not None
@@ -108,7 +108,7 @@ def test_suggest_fix_curto_alonga_o_roteiro():
     assert updated.duration > job.duration
 
 
-def test_suggest_fix_longo_encurta_o_roteiro():
+def test_suggest_fix_shortens_the_script_when_too_long():
     job = JobInput(source_type="tema", source="x", duration=80)
     fix = qa.suggest_fix(_report("duracao_maxima"), job)
     assert fix is not None
@@ -117,16 +117,16 @@ def test_suggest_fix_longo_encurta_o_roteiro():
     assert updated.duration < job.duration
 
 
-def test_suggest_fix_nao_insiste_quando_ja_esta_no_limite():
-    """Já no máximo permitido: alongar mais não resolveria — melhor parar o
-    loop de autoajuste e mostrar o problema."""
+def test_suggest_fix_does_not_insist_when_already_at_the_limit():
+    """Already at the maximum allowed: stretching further would not fix it —
+    better to stop the self-adjust loop and surface the problem."""
     from app.config import settings
 
     job = JobInput(source_type="tema", source="x", duration=settings.max_short_seconds)
     assert qa.suggest_fix(_report("duracao_minima"), job) is None
 
 
-def test_suggest_fix_legenda_move_para_o_centro():
+def test_suggest_fix_moves_the_caption_to_the_center():
     job = JobInput(source_type="tema", source="x", caption_position="baixo")
     fix = qa.suggest_fix(_report("safe_area_inferior"), job)
     assert fix is not None
@@ -135,12 +135,12 @@ def test_suggest_fix_legenda_move_para_o_centro():
     assert stage == "legendas"
 
 
-def test_suggest_fix_legenda_ja_no_centro_nao_reaplica():
+def test_suggest_fix_does_not_reapply_when_the_caption_is_already_centered():
     job = JobInput(source_type="tema", source="x", caption_position="centro")
     assert qa.suggest_fix(_report("safe_area_inferior"), job) is None
 
 
-def test_suggest_fix_loudness_abaixa_a_trilha():
+def test_suggest_fix_for_loudness_lowers_the_music_track():
     job = JobInput(source_type="tema", source="x", music=True, music_volume=0.12)
     fix = qa.suggest_fix(_report("loudness"), job)
     assert fix is not None
@@ -149,7 +149,7 @@ def test_suggest_fix_loudness_abaixa_a_trilha():
     assert stage == "render"
 
 
-def test_suggest_fix_barras_pretas_troca_o_fundo():
+def test_suggest_fix_for_black_bars_swaps_the_background():
     job = JobInput(source_type="video", source="x", background="video_fonte")
     fix = qa.suggest_fix(_report("barras_pretas"), job)
     assert fix is not None
@@ -158,22 +158,22 @@ def test_suggest_fix_barras_pretas_troca_o_fundo():
     assert stage == "fundo"
 
 
-def test_suggest_fix_ignora_avisos():
-    """Aviso não bloqueia publicação; não deve disparar re-render."""
+def test_suggest_fix_ignores_warnings():
+    """A warning does not block publishing; it must not trigger a re-render."""
     report = QAReport(passed=True, score=95, metrics={}, issues=[
         QAIssue(check="duracao_minima", severity="aviso", message="", fix="")])
     job = JobInput(source_type="tema", source="x", duration=30)
     assert qa.suggest_fix(report, job) is None
 
 
-def test_suggest_fix_sem_problema_conhecido_devolve_none():
+def test_suggest_fix_returns_none_for_an_unknown_issue():
     job = JobInput(source_type="tema", source="x")
     report = QAReport(passed=False, score=50, metrics={}, issues=[
         QAIssue(check="coisa_inedita", severity="erro", message="?", fix="")])
     assert qa.suggest_fix(report, job) is None
 
 
-def test_parse_fps_lida_com_fracao_e_lixo():
+def test_parse_fps_handles_fractions_and_garbage():
     assert qa._parse_fps("30/1") == 30.0        # noqa: SLF001
     assert abs(qa._parse_fps("30000/1001") - 29.97) < 0.01   # noqa: SLF001
     assert qa._parse_fps("0/0") == 0.0          # noqa: SLF001

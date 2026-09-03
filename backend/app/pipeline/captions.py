@@ -1,4 +1,4 @@
-"""Legendas ASS com destaque por palavra (karaokê), dentro da safe area 9:16."""
+"""ASS subtitles with per-word highlighting (karaoke), inside the 9:16 safe area."""
 from __future__ import annotations
 
 import re
@@ -6,12 +6,12 @@ from pathlib import Path
 
 from ..config import settings
 
-# Cores ASS são &HAABBGGRR (alpha, blue, green, red)
-BASE_COLOR = "&H00FFFFFF"       # branco
-ACTIVE_COLOR = "&H0000E5FF"     # amarelo/âmbar
-OUTLINE_COLOR = "&H00000000"    # preto
+# ASS colors are &HAABBGGRR (alpha, blue, green, red)
+BASE_COLOR = "&H00FFFFFF"       # white
+ACTIVE_COLOR = "&H0000E5FF"     # yellow/amber
+OUTLINE_COLOR = "&H00000000"    # black
 
-# Safe area vertical: a UI do TikTok/Shorts cobre ~320px embaixo e ~180px em cima.
+# Vertical safe area: the TikTok/Shorts UI covers ~320px at the bottom and ~180px at the top.
 SAFE_BOTTOM = 340
 SAFE_TOP = 200
 SIDE_MARGIN = 110
@@ -37,7 +37,7 @@ def _escape(text: str) -> str:
 
 def group_lines(words: list[dict], max_words: int = 4,
                 max_seconds: float = 2.4, max_chars: int = 26) -> list[list[dict]]:
-    """Agrupa palavras em linhas curtas legíveis em tela vertical."""
+    """Group words into short lines that stay readable on a vertical screen."""
     lines: list[list[dict]] = []
     current: list[dict] = []
     for word in words:
@@ -113,7 +113,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     f"{{\\fad(80,80)}}{text}"
                 )
                 continue
-            # karaokê: um evento por palavra ativa, linha inteira sempre visível
+            # karaoke: one event per active word, whole line always visible
             for index, word in enumerate(line):
                 start = word["start"]
                 end = line[index + 1]["start"] if index + 1 < len(line) else word["end"]

@@ -1,4 +1,4 @@
-"""Camada de dados em sqlite3 puro — sem ORM, zero dependência frágil."""
+"""Data layer on plain sqlite3 — no ORM, zero fragile dependencies."""
 from __future__ import annotations
 
 import json
@@ -245,8 +245,8 @@ def create_account(platform: str, display_name: str, credentials: dict) -> str:
 
 def upsert_account_for_platform(platform: str, display_name: str,
                                 credentials: dict) -> str:
-    """Plataformas de token fixo (Instagram, LinkedIn) têm uma conta só por
-    conector: atualiza a existente em vez de acumular duplicatas."""
+    """Fixed-token platforms (Instagram, LinkedIn) have exactly one account per
+    connector: update the existing one instead of piling up duplicates."""
     with _lock, connect() as conn:
         row = conn.execute("SELECT id FROM accounts WHERE platform=?",
                            (platform,)).fetchone()
@@ -401,7 +401,7 @@ def get_schedule(schedule_id: str) -> dict | None:
 
 
 def published_schedules(since_iso: str) -> list[dict]:
-    """Publicações concluídas a partir de uma data — base da coleta de métricas."""
+    """Publications completed since a given date — the basis of metric collection."""
     with connect() as conn:
         rows = conn.execute(
             "SELECT * FROM schedules WHERE status='published' AND updated_at>=?"
@@ -410,7 +410,7 @@ def published_schedules(since_iso: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-# ---------- chamadas de LLM ----------
+# ---------- LLM calls ----------
 
 def log_llm_call(job_id: str | None, purpose: str, provider: str, model: str,
                  seconds: float, ok: bool, error: str = "") -> None:
@@ -432,7 +432,7 @@ def llm_calls_for_job(job_id: str) -> list[dict]:
 
 
 def llm_call_summary(limit_days: int = 30) -> list[dict]:
-    """Agregado por provider/modelo: quantas chamadas, taxa de acerto, latência."""
+    """Aggregate per provider/model: how many calls, success rate, latency."""
     with connect() as conn:
         rows = conn.execute(
             "SELECT provider, model, COUNT(*) AS calls, SUM(ok) AS ok,"
@@ -444,7 +444,7 @@ def llm_call_summary(limit_days: int = 30) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-# ---------- métricas de publicação ----------
+# ---------- publication metrics ----------
 
 def upsert_metrics(schedule_id: str, job_id: str, platform: str, video_id: str,
                    url: str, data: dict, error: str = "") -> None:
@@ -484,7 +484,7 @@ def metrics_for_job(job_id: str) -> list[dict]:
 
 
 def metrics_by_jobs(job_ids: list[str]) -> dict[str, dict]:
-    """Resumo agregado (todas as plataformas) por job — para a lista do painel."""
+    """Aggregate summary (all platforms) per job — for the dashboard list."""
     if not job_ids:
         return {}
     marks = ",".join("?" * len(job_ids))

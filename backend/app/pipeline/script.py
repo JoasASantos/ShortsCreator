@@ -1,4 +1,4 @@
-"""Geração de roteiro do short a partir do material de origem."""
+"""Short script generation from the source material."""
 from __future__ import annotations
 
 import json
@@ -43,7 +43,7 @@ KIND_ADDENDUM = {
         "a câmera vai só dar zoom/pan lento sobre elas. Escreva como quem descreve, contextualiza "
         "ou conta uma história a partir do que está na imagem, sem depender de movimento na tela."
     ),
-    "roteiro": "",  # não passa por LLM — ver build_script
+    "roteiro": "",  # does not go through the LLM — see build_script
 }
 
 ANGLE_GUIDE = {
@@ -94,9 +94,10 @@ RESUMO_ADDENDUM = (
     "não uma transcrição truncada."
 )
 
-# A interface existe em cinco idiomas, e o roteiro tem que sair no idioma
-# pedido — antes o prompt fixava "português do Brasil" e ignorava job.language,
-# então uma interface em espanhol continuava produzindo narração em português.
+# The interface exists in five languages, and the script has to come out in the
+# language that was asked for — the prompt used to hardcode "português do Brasil"
+# and ignore job.language, so a Spanish interface kept producing narration in
+# Portuguese.
 LANGUAGE_NAMES = {
     "pt": "português do Brasil",
     "en": "inglês (English)",
@@ -111,8 +112,8 @@ LANGUAGE_NAMES = {
 
 
 def language_name(tag: str) -> str:
-    """'es-ES' -> 'espanhol (español)'. Tag desconhecida volta como ela mesma,
-    o que ainda é uma instrução útil para o modelo."""
+    """'es-ES' -> 'espanhol (español)'. An unknown tag comes back as itself,
+    which is still a useful instruction for the model."""
     tag = (tag or "").strip()
     if not tag:
         return LANGUAGE_NAMES["pt"]
@@ -120,10 +121,10 @@ def language_name(tag: str) -> str:
 
 
 def _in_language(template: str, tag: str) -> str:
-    """Injeta o idioma no prompt.
+    """Injects the language into the prompt.
 
-    `str.format` não serve aqui: estes prompts trazem exemplos de JSON, e as
-    chaves `{` viram placeholder — daí a substituição direta do marcador.
+    `str.format` is no good here: these prompts carry JSON examples, and the `{`
+    braces get read as placeholders — hence replacing the marker directly.
     """
     return template.replace("{language}", language_name(tag))
 
@@ -183,8 +184,8 @@ def build_script(job: JobInput, material: SourceMaterial) -> ShortScript:
     angle_guide = ANGLE_GUIDE.get(job.angle, "")
     if angle_guide:
         addendum = f"{addendum}\n\n{angle_guide}".strip()
-    # Instrução livre ou ângulo explícito significam que o usuário quer falar de
-    # um ASSUNTO, e não legendar o que passa na tela.
+    # A free-form instruction or an explicit angle means the user wants to talk
+    # about a SUBJECT, not to caption whatever goes by on the screen.
     if job.instruction.strip() or (job.angle != "auto" and material.kind == "video"):
         addendum = f"{addendum}\n\n{VISUAL_IS_SUPPORT}".strip()
 
@@ -203,13 +204,13 @@ def build_script(job: JobInput, material: SourceMaterial) -> ShortScript:
     briefing = (f"INSTRUÇÃO DO USUÁRIO PARA ESTE VÍDEO (prioridade máxima):\n"
                 f"{job.instruction.strip()}\n" if job.instruction.strip() else "")
 
-    # O que já funcionou no canal do usuário entra como referência de gancho.
-    # Vazio até existir publicação medida — o prompt fica igual ao de sempre.
+    # Whatever already worked on the user's channel goes in as hook reference.
+    # Empty until there is a measured publication — the prompt then stays as usual.
     from . import metrics as metrics_mod
 
     try:
         channel_insights = metrics_mod.insights(job.niche)
-    except Exception:  # noqa: BLE001 — briefing é bônus, nunca bloqueia
+    except Exception:  # noqa: BLE001 — the briefing is a bonus, never a blocker
         channel_insights = ""
 
     prompt = f"""{briefing}Nicho: {job.niche}
@@ -232,7 +233,7 @@ Gere o roteiro do short."""
 
     segments = [ScriptSegment(**s) for s in data.get("segments", []) if s.get("text")]
     if not segments:
-        raise RuntimeError("LLM não retornou segmentos de roteiro.")
+        raise RuntimeError("The LLM returned no script segments.")
 
     hashtags = [h if h.startswith("#") else f"#{h}" for h in data.get("hashtags", [])]
 
@@ -246,10 +247,11 @@ Gere o roteiro do short."""
 
 
 def _script_from_pasted_text(job: JobInput, material: SourceMaterial) -> ShortScript:
-    """source_type='roteiro' — sem LLM. Só divide o texto do usuário em segmentos falados."""
+    """source_type='roteiro' — no LLM. Just splits the user's text into spoken
+    segments."""
     sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", material.text.strip()) if s.strip()]
     if not sentences:
-        raise RuntimeError("Roteiro vazio.")
+        raise RuntimeError("Empty script.")
 
     segments: list[ScriptSegment] = []
     buffer = ""
@@ -271,8 +273,9 @@ def _script_from_pasted_text(job: JobInput, material: SourceMaterial) -> ShortSc
         segments[-1].kind = "cta"
 
     return ShortScript(
-        title=material.title or "Roteiro",
-        description="Roteiro fornecido pelo usuário.",
+        # fallback only when the pasted text has no usable first line
+        title=material.title or "Script",
+        description="Script supplied by the user.",
         hashtags=[],
         segments=segments,
         estimated_seconds=job.duration,
@@ -285,12 +288,13 @@ def full_narration(script: ShortScript) -> str:
 
 def segment_durations_covering(script: ShortScript, words: list[dict],
                                total: float) -> list[float]:
-    """Duração de fundo por segmento, cobrindo a linha do tempo INTEIRA.
+    """Background duration per segment, covering the ENTIRE timeline.
 
-    `segment_time_spans` devolve só o intervalo falado de cada segmento; a soma
-    ignora as pausas entre eles e fica menor que a narração — o que fazia o
-    fundo terminar antes do áudio e o `-shortest` cortar o final.
-    Aqui cada segmento se estende até o início do próximo (o último até o fim).
+    `segment_time_spans` returns only the spoken span of each segment; the sum
+    ignores the pauses between them and comes out shorter than the narration —
+    which made the background end before the audio and `-shortest` cut off the
+    ending. Here each segment stretches to the start of the next one (the last
+    one to the end).
     """
     spans = segment_time_spans(script, words)
     if not spans:
@@ -298,16 +302,16 @@ def segment_durations_covering(script: ShortScript, words: list[dict],
     starts = [start for start, _ in spans]
     bounds = starts[1:] + [total]
     durations = [max(bound - start, 0.8) for start, bound in zip(starts, bounds)]
-    # o primeiro segmento absorve o silêncio inicial, se houver
+    # the first segment absorbs the leading silence, if there is any
     durations[0] += max(starts[0], 0.0)
     return durations
 
 
 def segment_time_spans(script: ShortScript, words: list[dict]) -> list[tuple[float, float]]:
-    """Mapeia cada segmento do roteiro pro intervalo de tempo que ele ocupa na
-    narração — consumindo `words` na ordem, contando palavras por segmento.
-    Aproximado (assume tokenização 1:1 com `.split()`), mas suficiente pra
-    decidir onde cortar o fundo (Ken Burns por imagem, destaques de vídeo)."""
+    """Maps each script segment to the time span it takes up in the narration —
+    consuming `words` in order, counting words per segment. Approximate (it
+    assumes 1:1 tokenization with `.split()`), but enough to decide where to cut
+    the background (Ken Burns per image, video highlights)."""
     spans: list[tuple[float, float]] = []
     cursor = 0
     for segment in script.segments:
@@ -339,10 +343,11 @@ Responda APENAS com JSON válido no mesmo formato do roteiro recebido."""
 
 def refine_script(script: ShortScript, instruction: str, job: JobInput,
                   material: SourceMaterial | None = None) -> ShortScript:
-    """Reescreve um roteiro existente conforme uma instrução em linguagem natural.
+    """Rewrites an existing script following a natural-language instruction.
 
-    É o caminho para ajustes do tipo "deixa o hook mais agressivo", "corta pela
-    metade" ou "tira o jargão" sem perder o resto do roteiro já aprovado.
+    This is the path for tweaks like "make the hook more aggressive", "cut it in
+    half" or "drop the jargon" without losing the rest of the script that was
+    already approved.
     """
     current = script.model_dump()
     context = material.context(limit=8000) if material else ""
@@ -367,7 +372,7 @@ Reescreva o roteiro aplicando a instrução."""
                              prompt, SCHEMA, purpose="refinar")
     segments = [ScriptSegment(**s) for s in data.get("segments", []) if s.get("text")]
     if not segments:
-        raise RuntimeError("O modelo não devolveu segmentos ao refinar o roteiro.")
+        raise RuntimeError("The model returned no segments when refining the script.")
 
     hashtags = [h if h.startswith("#") else f"#{h}" for h in
                 data.get("hashtags", script.hashtags)]
@@ -417,7 +422,7 @@ CAPTION_SCHEMA = {
 
 def build_post_caption(script: ShortScript, job: JobInput,
                        instruction: str = "") -> dict:
-    """Gera o texto de publicação (título, descrição e hashtags) do short."""
+    """Generates the short's post copy (title, description and hashtags)."""
     narration = full_narration(script)
     extra = f"\nPedido extra do usuário: {instruction.strip()}\n" if instruction.strip() else ""
 
@@ -477,7 +482,7 @@ HOOKS_SCHEMA = {
 
 
 def build_hook_variants(script: ShortScript, job: JobInput, count: int = 3) -> list[dict]:
-    """Alternativas de gancho para o mesmo roteiro — base do teste A/B."""
+    """Hook alternatives for the same script — the basis of the A/B test."""
     current = next((s.text for s in script.segments if s.kind == "hook"),
                    script.segments[0].text if script.segments else "")
     body = " ".join(s.text for s in script.segments if s.kind != "hook")
@@ -505,12 +510,12 @@ Escreva {count} ganchos alternativos, cada um com um mecanismo diferente."""
                              prompt, HOOKS_SCHEMA, purpose="hooks")
     hooks = [h for h in data.get("hooks", []) if h.get("text", "").strip()]
     if not hooks:
-        raise RuntimeError("O modelo não devolveu ganchos alternativos.")
+        raise RuntimeError("The model returned no alternative hooks.")
     return hooks[:count]
 
 
 def with_hook(script: ShortScript, hook_text: str) -> ShortScript:
-    """Cópia do roteiro com o primeiro segmento trocado pelo gancho escolhido."""
+    """Copy of the script with the first segment swapped for the chosen hook."""
     segments = [s.model_copy() for s in script.segments]
     idx = next((i for i, s in enumerate(segments) if s.kind == "hook"), 0)
     if segments:

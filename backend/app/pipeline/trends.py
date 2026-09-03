@@ -1,14 +1,14 @@
-"""Radar de tendências: o que está subindo agora, por nicho, sem chave de API.
+"""Trend radar: what is rising right now, by niche, without an API key.
 
-Fontes gratuitas e públicas:
-  - Google Trends (RSS diário por país)
-  - Reddit "rising" dos subreddits do nicho (JSON público)
-  - Hacker News top (Algolia) para tecnologia/programação/segurança
-  - YouTube "mais populares" quando há uma conta do YouTube conectada
-    (reaproveita o OAuth já feito — sem chave extra)
+Free, public sources:
+  - Google Trends (daily RSS per country)
+  - Reddit "rising" for the niche's subreddits (public JSON)
+  - Hacker News top (Algolia) for technology/programming/security
+  - YouTube "most popular" whenever a YouTube account is connected
+    (reuses the OAuth already done — no extra key)
 
-Cada item vira um candidato a short com um clique. Resultado em cache de
-30 minutos: tendência não muda a cada F5 e as fontes agradecem.
+Each item becomes a short candidate with one click. Results are cached for
+30 minutes: a trend does not change on every F5, and the sources appreciate it.
 """
 from __future__ import annotations
 
@@ -17,14 +17,14 @@ import re
 import threading
 import time
 import xml.etree.ElementTree as ET
-from html import unescape  # noqa: F401  (usado nas duas fontes de RSS)
+from html import unescape  # noqa: F401  (used by both RSS sources)
 
 import httpx
 
 from .. import db
 
-# O www.reddit.com devolve 403 para User-Agent de robô desde que fecharam a
-# API pública; old.reddit.com continua servindo o JSON com UA de navegador.
+# www.reddit.com returns 403 for a bot User-Agent ever since they closed the
+# public API; old.reddit.com still serves the JSON with a browser UA.
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0 Safari/537.36")
 TIMEOUT = 15.0
@@ -45,15 +45,15 @@ SUBREDDITS = {
 
 HN_NICHES = {"tecnologia", "ciberseguranca", "programacao"}
 
-# Cache POR FONTE, não por consulta: o Reddit limita requisições por IP de
-# forma agressiva, e um bloqueio dele não pode apagar o que as outras fontes
-# já entregaram. Também é o que evita marretar as APIs a cada F5.
+# Cache PER SOURCE, not per query: Reddit rate-limits per IP aggressively, and
+# a block from it must not wipe out what the other sources already delivered.
+# It is also what keeps us from hammering the APIs on every F5.
 _cache: dict[str, tuple[float, list[dict]]] = {}
 _lock = threading.Lock()
 
 
 def _sources() -> tuple:
-    # resolvido em tempo de chamada: as funções são definidas abaixo
+    # resolved at call time: the functions are defined further below
     return (_google_trends, _reddit, _hackernews, _youtube_popular)
 
 
@@ -76,25 +76,25 @@ def _cached_source(source, niche: str, geo: str) -> list[dict]:
 
     try:
         items = source(niche, geo)
-    except Exception:  # noqa: BLE001 — fonte fora do ar não derruba o radar
+    except Exception:  # noqa: BLE001 — a source being down must not break the radar
         items = []
 
     with _lock:
         if items:
             _cache[key] = (now, items)
         elif cached:
-            # a fonte falhou agora (limite de requisições, por exemplo): melhor
-            # servir o resultado anterior, mesmo velho, do que sumir com ela
+            # the source just failed (rate limiting, for instance): better to
+            # serve the previous result, however stale, than to drop it
             return cached[1]
         else:
-            # sem nada antes: guarda o vazio por menos tempo e tenta de novo logo
+            # nothing before: cache the empty result for less time and retry soon
             _cache[key] = (now - CACHE_TTL + 120, [])
     return items
 
 
 def sources_status(niche: str = "generico", geo: str = "BR") -> list[dict]:
-    """Quais fontes têm resultado em cache — a tela mostra isso para deixar
-    claro quando o Reddit está limitando em vez de fingir que não existe."""
+    """Which sources have a cached result — the screen shows this to make it
+    clear when Reddit is rate-limiting, instead of pretending it isn't there."""
     out = []
     with _lock:
         for source in _sources():
@@ -119,7 +119,7 @@ def _dedupe(items: list[dict]) -> list[dict]:
     return out
 
 
-# ------------------------------------------------------------------ fontes
+# ------------------------------------------------------------------ sources
 
 def _google_trends(niche: str, geo: str) -> list[dict]:
     r = httpx.get(f"https://trends.google.com/trending/rss?geo={geo}",
@@ -141,7 +141,11 @@ def _google_trends(niche: str, geo: str) -> list[dict]:
             snippet = unescape(news.findtext("ht:news_item_title", namespaces=ns) or "")
             url = news.findtext("ht:news_item_url", namespaces=ns) or ""
         out.append({"source": "Google Trends", "title": title, "snippet": snippet,
-                    "url": url, "heat": heat, "heat_label": f"{traffic}+ buscas" if traffic else "em alta"})
+                    "url": url, "heat": heat,
+                    # structured instead of a ready-made sentence: the UI speaks
+                    # five languages and formats this itself
+                    "heat_kind": "searches" if traffic else "rising",
+                    "heat_data": {"searches": traffic} if traffic else {}})
     return out[:20]
 
 
@@ -158,15 +162,15 @@ ATOM = {"a": "http://www.w3.org/2005/Atom"}
 
 
 def _reddit(niche: str, geo: str) -> list[dict]:
-    """Feed Atom de `rising`. O JSON público virou 403 (e o old.reddit devolve
-    uma página de boas-vindas com status 200, que é pior), mas o RSS continua
-    aberto. Ele não traz score, então o calor vem da posição na lista — que já
-    é a ordem de "subindo" que interessa."""
+    """Atom feed of `rising`. The public JSON became a 403 (and old.reddit
+    returns a welcome page with status 200, which is worse), but the RSS is
+    still open. It carries no score, so heat comes from the position in the
+    list — which is already the "rising" order we care about."""
     out = []
     subs = SUBREDDITS.get(niche, SUBREDDITS["generico"])[:3]
     for index, sub in enumerate(subs):
         if index:
-            time.sleep(1.2)   # o Reddit fecha a porta em rajada de requisições
+            time.sleep(1.2)   # Reddit shuts the door on bursts of requests
         r = httpx.get(f"https://www.reddit.com/r/{sub}/rising.rss?limit=8",
                       headers={"User-Agent": UA}, timeout=TIMEOUT, follow_redirects=True)
         if r.status_code != 200 or "xml" not in r.headers.get("content-type", ""):
@@ -184,15 +188,16 @@ def _reddit(niche: str, geo: str) -> list[dict]:
                 "source": f"r/{sub}", "title": title, "snippet": "",
                 "url": link.get("href", "") if link is not None else "",
                 "heat": max(60 - position * 5, 8),
-                "heat_label": f"subindo · #{position + 1} em r/{sub}",
+                "heat_kind": "reddit_rising",
+                "heat_data": {"position": position + 1, "sub": sub},
             })
     return out
 
 
 def _hackernews(niche: str, geo: str) -> list[dict]:
-    """`tags=front_page` cruzado com `query` quase nunca casa (a capa tem ~30
-    itens), então com termo de busca vamos nas stories da última semana
-    ordenadas por relevância; sem termo, na capa de hoje."""
+    """`tags=front_page` crossed with `query` almost never matches (the front
+    page holds ~30 items), so with a search term we go for the last week's
+    stories ordered by relevance; without one, for today's front page."""
     if niche not in HN_NICHES:
         return []
     query = {"ciberseguranca": "security", "programacao": "programming"}.get(niche, "")
@@ -216,7 +221,8 @@ def _hackernews(niche: str, geo: str) -> list[dict]:
             "snippet": "", "url": hit.get("url") or
             f"https://news.ycombinator.com/item?id={hit.get('objectID')}",
             "heat": points // 5 + comments // 2,
-            "heat_label": f"{points} pontos · {comments} comentários",
+            "heat_kind": "points_comments",
+            "heat_data": {"points": points, "comments": comments},
         })
     return out
 
@@ -245,6 +251,7 @@ def _youtube_popular(niche: str, geo: str) -> list[dict]:
             "source": "YouTube em alta", "title": item["snippet"]["title"],
             "snippet": item["snippet"].get("channelTitle", ""),
             "url": f"https://youtube.com/watch?v={item['id']}",
-            "heat": views // 20000, "heat_label": f"{views:,} views".replace(",", "."),
+            "heat": views // 20000,
+            "heat_kind": "views", "heat_data": {"views": views},
         })
     return out

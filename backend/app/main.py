@@ -11,7 +11,7 @@ from .routers import (clips, connectors, jobs, metrics, music, outputs, publish,
                       trends, uploads, voices)
 
 app = FastAPI(title="ShortsCreator API", version="1.0.0",
-              description="Geração automática de Shorts verticais 9:16 com QA.")
+              description="Automated generation of 9:16 vertical Shorts with QA.")
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,7 +40,7 @@ def startup() -> None:
 
 
 def _provider_ready(provider: str) -> bool:
-    """Providers por CLI dependem do binário logado, não de chave de API."""
+    """CLI providers depend on the logged-in binary, not on an API key."""
     if provider == "claude_cli":
         return bool(shutil.which(settings.claude_cli_bin))
     if provider == "codex_cli":
@@ -52,7 +52,7 @@ def _provider_ready(provider: str) -> bool:
 
 def _llm_ready() -> bool:
     if settings.llm_provider == "chain":
-        # basta um elo da cadeia estar utilizável
+        # a single usable link in the chain is enough
         return any(_provider_ready(p) for p, _ in settings.llm_chain)
     return _provider_ready(settings.llm_provider)
 
@@ -72,11 +72,13 @@ def _llm_auth_mode() -> str:
 
 
 def _llm_chain_status() -> list[dict]:
-    """Cada elo da cadeia com o modelo e se está disponível agora."""
+    """Every link in the chain with its model and whether it is available now."""
     if settings.llm_provider != "chain":
         return []
     return [
-        {"provider": p, "model": m or "padrão", "ready": _provider_ready(p)}
+        # empty model means "whatever the CLI session defaults to"; the UI
+        # renders that in the chosen language
+        {"provider": p, "model": m, "ready": _provider_ready(p)}
         for p, m in settings.llm_chain
     ]
 

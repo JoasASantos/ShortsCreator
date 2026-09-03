@@ -1,4 +1,4 @@
-"""Busca e download de B-roll vertical (Pexels/Pixabay) com cache local."""
+"""Search and download of vertical B-roll (Pexels/Pixabay) with a local cache."""
 from __future__ import annotations
 
 import hashlib
@@ -27,7 +27,7 @@ def _cache_path(url: str) -> Path:
 
 
 def search_clips(query: str, count: int = 3) -> list[str]:
-    """Retorna URLs de vídeos verticais. Pexels primeiro, Pixabay como fallback."""
+    """Return URLs of vertical videos. Pexels first, Pixabay as the fallback."""
     urls: list[str] = []
     if settings.pexels_api_key:
         urls += _pexels(query, count)
@@ -90,7 +90,7 @@ def download(url: str, log=lambda m: None) -> Path | None:
                 for chunk in resp.iter_bytes(1 << 16):
                     fh.write(chunk)
     except Exception as exc:
-        log(f"Falha ao baixar b-roll: {exc}")
+        log(f"Failed to download b-roll: {exc}")
         dest.unlink(missing_ok=True)
         return None
     return dest

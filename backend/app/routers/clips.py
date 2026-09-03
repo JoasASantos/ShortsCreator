@@ -1,12 +1,12 @@
-"""Fatiar um vídeo longo em vários shorts.
+"""Slice a long video into several shorts.
 
-Fluxo em dois passos, porque transcrever um vídeo de uma hora leva minutos e
-não cabe numa requisição HTTP síncrona:
+A two-step flow, because transcribing an hour-long video takes minutes and
+does not fit in a synchronous HTTP request:
 
-  POST /api/clips           -> enfileira a análise, devolve plan_id
-  GET  /api/clips/{id}      -> acompanha; quando pronto traz os trechos achados
-  POST /api/clips/{id}/render -> corta os trechos escolhidos e cria um job por clipe
-                                 (e, opcionalmente, já agenda um por dia)
+  POST /api/clips           -> queues the analysis, returns a plan_id
+  GET  /api/clips/{id}      -> follow along; once ready, brings the stretches found
+  POST /api/clips/{id}/render -> cuts the chosen stretches and creates one job per
+                                 clip (and, optionally, schedules one per day)
 """
 from __future__ import annotations
 
@@ -30,8 +30,8 @@ class ClipPlanRequest(BaseModel):
 
 
 class ClipSchedule(BaseModel):
-    """Agenda os shorts do lote em sequência: o primeiro em `start_at`, os
-    demais a cada `every_hours`. A publicação espera cada job terminar."""
+    """Schedules the batch's shorts in sequence: the first at `start_at`, the
+    rest every `every_hours`. Publishing waits for each job to finish."""
     account_id: str
     start_at: str                 # ISO8601
     every_hours: float = 24.0
@@ -39,7 +39,7 @@ class ClipSchedule(BaseModel):
 
 
 class ClipRenderRequest(BaseModel):
-    selected: list[int] = []          # índices dos clipes; vazio = todos
+    selected: list[int] = []          # clip indices; empty = all of them
     voice_id: str | None = None
     caption_style: str = "karaoke"
     caption_position: str = "centro"
@@ -60,7 +60,7 @@ def _serialize(row: dict) -> dict:
 @router.post("")
 def create_plan(request: ClipPlanRequest):
     if request.count < 1 or request.count > 12:
-        raise HTTPException(400, "Escolha entre 1 e 12 clipes.")
+        raise HTTPException(400, "Pick between 1 and 12 clips.")
     plan_id = db.create_clip_plan(
         request.attachment_id, request.count, request.target_seconds,
         {"niche": request.niche, "language": request.language},
@@ -78,7 +78,7 @@ def list_plans():
 def get_plan(plan_id: str):
     row = db.get_clip_plan(plan_id)
     if row is None:
-        raise HTTPException(404, "Plano não encontrado")
+        raise HTTPException(404, "Plan not found")
     return _serialize(row)
 
 
@@ -93,13 +93,13 @@ def delete_plan(plan_id: str):
 def render_clips(plan_id: str, request: ClipRenderRequest):
     row = db.get_clip_plan(plan_id)
     if row is None:
-        raise HTTPException(404, "Plano não encontrado")
+        raise HTTPException(404, "Plan not found")
     if row["status"] not in ("ready", "rendered"):
-        raise HTTPException(400, f"Plano ainda não está pronto (status: {row['status']}).")
+        raise HTTPException(400, f"Plan is not ready yet (status: {row['status']}).")
 
     clips = json.loads(row["clips_json"] or "[]")
     if not clips:
-        raise HTTPException(400, "Nenhum clipe disponível neste plano.")
+        raise HTTPException(400, "No clip available in this plan.")
 
     indices = request.selected or list(range(len(clips)))
     options = json.loads(row["options_json"] or "{}")
@@ -108,11 +108,11 @@ def render_clips(plan_id: str, request: ClipRenderRequest):
     if request.schedule:
         account = db.get_account(request.schedule.account_id)
         if account is None:
-            raise HTTPException(404, "Conta para agendamento não encontrada")
+            raise HTTPException(404, "Account for scheduling not found")
         try:
             first = datetime.fromisoformat(request.schedule.start_at.replace("Z", "+00:00"))
         except ValueError:
-            raise HTTPException(400, "start_at inválido (use ISO8601)")
+            raise HTTPException(400, "Invalid start_at (use ISO8601)")
         if first.tzinfo is None:
             first = first.replace(tzinfo=timezone.utc)
 
@@ -148,7 +148,7 @@ def render_clips(plan_id: str, request: ClipRenderRequest):
                                      when.isoformat(), payload)
             schedules.append({"schedule_id": sid, "job_id": job_id,
                               "publish_at": when.isoformat()})
-            db.log_event(job_id, f"Agendado para {when.strftime('%d/%m %H:%M')} UTC "
-                                 f"em {account['platform']} (lote {plan_id})")
+            db.log_event(job_id, f"Scheduled for {when.strftime('%d/%m %H:%M')} UTC "
+                                 f"on {account['platform']} (batch {plan_id})")
 
     return {"plan_id": plan_id, "jobs": job_ids, "schedules": schedules}

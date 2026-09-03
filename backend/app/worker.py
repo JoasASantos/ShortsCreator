@@ -1,4 +1,4 @@
-"""Worker em thread: fila de jobs + scheduler de publicações + coleta de métricas."""
+"""Threaded worker: job queue + publication scheduler + metrics collection."""
 from __future__ import annotations
 
 import queue
@@ -39,8 +39,8 @@ def _worker_loop() -> None:
 
 
 def _clip_loop() -> None:
-    """Fila separada: analisar um vídeo longo leva minutos e não pode
-    bloquear a renderização dos shorts já enfileirados."""
+    """Separate queue: analyzing a long video takes minutes and must not
+    block the rendering of shorts already in the queue."""
     from .pipeline import clipper_jobs
 
     while True:
@@ -62,13 +62,13 @@ def _scheduler_loop() -> None:
             now_iso = datetime.now(timezone.utc).isoformat()
             for schedule in db.due_schedules(now_iso):
                 job = db.get_job(schedule["job_id"])
-                # Publicação agendada de um short que ainda está renderizando
-                # (lote de clipes): espera o job terminar em vez de falhar.
+                # Scheduled publication of a short that is still rendering
+                # (clip batch): wait for the job to finish instead of failing.
                 if job is not None and job["status"] in ("queued", "running"):
                     continue
                 if job is None or job["status"] != "done":
                     db.update_schedule(schedule["id"], status="error",
-                                       error="Short não foi concluído")
+                                       error="Short was not completed")
                     continue
                 db.update_schedule(schedule["id"], status="publishing")
                 label = PLATFORM_LABEL.get(schedule["platform"], schedule["platform"])
@@ -89,8 +89,9 @@ def _scheduler_loop() -> None:
 
 
 def _metrics_loop() -> None:
-    """Puxa views/retenção das publicações a cada poucas horas. Primeira rodada
-    logo depois de subir, para o painel não ficar vazio até a próxima janela."""
+    """Pulls views/retention of the publications every few hours. The first
+    round happens right after startup, so the dashboard is not empty until the
+    next window."""
     from .pipeline import metrics
 
     time.sleep(20)
@@ -114,16 +115,17 @@ def start() -> None:
     threading.Thread(target=_scheduler_loop, daemon=True).start()
     threading.Thread(target=_metrics_loop, daemon=True).start()
 
-    # Requeue de jobs interrompidos por restart. Quando o disco já tem roteiro
-    # e narração, retoma dali em vez de gastar LLM e TTS de novo.
+    # Requeue jobs interrupted by a restart. When the disk already has the
+    # script and the narration, resume from there instead of spending LLM and
+    # TTS again.
     for job in db.list_jobs(limit=200):
         if job["status"] in ("queued", "running"):
             job_dir = settings.jobs_dir / job["id"]
             stage = orchestrator.resumable_stage(job_dir) if job_dir.exists() else None
             if job["status"] == "running":
                 db.log_event(job["id"],
-                             "Servidor reiniciou durante a execução"
-                             + (f" — retomando de {stage}" if stage else ""), "warn")
+                             "Server restarted mid-run"
+                             + (f" — resuming from {stage}" if stage else ""), "warn")
             if stage:
                 orchestrator.request_resume(job["id"], stage)
             _queue.put(job["id"])

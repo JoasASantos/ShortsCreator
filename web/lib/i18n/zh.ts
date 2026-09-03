@@ -502,6 +502,13 @@ export const zh: Dictionary = {
     sourceEmpty: "当前无结果 — 该来源可能在限流，或不覆盖这个领域",
     sourceAge: "{n} 分钟前采集",
     createShort: "创建短视频",
+    heat: {
+      searches: "{searches}+ 次搜索",
+      rising: "上升中",
+      reddit_rising: "上升中 · r/{sub} 第 {position} 位",
+      points_comments: "{points} 分 · {comments} 条评论",
+      views: "{views} 次播放",
+    },
     regions: { BR: "巴西", US: "美国", PT: "葡萄牙", ES: "西班牙", RU: "俄罗斯", CN: "中国" },
     sourceNames: {
       google_trends: "Google Trends",

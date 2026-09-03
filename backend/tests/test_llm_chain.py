@@ -1,8 +1,8 @@
-"""Cadeia de modelos: ordem, fallback e telemetria.
+"""Model chain: ordering, fallback and telemetry.
 
-Nenhum teste aqui chama modelo de verdade — o dispatch é substituído por
-funções que respondem ou explodem sob demanda, que é exatamente o que a
-cadeia precisa distinguir.
+No test here calls a real model — the dispatch is swapped for functions that
+either answer or blow up on demand, which is exactly what the chain has to
+tell apart.
 """
 from __future__ import annotations
 
@@ -13,21 +13,21 @@ from app.config import _parse_chain
 from app.pipeline import llm
 
 
-def test_parse_chain_provider_com_e_sem_modelo():
+def test_parse_chain_with_and_without_a_model():
     assert _parse_chain("claude_cli:claude-fable-5-1,codex_cli") == [
         ("claude_cli", "claude-fable-5-1"), ("codex_cli", "")]
 
 
-def test_parse_chain_ignora_vazios_e_espacos():
+def test_parse_chain_ignores_blanks_and_whitespace():
     assert _parse_chain(" a:1 , , b:2 ,") == [("a", "1"), ("b", "2")]
     assert _parse_chain("") == []
 
 
-def test_chain_usa_o_primeiro_que_responde(monkeypatch):
-    chamados: list[tuple[str, str | None]] = []
+def test_chain_uses_the_first_link_that_answers(monkeypatch):
+    called: list[tuple[str, str | None]] = []
 
     def fake(provider, model, system, prompt, schema, max_tokens):
-        chamados.append((provider, model))
+        called.append((provider, model))
         return {"ok": provider}
 
     monkeypatch.setattr(llm, "_dispatch_raw", fake)
@@ -36,16 +36,16 @@ def test_chain_usa_o_primeiro_que_responde(monkeypatch):
                         [("claude_cli", "claude-fable-5-1"), ("codex_cli", "gpt-5.6-sol")])
 
     assert llm.complete_json("s", "p") == {"ok": "claude_cli"}
-    assert chamados == [("claude_cli", "claude-fable-5-1")], "não deveria ter tentado o segundo"
+    assert called == [("claude_cli", "claude-fable-5-1")], "it should not have tried the second link"
 
 
-def test_chain_cai_para_o_proximo_quando_o_primeiro_falha(monkeypatch):
-    chamados: list[str] = []
+def test_chain_falls_through_to_the_next_link_when_the_first_fails(monkeypatch):
+    called: list[str] = []
 
     def fake(provider, model, system, prompt, schema, max_tokens):
-        chamados.append(provider)
+        called.append(provider)
         if provider == "claude_cli":
-            raise llm.LLMError("limite da assinatura")
+            raise llm.LLMError("subscription limit reached")
         return {"ok": provider}
 
     monkeypatch.setattr(llm, "_dispatch_raw", fake)
@@ -56,41 +56,41 @@ def test_chain_cai_para_o_proximo_quando_o_primeiro_falha(monkeypatch):
                          ("codex_cli", "gpt-5.6-sol")])
 
     assert llm.complete_json("s", "p") == {"ok": "codex_cli"}
-    assert chamados == ["claude_cli", "claude_cli", "codex_cli"]
+    assert called == ["claude_cli", "claude_cli", "codex_cli"]
 
 
-def test_chain_toda_falhando_reporta_o_ultimo_erro(monkeypatch):
+def test_chain_with_every_link_failing_reports_the_last_error(monkeypatch):
     def fake(provider, model, system, prompt, schema, max_tokens):
-        raise llm.LLMError(f"morreu em {provider}")
+        raise llm.LLMError(f"died at {provider}")
 
     monkeypatch.setattr(llm, "_dispatch_raw", fake)
     monkeypatch.setattr(llm.settings, "llm_provider", "chain")
     monkeypatch.setattr(llm.settings, "llm_chain", [("a", ""), ("b", "")])
 
-    with pytest.raises(llm.LLMError, match="morreu em b"):
+    with pytest.raises(llm.LLMError, match="died at b"):
         llm.complete_json("s", "p")
 
 
-def test_chain_vazia_e_erro_de_configuracao(monkeypatch):
+def test_an_empty_chain_is_a_configuration_error(monkeypatch):
     monkeypatch.setattr(llm.settings, "llm_provider", "chain")
     monkeypatch.setattr(llm.settings, "llm_chain", [])
     with pytest.raises(llm.LLMError, match="LLM_CHAIN"):
         llm.complete_json("s", "p")
 
 
-def test_provider_direto_nao_passa_pela_chain(monkeypatch):
+def test_a_direct_provider_does_not_go_through_the_chain(monkeypatch):
     monkeypatch.setattr(llm, "_dispatch_raw",
                         lambda p, m, *a: {"provider": p, "model": m})
     monkeypatch.setattr(llm.settings, "llm_provider", "claude_cli")
     monkeypatch.setattr(llm.settings, "claude_cli_model", "claude-fable-5-1")
-    # modelo None: o provider resolve pelo .env, como sempre fez
+    # model None: the provider resolves it from .env, the way it always has
     assert llm.complete_json("s", "p") == {"provider": "claude_cli", "model": None}
 
 
-def test_telemetria_registra_sucesso_e_falha(monkeypatch):
+def test_telemetry_records_both_success_and_failure(monkeypatch):
     def fake(provider, model, system, prompt, schema, max_tokens):
         if provider == "claude_cli":
-            raise llm.LLMError("estourou")
+            raise llm.LLMError("rate limited")
         return {"ok": True}
 
     monkeypatch.setattr(llm, "_dispatch_raw", fake)
@@ -104,13 +104,13 @@ def test_telemetria_registra_sucesso_e_falha(monkeypatch):
     calls = db.llm_calls_for_job("job_teste")
     assert len(calls) == 2
     assert [c["provider"] for c in calls] == ["claude_cli", "codex_cli"]
-    assert calls[0]["ok"] == 0 and "estourou" in calls[0]["error"]
+    assert calls[0]["ok"] == 0 and "rate limited" in calls[0]["error"]
     assert calls[1]["ok"] == 1
     assert all(c["purpose"] == "roteiro" for c in calls)
 
 
-def test_extract_json_tolera_cercas_e_texto_ao_redor():
+def test_extract_json_tolerates_fences_and_surrounding_text():
     assert llm._extract_json('```json\n{"a": 1}\n```') == {"a": 1}   # noqa: SLF001
-    assert llm._extract_json('blá blá {"a": 2} fim') == {"a": 2}      # noqa: SLF001
+    assert llm._extract_json('blah blah {"a": 2} the end') == {"a": 2}   # noqa: SLF001
     with pytest.raises(llm.LLMError):
-        llm._extract_json("sem json aqui")                            # noqa: SLF001
+        llm._extract_json("no json in here")                          # noqa: SLF001

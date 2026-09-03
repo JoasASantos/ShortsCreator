@@ -1,4 +1,4 @@
-"""Roteiro: divisão de texto colado, troca de gancho, insights e cortes."""
+"""Script: splitting pasted text, swapping the hook, insights and clips."""
 from __future__ import annotations
 
 import json
@@ -18,9 +18,13 @@ SCRIPT = ShortScript(
 )
 
 
-def test_roteiro_colado_nao_chama_llm(monkeypatch):
+def _fail_if_llm_called():
+    raise AssertionError("source_type='roteiro' should not call the LLM")
+
+
+def test_a_pasted_script_does_not_call_the_llm(monkeypatch):
     monkeypatch.setattr(script_mod.llm, "complete_json",
-                        lambda *a, **k: pytest_fail())
+                        lambda *a, **k: _fail_if_llm_called())
     material = SourceMaterial(kind="roteiro", title="Meu roteiro",
                               text="Primeira frase. Segunda frase. Terceira frase.")
     result = script_mod.build_script(JOB, material)
@@ -29,39 +33,35 @@ def test_roteiro_colado_nao_chama_llm(monkeypatch):
     assert "Primeira frase" in script_mod.full_narration(result)
 
 
-def pytest_fail():
-    raise AssertionError("source_type='roteiro' não deveria chamar o LLM")
-
-
-def test_roteiro_colado_acrescenta_cta_quando_falta():
+def test_a_pasted_script_appends_the_cta_when_it_is_missing():
     material = SourceMaterial(kind="roteiro", text="Só uma frase aqui.")
     result = script_mod.build_script(JOB, material)
     assert result.segments[-1].text == "Segue pra mais."
 
 
-def test_with_hook_troca_so_o_primeiro_segmento():
-    novo = script_mod.with_hook(SCRIPT, "  Gancho novo e agressivo  ")
-    assert novo.segments[0].text == "Gancho novo e agressivo"
-    assert novo.segments[0].kind == "hook"
-    assert [s.text for s in novo.segments[1:]] == [s.text for s in SCRIPT.segments[1:]]
-    # o roteiro original não é mutado
+def test_with_hook_replaces_only_the_first_segment():
+    updated = script_mod.with_hook(SCRIPT, "  Gancho novo e agressivo  ")
+    assert updated.segments[0].text == "Gancho novo e agressivo"
+    assert updated.segments[0].kind == "hook"
+    assert [s.text for s in updated.segments[1:]] == [s.text for s in SCRIPT.segments[1:]]
+    # the original script is not mutated
     assert SCRIPT.segments[0].text == "Gancho original"
 
 
-def test_with_hook_em_roteiro_sem_hook_marca_o_primeiro():
-    sem_hook = SCRIPT.model_copy(update={"segments": [
+def test_with_hook_marks_the_first_segment_of_a_script_that_has_no_hook():
+    without_hook = SCRIPT.model_copy(update={"segments": [
         s.model_copy(update={"kind": "corpo"}) for s in SCRIPT.segments]})
-    novo = script_mod.with_hook(sem_hook, "Agora tem gancho")
-    assert novo.segments[0].kind == "hook"
-    assert novo.segments[0].text == "Agora tem gancho"
+    updated = script_mod.with_hook(without_hook, "Agora tem gancho")
+    assert updated.segments[0].kind == "hook"
+    assert updated.segments[0].text == "Agora tem gancho"
 
 
-def test_build_hook_variants_usa_o_corpo_e_pede_mecanismos(monkeypatch):
-    capturado = {}
+def test_build_hook_variants_uses_the_body_and_asks_for_mechanisms(monkeypatch):
+    captured = {}
 
     def fake(system, prompt, schema=None, max_tokens=8000, purpose=""):
-        capturado["prompt"] = prompt
-        capturado["purpose"] = purpose
+        captured["prompt"] = prompt
+        captured["purpose"] = purpose
         return {"hooks": [
             {"text": "Você está fazendo isso errado", "mechanism": "afirmação polêmica", "why": "provoca"},
             {"text": "70% das empresas caem nisso", "mechanism": "número", "why": "concreto"},
@@ -70,20 +70,20 @@ def test_build_hook_variants_usa_o_corpo_e_pede_mecanismos(monkeypatch):
     monkeypatch.setattr(script_mod.llm, "complete_json", fake)
     hooks = script_mod.build_hook_variants(SCRIPT, JOB, count=2)
     assert len(hooks) == 2
-    assert capturado["purpose"] == "hooks"
-    assert "Gancho original" in capturado["prompt"]
-    assert "Corpo do roteiro" in capturado["prompt"]
+    assert captured["purpose"] == "hooks"
+    assert "Gancho original" in captured["prompt"]
+    assert "Corpo do roteiro" in captured["prompt"]
 
 
-def test_build_hook_variants_sem_resposta_falha_claro(monkeypatch):
+def test_build_hook_variants_fails_clearly_when_the_model_answers_nothing(monkeypatch):
     import pytest
 
     monkeypatch.setattr(script_mod.llm, "complete_json", lambda *a, **k: {"hooks": []})
-    with pytest.raises(RuntimeError, match="ganchos"):
+    with pytest.raises(RuntimeError, match="hooks"):
         script_mod.build_hook_variants(SCRIPT, JOB)
 
 
-def test_segment_durations_cobrem_a_timeline_inteira():
+def test_segment_durations_cover_the_whole_timeline():
     words = [{"word": f"p{i}", "start": i * 0.4, "end": i * 0.4 + 0.35} for i in range(12)]
     script = ShortScript(title="t", description="", segments=[
         {"kind": "hook", "text": "a b c d"},
@@ -93,37 +93,37 @@ def test_segment_durations_cobrem_a_timeline_inteira():
     total = 6.0
     durations = script_mod.segment_durations_covering(script, words, total)
     assert len(durations) == 3
-    # a soma cobre o vídeo todo: sem isso o fundo acaba antes do áudio
+    # the sum covers the entire video: without it the background ends before the audio
     assert abs(sum(durations) - total) < 0.01
 
 
-def test_insights_vazio_sem_metricas():
+def test_insights_is_empty_without_metrics():
     assert metrics.insights("tecnologia") == ""
 
 
-def test_insights_lista_hooks_ordenados_por_retencao():
-    def criar(nome: str, views: int, retencao: float | None) -> None:
-        job = JobInput(source_type="tema", source=nome, niche="tecnologia")
-        job_id = db.create_job(job.model_dump(), nome)
+def test_insights_lists_hooks_ordered_by_retention():
+    def create(name: str, views: int, retention: float | None) -> None:
+        job = JobInput(source_type="tema", source=name, niche="tecnologia")
+        job_id = db.create_job(job.model_dump(), name)
         db.update_job(job_id, status="done", result_json=json.dumps({
-            "title": nome, "script": {"segments": [
-                {"kind": "hook", "text": f"gancho de {nome}"}]}}))
+            "title": name, "script": {"segments": [
+                {"kind": "hook", "text": f"gancho de {name}"}]}}))
         acc = db.create_account("youtube", "Canal", {"token": "x"})
         sched = db.create_schedule(job_id, acc, "youtube", "2026-01-01T00:00:00+00:00", {})
-        db.upsert_metrics(sched, job_id, "youtube", f"v-{nome}", "",
-                          {"views": views, "avg_view_pct": retencao})
+        db.upsert_metrics(sched, job_id, "youtube", f"v-{name}", "",
+                          {"views": views, "avg_view_pct": retention})
 
-    criar("fraco", 50000, 20.0)
-    criar("forte", 1000, 85.0)
+    create("fraco", 50000, 20.0)
+    create("forte", 1000, 85.0)
 
     briefing = metrics.insights("tecnologia")
     assert "gancho de forte" in briefing
-    # retenção manda: o de 85% aparece antes do de 50k views
+    # retention wins: the 85% one shows up before the one with 50k views
     assert briefing.index("gancho de forte") < briefing.index("gancho de fraco")
     assert "85%" in briefing
 
 
-def test_insights_filtra_por_nicho():
+def test_insights_filters_by_niche():
     job = JobInput(source_type="tema", source="x", niche="cinema")
     job_id = db.create_job(job.model_dump(), "filme")
     db.update_job(job_id, status="done", result_json=json.dumps({
@@ -136,7 +136,7 @@ def test_insights_filtra_por_nicho():
     assert "gancho de cinema" not in metrics.insights("ciberseguranca")
 
 
-def test_pick_clips_descarta_sobreposto_e_curto(monkeypatch):
+def test_pick_clips_discards_overlapping_and_too_short_clips(monkeypatch):
     monkeypatch.setattr(clipper.llm, "complete_json", lambda *a, **k: {"clipes": [
         {"inicio": 10, "fim": 55, "titulo": "Bom", "motivo": "tem virada", "assunto": "a"},
         {"inicio": 30, "fim": 70, "titulo": "Sobreposto", "motivo": "", "assunto": "b"},
@@ -144,11 +144,11 @@ def test_pick_clips_descarta_sobreposto_e_curto(monkeypatch):
         {"inicio": 200, "fim": 245, "titulo": "Outro bom", "motivo": "dado forte", "assunto": "d"},
     ]})
     clips = clipper.pick_clips("[00:10] fala\n[03:20] outra fala", 600.0, 5, 45)
-    titulos = [c["titulo"] for c in clips]
-    assert titulos == ["Bom", "Outro bom"]
+    titles = [c["titulo"] for c in clips]
+    assert titles == ["Bom", "Outro bom"]
 
 
-def test_pick_clips_respeita_a_quantidade_pedida(monkeypatch):
+def test_pick_clips_respects_the_requested_count(monkeypatch):
     monkeypatch.setattr(clipper.llm, "complete_json", lambda *a, **k: {"clipes": [
         {"inicio": i * 100, "fim": i * 100 + 45, "titulo": f"c{i}", "motivo": "", "assunto": ""}
         for i in range(6)
@@ -156,22 +156,22 @@ def test_pick_clips_respeita_a_quantidade_pedida(monkeypatch):
     assert len(clipper.pick_clips("transcrição", 1000.0, 2, 45)) == 2
 
 
-def test_pick_clips_sem_transcricao_orienta_o_usuario():
+def test_pick_clips_without_a_transcript_guides_the_user():
     import pytest
 
     with pytest.raises(RuntimeError, match="whisper"):
         clipper.pick_clips("   ", 600.0, 3, 45)
 
 
-def test_transcript_with_timestamps_formata_mm_ss():
-    linhas = clipper.transcript_with_timestamps([
+def test_transcript_with_timestamps_formats_as_mm_ss():
+    lines = clipper.transcript_with_timestamps([
         {"start": 5, "text": " começo "}, {"start": 125, "text": "depois"}])
-    assert linhas.splitlines() == ["[00:05] começo", "[02:05] depois"]
+    assert lines.splitlines() == ["[00:05] começo", "[02:05] depois"]
 
 
-# ---------------------------------------------------------------- idioma
+# ---------------------------------------------------------------- language
 
-def test_language_name_traduz_as_tags_conhecidas():
+def test_language_name_translates_the_known_tags():
     assert script_mod.language_name("pt-BR") == "português do Brasil"
     assert "English" in script_mod.language_name("en-US")
     assert "español" in script_mod.language_name("es")
@@ -179,23 +179,24 @@ def test_language_name_traduz_as_tags_conhecidas():
     assert "简体中文" in script_mod.language_name("zh-CN")
 
 
-def test_language_name_tag_desconhecida_volta_como_esta():
-    """Ainda é instrução útil para o modelo — melhor que cair no português."""
+def test_language_name_returns_an_unknown_tag_unchanged():
+    """It is still a useful instruction for the model — better than falling
+    back to Portuguese."""
     assert script_mod.language_name("sw-KE") == "sw-KE"
 
 
-def test_language_name_vazio_cai_no_portugues():
+def test_language_name_falls_back_to_portuguese_when_empty():
     assert script_mod.language_name("") == "português do Brasil"
     assert script_mod.language_name(None) == "português do Brasil"  # type: ignore[arg-type]
 
 
-def test_prompt_do_roteiro_pede_o_idioma_do_job(monkeypatch):
-    """Antes o prompt fixava 'português do Brasil' e ignorava job.language:
-    a interface em espanhol continuava produzindo narração em português."""
-    capturado = {}
+def test_the_script_prompt_asks_for_the_language_of_the_job(monkeypatch):
+    """The prompt used to hardcode 'português do Brasil' and ignore
+    job.language: a Spanish UI kept producing Portuguese narration."""
+    captured = {}
 
     def fake(system, prompt, schema=None, max_tokens=8000, purpose=""):
-        capturado["system"] = system
+        captured["system"] = system
         return {"title": "t", "description": "d", "hashtags": [],
                 "estimated_seconds": 20,
                 "segments": [{"kind": "hook", "text": "hola", "broll_query": "x",
@@ -205,15 +206,15 @@ def test_prompt_do_roteiro_pede_o_idioma_do_job(monkeypatch):
     job = JobInput(source_type="tema", source="tema", language="es-ES")
     script_mod.build_script(job, SourceMaterial(kind="tema", title="t", text="t"))
 
-    assert "español" in capturado["system"]
-    assert "em português do Brasil" not in capturado["system"]
+    assert "español" in captured["system"]
+    assert "em português do Brasil" not in captured["system"]
 
 
-def test_prompts_de_hooks_legenda_e_refino_tambem_seguem_o_idioma(monkeypatch):
-    vistos: list[str] = []
+def test_the_hook_caption_and_refine_prompts_also_follow_the_language(monkeypatch):
+    seen: list[str] = []
 
     def fake(system, prompt, schema=None, max_tokens=8000, purpose=""):
-        vistos.append(system)
+        seen.append(system)
         if purpose == "hooks":
             return {"hooks": [{"text": "a", "mechanism": "m", "why": "w"}]}
         if purpose == "legenda_post":
@@ -231,5 +232,5 @@ def test_prompts_de_hooks_legenda_e_refino_tambem_seguem_o_idioma(monkeypatch):
     script_mod.build_post_caption(SCRIPT, job)
     script_mod.refine_script(SCRIPT, "encurta", job)
 
-    assert len(vistos) == 3
-    assert all("русский" in system for system in vistos)
+    assert len(seen) == 3
+    assert all("русский" in system for system in seen)

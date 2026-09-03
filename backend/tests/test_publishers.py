@@ -1,4 +1,5 @@
-"""Publicadores: conta só existe com token que responde, e erro é legível."""
+"""Publishers: an account only exists with a token that answers, and every
+error is readable."""
 from __future__ import annotations
 
 import json
@@ -12,82 +13,83 @@ from app.pipeline import connectors
 from app.pipeline.publishers import PLATFORM_LABEL, dispatch, instagram, linkedin
 
 
-def test_todas_as_plataformas_tem_rotulo():
+def test_every_platform_has_a_label():
     assert set(PLATFORM_LABEL) == {"youtube", "tiktok", "instagram", "linkedin"}
 
 
-# ------------------------------------------------------- conta só se valer
+# --------------------------------------- an account only if the token is real
 
-def test_instagram_com_token_invalido_nao_cria_conta_publicavel(monkeypatch):
-    """Antes virava uma conta com nome genérico que só falhava na publicação."""
+def test_instagram_with_an_invalid_token_does_not_create_a_publishable_account(monkeypatch):
+    """This used to become an account with a generic name that only failed at
+    publish time."""
     monkeypatch.setattr(instagram.httpx, "get", lambda *a, **k: httpx.Response(
         400, json={"error": {"message": "Invalid OAuth access token", "code": 190}}))
 
-    connectors.save("instagram", {"access_token": "ruim", "ig_user_id": "1"})
+    connectors.save("instagram", {"access_token": "bad", "ig_user_id": "1"})
     assert connectors.is_configured("instagram") is True
     assert [a for a in db.list_accounts() if a["platform"] == "instagram"] == []
 
 
-def test_instagram_com_token_valido_cria_conta_com_o_arroba(monkeypatch):
+def test_instagram_with_a_valid_token_creates_the_account_with_its_handle(monkeypatch):
     monkeypatch.setattr(instagram.httpx, "get", lambda *a, **k: httpx.Response(
         200, json={"username": "meucanal"}))
 
-    connectors.save("instagram", {"access_token": "bom", "ig_user_id": "1"})
-    contas = [a for a in db.list_accounts() if a["platform"] == "instagram"]
-    assert len(contas) == 1
-    assert contas[0]["display_name"] == "@meucanal"
+    connectors.save("instagram", {"access_token": "good", "ig_user_id": "1"})
+    accounts = [a for a in db.list_accounts() if a["platform"] == "instagram"]
+    assert len(accounts) == 1
+    assert accounts[0]["display_name"] == "@meucanal"
 
 
-def test_salvar_de_novo_atualiza_em_vez_de_duplicar(monkeypatch):
+def test_saving_again_updates_instead_of_duplicating(monkeypatch):
     monkeypatch.setattr(instagram.httpx, "get", lambda *a, **k: httpx.Response(
         200, json={"username": "meucanal"}))
-    connectors.save("instagram", {"access_token": "bom", "ig_user_id": "1"})
-    connectors.save("instagram", {"access_token": "outro", "ig_user_id": "1"})
+    connectors.save("instagram", {"access_token": "good", "ig_user_id": "1"})
+    connectors.save("instagram", {"access_token": "another", "ig_user_id": "1"})
     assert len([a for a in db.list_accounts() if a["platform"] == "instagram"]) == 1
 
 
-def test_limpar_conector_remove_a_conta(monkeypatch):
+def test_clearing_the_connector_removes_the_account(monkeypatch):
     monkeypatch.setattr(instagram.httpx, "get", lambda *a, **k: httpx.Response(
         200, json={"username": "x"}))
-    connectors.save("instagram", {"access_token": "bom", "ig_user_id": "1"})
+    connectors.save("instagram", {"access_token": "good", "ig_user_id": "1"})
     connectors.clear("instagram")
     assert [a for a in db.list_accounts() if a["platform"] == "instagram"] == []
 
 
-def test_linkedin_sem_leitura_de_perfil_usa_o_urn(monkeypatch):
-    """Token só com w_member_social não lê o perfil — o URN informado à mão
-    identifica a conta e é o suficiente para publicar."""
+def test_linkedin_without_profile_read_access_uses_the_urn(monkeypatch):
+    """A token holding only w_member_social cannot read the profile — the URN
+    entered by hand identifies the account and is enough to publish."""
     monkeypatch.setattr(linkedin.httpx, "get",
                         lambda *a, **k: httpx.Response(403, json={}))
-    nome = linkedin.profile_name({"access_token": "escrita",
+    name = linkedin.profile_name({"access_token": "write-only",
                                   "author_urn": "urn:li:person:ABC"})
-    assert nome == "urn:li:person:ABC"
+    assert name == "urn:li:person:ABC"
 
 
-def test_linkedin_sem_urn_e_sem_leitura_falha_explicando(monkeypatch):
+def test_linkedin_without_a_urn_and_without_read_access_fails_explaining_why(monkeypatch):
     monkeypatch.setattr(linkedin.httpx, "get",
                         lambda *a, **k: httpx.Response(401, json={}))
     with pytest.raises(RuntimeError, match="author_urn"):
-        linkedin.profile_name({"access_token": "ruim", "author_urn": ""})
+        linkedin.profile_name({"access_token": "bad", "author_urn": ""})
 
 
-def test_linkedin_com_openid_usa_o_nome_real(monkeypatch):
+def test_linkedin_with_openid_uses_the_real_name(monkeypatch):
     monkeypatch.setattr(linkedin.httpx, "get", lambda *a, **k: httpx.Response(
         200, json={"name": "Maria Silva", "sub": "abc"}))
-    assert linkedin.profile_name({"access_token": "completo"}) == "Maria Silva"
+    assert linkedin.profile_name({"access_token": "full"}) == "Maria Silva"
 
 
 # ------------------------------------------------------------- Instagram URL
 
-def test_instagram_exige_url_publica(monkeypatch):
-    """A Graph API baixa o vídeo: localhost não serve, e o erro tem que dizer
-    isso em vez de estourar na Meta."""
+def test_instagram_requires_a_public_url(monkeypatch):
+    """The Graph API downloads the video: localhost will not do, and the error
+    has to say so instead of blowing up inside Meta."""
     monkeypatch.setattr(settings, "public_api_url", "http://localhost:8000")
-    with pytest.raises(RuntimeError, match="URL pública"):
+    with pytest.raises(RuntimeError, match="public URL"):
         instagram.public_video_url("job_x")
 
 
-def test_instagram_aceita_url_de_tunel(monkeypatch):
+def test_instagram_accepts_a_tunnel_url(monkeypatch):
     monkeypatch.setattr(settings, "public_api_url", "https://abc.ngrok.app/")
     assert instagram.public_video_url("job_x") == \
         "https://abc.ngrok.app/api/outputs/job_x.mp4"
@@ -95,41 +97,41 @@ def test_instagram_aceita_url_de_tunel(monkeypatch):
 
 # ------------------------------------------------------------------ dispatch
 
-def _job_pronto() -> str:
+def _finished_job() -> str:
     job_id = db.create_job({"source_type": "tema", "source": "x"}, "Short")
     db.update_job(job_id, status="done", result_json=json.dumps({"title": "Short"}))
     (settings.outputs_dir / f"{job_id}.mp4").write_bytes(b"fake")
     return job_id
 
 
-def test_dispatch_recusa_plataforma_desconhecida():
-    job_id = _job_pronto()
+def test_dispatch_rejects_an_unknown_platform():
+    job_id = _finished_job()
     account_id = db.create_account("orkut", "Perfil", {"token": "x"})
     sched = db.create_schedule(job_id, account_id, "orkut", "2026-01-01T00:00:00+00:00", {})
-    with pytest.raises(RuntimeError, match="não suportada"):
+    with pytest.raises(RuntimeError, match="Unsupported platform"):
         dispatch(db.get_schedule(sched))
 
 
-def test_dispatch_recusa_job_nao_concluido():
+def test_dispatch_rejects_an_unfinished_job():
     job_id = db.create_job({"source_type": "tema", "source": "x"}, "Short")
     account_id = db.create_account("youtube", "Canal", {"token": "x"})
     sched = db.create_schedule(job_id, account_id, "youtube", "2026-01-01T00:00:00+00:00", {})
-    with pytest.raises(RuntimeError, match="não finalizado"):
+    with pytest.raises(RuntimeError, match="Job is not finished"):
         dispatch(db.get_schedule(sched))
 
 
-def test_dispatch_recusa_video_ausente():
+def test_dispatch_rejects_a_missing_video():
     job_id = db.create_job({"source_type": "tema", "source": "x"}, "Short")
     db.update_job(job_id, status="done", result_json="{}")
     account_id = db.create_account("youtube", "Canal", {"token": "x"})
     sched = db.create_schedule(job_id, account_id, "youtube", "2026-01-01T00:00:00+00:00", {})
-    with pytest.raises(RuntimeError, match="ausente"):
+    with pytest.raises(RuntimeError, match="Video file is missing"):
         dispatch(db.get_schedule(sched))
 
 
-def test_dispatch_passa_a_capa_e_o_instante_para_o_publicador():
-    """O TikTok usa o mesmo instante da capa como frame de cobertura."""
-    job_id = _job_pronto()
+def test_dispatch_passes_the_cover_and_its_timestamp_to_the_publisher():
+    """TikTok uses the very same cover timestamp as its cover frame."""
+    job_id = _finished_job()
     job_dir = settings.job_dir(job_id)
     (job_dir / "cover.jpg").write_bytes(b"fake")
     (job_dir / "cover.json").write_text(json.dumps({"at": 4.2}), encoding="utf-8")
@@ -137,12 +139,12 @@ def test_dispatch_passa_a_capa_e_o_instante_para_o_publicador():
     sched = db.create_schedule(job_id, account_id, "tiktok",
                               "2026-01-01T00:00:00+00:00", {"title": "T"})
 
-    recebido: dict = {}
+    received: dict = {}
 
     from app.pipeline.publishers import tiktok
 
     def fake_upload(video, payload, credentials, account_id):
-        recebido.update(payload)
+        received.update(payload)
         return {"platform": "tiktok", "publish_id": "1"}
 
     original = tiktok.upload
@@ -152,6 +154,6 @@ def test_dispatch_passa_a_capa_e_o_instante_para_o_publicador():
     finally:
         tiktok.upload = original
 
-    assert recebido["cover_at"] == 4.2
-    assert recebido["cover_path"].endswith("cover.jpg")
-    assert recebido["job_id"] == job_id
+    assert received["cover_at"] == 4.2
+    assert received["cover_path"].endswith("cover.jpg")
+    assert received["job_id"] == job_id

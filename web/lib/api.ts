@@ -83,7 +83,7 @@ export interface Job {
   input: JobInput;
   result: JobResult | null;
   qa: QAReport | null;
-  // lista: resumo agregado; detalhe: uma linha por plataforma
+  // list: aggregated summary; detail: one row per platform
   metrics?: JobMetricsSummary | MetricRow[] | null;
   llm_calls?: LLMCall[];
   resumable_from?: string | null;
@@ -174,8 +174,8 @@ export interface ScriptEdit {
   scroll?: string;
 }
 
-/** O que o editor de roteiro guarda sem renderizar, para sobreviver a fechar
- *  a aba. Vira a versão oficial quando o usuário aplica. */
+/** What the script editor keeps without rendering, so it survives closing the
+ *  tab. It becomes the official version when the user applies it. */
 export interface ScriptDraft {
   segments: ScriptSegment[];
   title: string;
@@ -273,7 +273,10 @@ export interface TrendItem {
   snippet: string;
   url: string;
   heat: number;
-  heat_label: string;
+  /** The backend sends numbers, not a ready-made sentence: the wording is
+   *  assembled in the UI so it follows the chosen language. */
+  heat_kind: "searches" | "rising" | "reddit_rising" | "points_comments" | "views";
+  heat_data: Record<string, string | number>;
 }
 
 export interface TrendSource {
@@ -397,12 +400,12 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const raw = await res.text();
-    // FastAPI devolve {"detail": "..."} — sem isso o toast mostrava o JSON cru.
+    // FastAPI returns {"detail": "..."} — without this the toast showed raw JSON.
     let message = raw;
     try {
       const parsed = JSON.parse(raw);
       if (typeof parsed?.detail === "string") message = parsed.detail;
-    } catch { /* corpo não era JSON, usa o texto puro */ }
+    } catch { /* body was not JSON, use the plain text */ }
     throw new Error(message.slice(0, 400) || `HTTP ${res.status}`);
   }
   return res.status === 204 ? (null as T) : res.json();

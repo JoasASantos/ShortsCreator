@@ -1,4 +1,4 @@
-"""Upload para YouTube Shorts via YouTube Data API v3 (upload resumível)."""
+"""Upload to YouTube Shorts via the YouTube Data API v3 (resumable upload)."""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,7 @@ from ...config import settings
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
           "https://www.googleapis.com/auth/youtube.readonly",
-          # retenção média por vídeo — base do aprendizado do roteirista
+          # average retention per video — the basis of the scriptwriter's learning
           "https://www.googleapis.com/auth/yt-analytics.readonly"]
 
 
@@ -19,8 +19,9 @@ def auth_url_flow(redirect_uri: str):
     secrets = Path(settings.youtube_client_secrets)
     if not secrets.exists():
         raise RuntimeError(
-            f"client_secret do YouTube não encontrado em {secrets}. "
-            "Baixe no Google Cloud Console (OAuth 2.0 Client ID, tipo Web)."
+            f"YouTube client_secret not found at {secrets}. "
+            "Download it from the Google Cloud Console (OAuth 2.0 Client ID, "
+            "Web type)."
         )
     flow = Flow.from_client_secrets_file(str(secrets), scopes=SCOPES,
                                          redirect_uri=redirect_uri)
@@ -54,7 +55,7 @@ def channel_name(credentials: dict) -> str:
     service = build("youtube", "v3", credentials=_credentials(credentials))
     response = service.channels().list(part="snippet", mine=True).execute()
     items = response.get("items", [])
-    return items[0]["snippet"]["title"] if items else "Canal YouTube"
+    return items[0]["snippet"]["title"] if items else "YouTube channel"
 
 
 def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> dict:
@@ -71,7 +72,7 @@ def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> di
         description = f"{description}\n\n" + " ".join(
             h if h.startswith("#") else f"#{h}" for h in hashtags
         )
-    # #Shorts no título/descrição reforça a classificação como Short
+    # #Shorts in the title/description reinforces classification as a Short
     if "#shorts" not in description.lower():
         description = f"{description}\n#Shorts".strip()
 
@@ -108,8 +109,8 @@ def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> di
               "url": f"https://youtube.com/shorts/{video_id}",
               "status": response.get("status", {})}
 
-    # Capa personalizada exige canal verificado por telefone; sem isso a API
-    # devolve 403 e o Short fica com o frame automático — não é motivo de falha.
+    # A custom thumbnail requires a phone-verified channel; without one the API
+    # returns 403 and the Short keeps the automatic frame — not a reason to fail.
     cover = payload.get("cover_path")
     if cover and Path(cover).exists():
         try:
@@ -117,13 +118,13 @@ def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> di
                 videoId=video_id,
                 media_body=MediaFileUpload(cover, mimetype="image/jpeg"),
             ).execute()
-            result["cover"] = "enviada"
+            result["cover"] = "uploaded"
         except Exception as exc:  # noqa: BLE001
-            result["cover"] = f"não aplicada: {str(exc)[:160]}"
+            result["cover"] = f"not applied: {str(exc)[:160]}"
     return result
 
 
 def _persist_token(account_id: str, credentials: dict) -> None:
-    with db._lock, db.connect() as conn:  # noqa: SLF001 — atualização pontual
+    with db._lock, db.connect() as conn:  # noqa: SLF001 — one-off update
         conn.execute("UPDATE accounts SET credentials_json=? WHERE id=?",
                      (json.dumps(credentials), account_id))

@@ -1,7 +1,7 @@
-/** A página de instalação é longa e cheia de código. Em vez de espalhar
- *  centenas de strings pelo dicionário principal, ela é descrita como uma
- *  estrutura de blocos: cada idioma preenche o mesmo esqueleto, e a tela
- *  apenas percorre e renderiza. */
+/** The install page is long and full of code. Instead of scattering hundreds
+ *  of strings across the main dictionary, it is described as a block
+ *  structure: each language fills in the same skeleton, and the screen just
+ *  walks it and renders. */
 
 export type Block =
   | { kind: "p"; text: string }

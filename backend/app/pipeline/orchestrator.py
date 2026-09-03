@@ -1,7 +1,7 @@
-"""Orquestra o pipeline completo: ingest -> roteiro -> voz -> legenda -> fundo
--> render -> QA. Quando o QA reprova, um loop de autoajuste tenta corrigir o
-problema (duração, posição de legenda, loudness, fundo) e refaz só as etapas
-afetadas — não o pipeline inteiro — até aprovar ou esgotar as tentativas.
+"""Orchestrates the full pipeline: ingest -> roteiro -> voz -> legenda -> fundo
+-> render -> QA. When QA fails a video, an autofix loop tries to correct the
+problem (duration, caption position, loudness, background) and redoes only the
+affected stages — not the whole pipeline — until it passes or runs out of tries.
 """
 from __future__ import annotations
 
@@ -26,20 +26,21 @@ STAGES = [
     ("qa", 1.00),
 ]
 
-# etapas afetadas quando uma etapa é refeita — cascata de invalidação
+# stages affected when a stage is redone — the invalidation cascade
 CASCADE = {
     "script": {"script", "voz", "legendas", "fundo", "render"},
     "voz": {"voz", "legendas", "fundo", "render"},
-    # narração já foi editada no disco (ex.: corte de silêncio): tudo que
-    # depende dos timings é refeito, mas sem re-sintetizar o áudio.
+    # the narration has already been edited on disk (e.g. silence trimming):
+    # everything that depends on the timings is redone, but without
+    # re-synthesizing the audio.
     "narracao_editada": {"legendas", "fundo", "render"},
     "legendas": {"legendas", "render"},
     "fundo": {"fundo", "render"},
     "render": {"render"},
 }
 
-# nome da etapa na UI -> raiz da cascata a refazer quando se retoma dali.
-# A ordem importa: RESUMABLE no frontend fatia esta lista.
+# stage name in the UI -> root of the cascade to redo when resuming from there.
+# The order matters: RESUMABLE on the frontend slices this list.
 RESUME_STAGES = {
     "roteiro": "script",
     "voz": "voz",
@@ -50,32 +51,34 @@ RESUME_STAGES = {
 
 
 def request_resume(job_id: str, stage: str) -> None:
-    """Marca de onde a próxima execução deve retomar. Consumida (e apagada)
-    pelo run_job; se os artefatos necessários não existirem, o pipeline roda
-    inteiro como sempre."""
+    """Marks where the next run should resume from. Consumed (and deleted) by
+    run_job; if the required artifacts do not exist, the pipeline runs in full
+    as it always does."""
     if stage not in RESUME_STAGES:
-        raise ValueError(f"Etapa inválida para retomar: {stage}")
+        raise ValueError(f"Invalid stage to resume from: {stage}")
     (settings.job_dir(job_id) / "resume.json").write_text(
         json.dumps({"from": stage}), encoding="utf-8")
 
 
 def resumable_stage(job_dir: Path) -> str | None:
-    """A etapa mais avançada da qual dá para retomar com o que está no disco."""
+    """The furthest stage we can resume from with what is on disk."""
     has_script = (job_dir / "script.json").exists() or (job_dir / "script_override.json").exists()
     has_voice = (job_dir / "narration.json").exists() and (job_dir / "narration.mp3").exists()
     if not has_script:
         return None
     if not has_voice:
         return "voz"
-    # sem o fundo no disco, retomar de legendas deixaria o render sem imagem
+    # without the background on disk, resuming from captions would leave the
+    # render with no image
     return "legendas" if saved_background(job_dir) is not None else "fundo"
 
 
 def _load_resume(job_id: str, job_dir: Path, log) -> tuple[set[str], ShortScript | None,
                                                           tts.Narration | None, Path | None]:
-    """Lê resume.json e devolve (etapas sujas, roteiro, narração, fundo) já
-    carregados do disco. Sem pedido de retomada, ou sem artefatos suficientes
-    para a etapa pedida, devolve tudo sujo e o pipeline roda inteiro."""
+    """Reads resume.json and returns (dirty stages, script, narration,
+    background) already loaded from disk. With no resume request, or without
+    enough artifacts for the requested stage, it returns everything dirty and
+    the pipeline runs in full."""
     everything = (set(CASCADE["script"]), None, None, None)
     marker = job_dir / "resume.json"
     if not marker.exists():
@@ -92,7 +95,8 @@ def _load_resume(job_id: str, job_dir: Path, log) -> tuple[set[str], ShortScript
     override = job_dir / "script_override.json"
     script_file = override if override.exists() else job_dir / "script.json"
     if not script_file.exists():
-        log("Retomada pedida, mas não há roteiro salvo — rodando do início", "warn")
+        log("Resume requested, but there is no saved script — running from the start",
+            "warn")
         return everything
     short = ShortScript(**json.loads(script_file.read_text(encoding="utf-8")))
 
@@ -101,27 +105,30 @@ def _load_resume(job_id: str, job_dir: Path, log) -> tuple[set[str], ShortScript
         meta = job_dir / "narration.json"
         audio = job_dir / "narration.mp3"
         if not (meta.exists() and audio.exists()):
-            log("Retomada pedida sem narração salva — refazendo a partir da voz", "warn")
+            log("Resume requested with no saved narration — redoing from the voice "
+                "stage", "warn")
             return set(CASCADE["voz"]), short, None, None
         data = json.loads(meta.read_text(encoding="utf-8"))
         narration = tts.Narration(audio, float(data["duration"]), data["words"])
 
-    # Retomar de "legendas" ou "render" não reconstrói o fundo, mas o render
-    # precisa dele: sem recuperar o arquivo, a composição recebia None.
+    # Resuming from "legendas" or "render" does not rebuild the background, but
+    # the render needs it: without recovering the file, the composition was
+    # getting None.
     background = None
     if root in ("legendas", "render"):
         background = saved_background(job_dir)
         if background is None:
-            log("Retomada pedida sem fundo salvo — refazendo a partir do fundo", "warn")
+            log("Resume requested with no saved background — redoing from the "
+                "background stage", "warn")
             return set(CASCADE["fundo"]), short, narration, None
 
-    log(f"Retomando a partir de: {stage}")
+    log(f"Resuming from: {stage}")
     return set(CASCADE[root]), short, narration, background
 
 
 def saved_background(job_dir: Path) -> Path | None:
-    """Fundo da renderização anterior. O nome varia (scroll, padding), então o
-    caminho efetivo é anotado em background.json quando a etapa roda."""
+    """Background from the previous render. The name varies (scroll, padding),
+    so the effective path is noted in background.json when the stage runs."""
     meta = job_dir / "background.json"
     if meta.exists():
         try:
@@ -130,7 +137,7 @@ def saved_background(job_dir: Path) -> Path | None:
             candidate = None
         if candidate is not None and candidate.exists():
             return candidate
-    # jobs renderizados antes deste registro existir: procura os nomes conhecidos
+    # jobs rendered before this record existed: look for the known names
     for name in ("background_scroll_padded.mp4", "background_scroll.mp4",
                  "background_padded.mp4", "background.mp4"):
         if (job_dir / name).exists():
@@ -141,11 +148,11 @@ def saved_background(job_dir: Path) -> Path | None:
 def run_job(job_id: str) -> dict:
     row = db.get_job(job_id)
     if row is None:
-        raise RuntimeError(f"Job {job_id} não existe")
+        raise RuntimeError(f"Job {job_id} does not exist")
 
     job = JobInput(**json.loads(row["input_json"]))
     job_dir = settings.job_dir(job_id)
-    llm.current_job.set(job_id)   # cada chamada de LLM fica atribuída a este job
+    llm.current_job.set(job_id)   # every LLM call gets attributed to this job
 
     def log(message: str, level: str = "info") -> None:
         db.log_event(job_id, message, level)
@@ -153,20 +160,21 @@ def run_job(job_id: str) -> dict:
     def stage(name: str) -> None:
         progress = dict(STAGES).get(name, 0.0)
         db.update_job(job_id, stage=name, progress=progress, status="running")
-        log(f"Etapa: {name}")
+        log(f"Stage: {name}")
 
     try:
         render.ensure_ffmpeg()
 
-        # 1. Ingestão — só acontece uma vez, mesmo com retentativas de QA
+        # 1. Ingestion — happens only once, even across QA retries
         stage("ingest")
         material = ingest.ingest(job, job_dir, log)
-        log(f"Fonte: {material.kind} — {len(material.context())} caracteres de contexto")
+        log(f"Source: {material.kind} — "
+            f"{len(material.context())} characters of context")
 
         if (material.kind == "github" and job.background == "auto"
                 and job.scroll == "nenhum"):
             job.scroll = "codigo"
-            log("Repositório sem preferência de fundo — ativando rolagem de código")
+            log("Repository with no background preference — enabling code scroll")
 
         max_attempts = max(1, job.qa_max_attempts) if job.qa_autofix else 1
 
@@ -176,25 +184,25 @@ def run_job(job_id: str) -> dict:
         duration = 0.0
         report: qa.QAReport | None = None
         attempts: list[dict] = []
-        # primeira passada: tudo precisa rodar — salvo retomada com artefatos
+        # first pass: everything has to run — unless resuming with artifacts
         dirty, short, narration, background = _load_resume(job_id, job_dir, log)
 
         attempt = 1
         while True:
             if attempt > 1:
-                log(f"Tentativa {attempt}/{max_attempts} de ajuste")
+                log(f"Autofix attempt {attempt}/{max_attempts}")
 
             if "script" in dirty:
                 stage("roteiro")
                 override = job_dir / "script_override.json"
                 if override.exists():
-                    # roteiro editado à mão no editor: respeita o texto do
-                    # usuário em vez de gerar outro pelo LLM
+                    # script hand-edited in the editor: honor the user's text
+                    # instead of generating another one through the LLM
                     short = ShortScript(**json.loads(override.read_text(encoding="utf-8")))
-                    log(f"Roteiro editado manualmente: {len(short.segments)} segmentos")
+                    log(f"Manually edited script: {len(short.segments)} segments")
                 else:
                     short = script_mod.build_script(job, material)
-                    log(f"Roteiro: '{short.title}' com {len(short.segments)} segmentos")
+                    log(f"Script: '{short.title}' with {len(short.segments)} segments")
                 (job_dir / "script.json").write_text(short.model_dump_json(indent=2),
                                                      encoding="utf-8")
 
@@ -204,10 +212,10 @@ def run_job(job_id: str) -> dict:
                 narration_text = script_mod.full_narration(short)
                 narration = tts.synthesize(narration_text, job_dir / "narration.mp3",
                                           voice, log)
-                log(f"Narração: {narration.duration:.1f}s, "
-                    f"{len(narration.words)} palavras cronometradas")
-                # timings no disco: é o que permite retomar de "legendas" sem
-                # sintetizar de novo depois de uma queda
+                log(f"Narration: {narration.duration:.1f}s, "
+                    f"{len(narration.words)} timed words")
+                # timings on disk: this is what allows resuming from "legendas"
+                # without synthesizing again after a crash
                 (job_dir / "narration.json").write_text(json.dumps(
                     {"duration": narration.duration, "words": narration.words}),
                     encoding="utf-8")
@@ -218,7 +226,7 @@ def run_job(job_id: str) -> dict:
                 stage("legendas")
                 caption_words = _shift_words(narration.words, job.caption_offset)
                 if job.caption_offset:
-                    log(f"Ajuste manual de sincronia: {job.caption_offset:+.2f}s")
+                    log(f"Manual sync adjustment: {job.caption_offset:+.2f}s")
                 ass_path = captions.build_ass(
                     caption_words, job_dir / "captions.ass",
                     style=job.caption_style, position=job.caption_position,
@@ -241,13 +249,13 @@ def run_job(job_id: str) -> dict:
                         {"file": o.path.name, "start": o.start, "end": o.end,
                          "x": o.x, "y": o.y, "kind": o.kind} for o in overlays_list],
                         indent=2), encoding="utf-8")
-                    log(f"{len(overlays_list)} sobreposições geradas")
+                    log(f"{len(overlays_list)} overlays generated")
 
             if "fundo" in dirty:
                 stage("fundo")
                 background = _build_background(job, short, narration, material,
                                                job_dir, duration, log)
-                # o nome final varia (scroll, padding): anotado para a retomada
+                # the final name varies (scroll, padding): noted for the resume
                 (job_dir / "background.json").write_text(
                     json.dumps({"path": str(background)}), encoding="utf-8")
 
@@ -255,18 +263,18 @@ def run_job(job_id: str) -> dict:
                 stage("render")
                 if background is None:
                     raise RuntimeError(
-                        "Fundo indisponível para a composição. Reprocesse o job "
-                        "do início ou a partir da etapa 'fundo'.")
+                        "No background available for the composition. Reprocess "
+                        "the job from the start or from the 'fundo' stage.")
                 render.compose(job_dir, background, job_dir / "narration.mp3",
                                final, job, duration, overlays=overlays_list,
                                subtitles=ass_path)
                 render.make_thumbnail(final, job_dir / "thumb.jpg",
                                       at=min(1.0, duration / 4))
-                log(f"Vídeo pronto: {final.name}")
+                log(f"Video ready: {final.name}")
 
             stage("qa")
             report = qa.audit(final, ass_path, expected_duration=narration.duration)
-            log(f"QA: score {report.score}/100 — {'APROVADO' if report.passed else 'REPROVADO'}",
+            log(f"QA: score {report.score}/100 — {'PASSED' if report.passed else 'FAILED'}",
                 "info" if report.passed else "warn")
             for issue in report.issues:
                 log(f"[{issue.severity}] {issue.check}: {issue.message}", issue.severity)
@@ -282,43 +290,44 @@ def run_job(job_id: str) -> dict:
                     narration = trimmed
                     shutil.copy(narration.audio_path, job_dir / "narration.mp3")
                     narration.audio_path = job_dir / "narration.mp3"
-                    fix = ("cortando silêncio no início da narração", job,
+                    fix = ("trimming silence at the start of the narration", job,
                            "narracao_editada")
             if fix is None:
                 fix = qa.suggest_fix(report, job)
 
             if fix is None:
-                log("Nenhuma correção automática aplicável — mantendo resultado atual", "warn")
+                log("No automatic fix applicable — keeping the current result", "warn")
                 break
 
             action, job, root_stage = fix
-            # refazer uma etapa invalida todas as que dependem dela
+            # redoing a stage invalidates every stage that depends on it
             dirty = CASCADE[root_stage]
             attempts.append({"attempt": attempt, "action": action,
                              "report": report.model_dump()})
-            log(f"Ajuste automático: {action}")
+            log(f"Automatic fix: {action}")
             attempt += 1
 
         published_copy = settings.outputs_dir / f"{job_id}.mp4"
         shutil.copy(final, published_copy)
 
-        # Capa e prévia animada são cosméticos: falha aqui não reprova o job.
+        # Cover and animated preview are cosmetic: a failure here does not fail
+        # the job.
         cover_at = None
         try:
             _, cover_at = cover_mod.build(final, short.title, job.niche,
                                           job_dir / "cover.jpg", duration, job_dir)
             (job_dir / "cover.json").write_text(json.dumps({"at": cover_at}),
                                                 encoding="utf-8")
-            log(f"Capa gerada a partir do frame em {cover_at:.1f}s")
+            log(f"Cover generated from the frame at {cover_at:.1f}s")
         except Exception as exc:  # noqa: BLE001
-            log(f"Capa não gerada: {exc}", "warn")
+            log(f"Cover not generated: {exc}", "warn")
         try:
             render.make_preview_gif(final, job_dir / "preview.gif")
         except Exception as exc:  # noqa: BLE001
-            log(f"Prévia animada não gerada: {exc}", "warn")
+            log(f"Animated preview not generated: {exc}", "warn")
 
-        # Descreve o resultado como linha do tempo editável, para o editor de
-        # vídeo poder cortar/mover/reescrever sem refazer o pipeline.
+        # Describes the result as an editable timeline, so the video editor can
+        # cut/move/rewrite without redoing the pipeline.
         try:
             parts = sorted(job_dir.glob("hl_*.mp4")) or sorted(job_dir.glob("kb_*.mp4")) \
                 or sorted(job_dir.glob("bgpart_*.mp4")) or [background]
@@ -329,9 +338,9 @@ def run_job(job_id: str) -> dict:
                 music=music_file, music_gain=job.music_volume,
             )
             timeline_mod.save(job_dir, edl)
-            log(f"Linha do tempo: {len(edl.video)} clipe(s), {len(edl.captions)} legenda(s)")
-        except Exception as exc:  # noqa: BLE001 — editor é opcional, não derruba o job
-            log(f"Não foi possível montar a linha do tempo: {exc}", "warn")
+            log(f"Timeline: {len(edl.video)} clip(s), {len(edl.captions)} caption(s)")
+        except Exception as exc:  # noqa: BLE001 — editor is optional, never fatal
+            log(f"Could not assemble the timeline: {exc}", "warn")
 
         result = {
             "title": short.title,
@@ -352,7 +361,7 @@ def run_job(job_id: str) -> dict:
             "preview_gif": (f"/api/jobs/{job_id}/file/preview.gif"
                             if (job_dir / "preview.gif").exists() else None),
         }
-        # preserva o que foi produzido depois da renderização anterior (hooks, legenda)
+        # keeps what was produced after the previous render (hooks, post copy)
         previous = json.loads(row["result_json"] or "{}")
         for key in ("hook_variants", "caption"):
             if key in previous and key not in result:
@@ -365,16 +374,16 @@ def run_job(job_id: str) -> dict:
         notify.job_done(job_id, short.title, duration, report.score, report.passed)
         return result
 
-    except Exception as exc:  # noqa: BLE001 — erro precisa chegar na UI
-        db.log_event(job_id, f"Falha: {exc}", "error")
+    except Exception as exc:  # noqa: BLE001 — the error has to reach the UI
+        db.log_event(job_id, f"Failure: {exc}", "error")
         db.update_job(job_id, status="error", error=str(exc))
         notify.job_failed(job_id, row.get("title") or "", str(exc))
         raise
 
 
 def _shift_words(words: list[dict], offset: float) -> list[dict]:
-    """Desloca todos os timings da legenda — o ajuste fino manual do editor,
-    para quando a voz do provedor tem um atraso de ataque perceptível."""
+    """Shifts every caption timing — the editor's manual fine-tuning, for when
+    the provider's voice has a noticeable attack delay."""
     if not offset:
         return words
     return [{"word": w["word"],
@@ -397,20 +406,20 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
         else:
             mode = "gradiente"
 
-    # "pan" é consumido dentro das funções de fundo (crop animado); "texto" e
-    # "codigo" são painéis sobrepostos depois, então sobrevivem a este ponto.
+    # "pan" is consumed inside the background functions (animated crop); "texto"
+    # and "codigo" are panels overlaid later, so they survive past this point.
     applied_scroll = "nenhum" if job.scroll == "pan" else job.scroll
 
     if mode == "imagem_kenburns":
         if not material.image_paths:
-            raise RuntimeError("Modo imagem selecionado sem nenhuma imagem enviada.")
+            raise RuntimeError("Image mode selected with no image uploaded.")
         durations = script_mod.segment_durations_covering(
             short, narration.words, duration) or [duration]
         images = material.image_paths
         cycled = [images[i % len(images)] for i in range(len(durations))]
-        log(f"Fundo: {len(images)} imagem(ns) com efeito Ken Burns")
+        log(f"Background: {len(images)} image(s) with the Ken Burns effect")
         render.background_from_images_kenburns(cycled, durations, out, job_dir)
-        applied_scroll = "nenhum"  # não faz sentido rolar texto sobre Ken Burns
+        applied_scroll = "nenhum"  # scrolling text over Ken Burns makes no sense
 
     elif mode == "video_fonte" and material.video_path:
         if job.edit_mode == "resumo":
@@ -419,30 +428,30 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
             sources = material.video_paths or [material.video_path]
             windows = highlights.windows_across_sources(
                 sources, len(seg_durations), seg_durations, log)
-            log(f"Fundo: {len(windows)} destaque(s) de {len(sources)} vídeo(s)")
+            log(f"Background: {len(windows)} highlight(s) from {len(sources)} video(s)")
             render.background_from_multi_highlights(windows, out, job_dir,
                                                     durations=seg_durations)
         elif len(material.video_paths) > 1:
-            log(f"Fundo: {len(material.video_paths)} vídeos em sequência, 9:16")
+            log(f"Background: {len(material.video_paths)} videos in sequence, 9:16")
             render.background_from_clips(material.video_paths, duration, out, job_dir)
         else:
-            log("Fundo: vídeo de origem recortado para 9:16")
+            log("Background: source video cropped to 9:16")
             render.background_from_video(material.video_path, duration, out,
                                          scroll=job.scroll)
 
     elif mode == "broll":
         queries = [job.background_query] if job.background_query else \
             [s.broll_query for s in short.segments if s.broll_query]
-        log(f"Fundo: B-roll para {queries[:4]}")
+        log(f"Background: B-roll for {queries[:4]}")
         clips = broll.fetch_for_queries(queries[:5], log)
         if clips:
             render.background_from_clips(clips, duration, out, job_dir)
         else:
-            log("Nenhum B-roll encontrado; caindo para gradiente", "warn")
+            log("No B-roll found; falling back to a gradient", "warn")
             render.background_gradient(duration, job.niche, out, scroll=job.scroll)
 
     elif mode == "codigo_scroll":
-        log("Fundo: gradiente com rolagem de código")
+        log("Background: gradient with code scroll")
         render.background_gradient(duration, job.niche, out, scroll="nenhum")
         applied_scroll = "codigo"
 
@@ -452,17 +461,17 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
         videogen.generate_clip(prompt, duration, out, log=log)
 
     else:
-        log("Fundo: gradiente gerado")
+        log("Background: generated gradient")
         render.background_gradient(duration, job.niche, out, scroll=job.scroll)
 
     if applied_scroll in ("texto", "codigo"):
-        # Para repositório, rolar o conteúdo dos arquivos (código de verdade) em
-        # vez de context(), que começa pela árvore de diretórios.
+        # For a repository, scroll the file contents (actual code) instead of
+        # context(), which starts with the directory tree.
         if applied_scroll == "codigo" and material.text:
             source_text = material.text[:4000]
         else:
             source_text = material.context(limit=4000) or script_mod.full_narration(short)
-        log(f"Aplicando scroll de {'código' if applied_scroll == 'codigo' else 'texto'}")
+        log(f"Applying {'code' if applied_scroll == 'codigo' else 'text'} scroll")
         panel = overlay_mod.render_scroll_panel(
             source_text, job_dir, mono=(applied_scroll == "codigo"))
         scrolled = job_dir / "background_scroll.mp4"

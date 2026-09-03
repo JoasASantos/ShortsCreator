@@ -21,10 +21,11 @@ def edge_catalog(locale: str = "pt-BR"):
 
 @router.get("/catalog/fish/{reference_id}/sample")
 def fish_sample(reference_id: str):
-    """Faz proxy da amostra de áudio do fish.audio.
+    """Proxies the fish.audio audio sample.
 
-    A URL original é assinada e vem de outro domínio; servir por aqui evita
-    problema de CORS no player e esconde a chave da API do navegador.
+    The original URL is signed and comes from another domain; serving it from
+    here avoids a CORS problem in the player and keeps the API key out of the
+    browser.
     """
     import httpx as _httpx
     from fastapi.responses import StreamingResponse
@@ -33,17 +34,17 @@ def fish_sample(reference_id: str):
 
     url = fish_sample_url(reference_id)
     if not url:
-        raise HTTPException(404, "Esta voz não tem amostra publicada.")
+        raise HTTPException(404, "This voice has no published sample.")
 
     upstream = _httpx.get(url, timeout=60, follow_redirects=True)
     if upstream.status_code != 200:
-        raise HTTPException(502, "Não foi possível baixar a amostra.")
+        raise HTTPException(502, "Could not download the sample.")
     return StreamingResponse(iter([upstream.content]), media_type="audio/mpeg")
 
 
 @router.get("/presets")
 def voice_presets():
-    """Catálogo curado por uso: narração, cinema, personagens e vozes gerais."""
+    """Catalog curated by use: narration, cinema, characters and general voices."""
     from ..pipeline.voice_presets import all_presets
 
     installed = {v["provider_voice_id"] for v in db.list_voices()
@@ -53,12 +54,12 @@ def voice_presets():
 
 @router.post("/presets/{reference_id}/install")
 def install_preset(reference_id: str):
-    """Cria a voz local apontando para um preset do fish.audio."""
+    """Creates the local voice pointing at a fish.audio preset."""
     from ..pipeline.voice_presets import find
 
     preset = find(reference_id)
     if preset is None:
-        raise HTTPException(404, "Preset não encontrado")
+        raise HTTPException(404, "Preset not found")
 
     for existing in db.list_voices():
         if existing["provider_voice_id"] == reference_id:
@@ -75,7 +76,7 @@ def install_preset(reference_id: str):
 
 @router.get("/catalog/fish")
 def fish_catalog(query: str = "", language: str = "pt"):
-    """Catálogo de vozes do fish.audio para escolher pelo id."""
+    """fish.audio voice catalog, to pick one by id."""
     from ..pipeline.tts import list_fish_voices
 
     try:
@@ -97,10 +98,11 @@ async def create_voice(
     speed: float = Form(1.0),
     sample: UploadFile | None = File(None),
 ):
-    """Cadastra uma voz. Para clonagem de personagem (ex.: Seu Madruga):
+    """Registers a voice. For character cloning (e.g. Seu Madruga):
 
-    - provider=elevenlabs: crie a voz no painel da ElevenLabs e informe o voice_id
-    - provider=xtts: envie um sample de 6-30s do personagem (clonagem local)
+    - provider=elevenlabs: create the voice in the ElevenLabs dashboard and
+      supply its voice_id
+    - provider=xtts: upload a 6-30s sample of the character (local cloning)
     """
     sample_path = ""
     if sample is not None and sample.filename:
@@ -109,13 +111,13 @@ async def create_voice(
         sample_path = str(dest)
 
     if provider == "xtts" and not sample_path:
-        raise HTTPException(400, "XTTS exige um arquivo de áudio de referência.")
+        raise HTTPException(400, "XTTS requires a reference audio file.")
     if provider == "elevenlabs" and not provider_voice_id:
-        raise HTTPException(400, "ElevenLabs exige o provider_voice_id da voz clonada.")
+        raise HTTPException(400, "ElevenLabs requires the provider_voice_id of the cloned voice.")
     if provider == "fishaudio" and not provider_voice_id:
         raise HTTPException(
-            400, "fish.audio exige o reference_id do modelo de voz "
-                 "(copie da URL da voz em fish.audio).")
+            400, "fish.audio requires the reference_id of the voice model "
+                 "(copy it from the voice's URL on fish.audio).")
 
     voice_id = db.create_voice(
         name=name, provider=provider, provider_voice_id=provider_voice_id,
@@ -135,7 +137,7 @@ def preview(voice_id: str, text: str = Form("Testando a voz do personagem no Sho
 
     voice = db.get_voice(voice_id)
     if voice is None:
-        raise HTTPException(404, "Voz não encontrada")
+        raise HTTPException(404, "Voice not found")
     out = settings.voices_dir / f"preview_{voice_id}.mp3"
     voice_cfg = dict(voice)
     import json as _json

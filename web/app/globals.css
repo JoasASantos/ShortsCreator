@@ -1,6 +1,6 @@
 /* ============================================================
-   ShortsCreator — console de corte
-   preto de rack, âmbar de karaokê, mono para dados
+   ShortsCreator — editing console
+   rack black, karaoke amber, mono for data
    ============================================================ */
 
 :root {
@@ -40,7 +40,7 @@ html, body {
 }
 
 body::before {
-  /* grão + varredura fina: textura de monitor de estúdio */
+  /* grain + fine scanlines: studio monitor texture */
   content: "";
   position: fixed;
   inset: 0;
@@ -55,7 +55,7 @@ body::before {
 a { color: inherit; text-decoration: none; }
 button, input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
 
-/* ---------- tipografia utilitária ---------- */
+/* ---------- utility typography ---------- */
 
 .display {
   font-family: var(--font-display), ui-sans-serif;
@@ -108,7 +108,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 
 .brand::after {
-  /* fita de perfuração de filme */
+  /* film perforation strip */
   content: "";
   position: absolute;
   left: 20px; right: 20px; bottom: 8px;
@@ -206,7 +206,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 .content { padding: 26px 28px 64px; max-width: 1440px; width: 100%; }
 
-/* ---------- primitivas ---------- */
+/* ---------- primitives ---------- */
 
 .panel {
   background: var(--panel);
@@ -279,7 +279,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 .textarea { min-height: 108px; resize: vertical; line-height: 1.55; }
 
-/* sliders: o azul padrão do browser destoa do resto do console */
+/* sliders: the browser's default blue clashes with the rest of the console */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
@@ -317,7 +317,7 @@ input[type="range"]::-moz-range-thumb {
 input[type="range"]:disabled { opacity: 0.35; cursor: not-allowed; }
 input[type="range"]:disabled::-webkit-slider-thumb { background: var(--ink-3); }
 
-/* input de arquivo: o botão nativo também vem fora do padrão */
+/* file input: the native button is off-style as well */
 input[type="file"] { padding: 8px 12px; cursor: pointer; }
 
 input[type="file"]::-webkit-file-upload-button {
@@ -399,7 +399,7 @@ input[type="file"]::-webkit-file-upload-button:hover {
 
 hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 
-/* ---------- barra de progresso ---------- */
+/* ---------- progress bar ---------- */
 
 .bar {
   height: 3px;
@@ -415,7 +415,7 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
   transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ---------- cartões de job ---------- */
+/* ---------- job cards ---------- */
 
 .jobs { display: grid; gap: 10px; }
 
@@ -471,7 +471,7 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
   white-space: nowrap;
 }
 
-/* ---------- moldura 9:16 ---------- */
+/* ---------- 9:16 frame ---------- */
 
 .stage {
   display: grid;
@@ -516,7 +516,7 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
   transition: opacity 0.2s;
 }
 
-/* faixas ocupadas pela UI do TikTok/Shorts */
+/* bands taken up by the TikTok/Shorts UI */
 .safe .zone {
   position: absolute;
   background: repeating-linear-gradient(
@@ -582,8 +582,8 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 
 .metrics {
   display: grid;
-  /* auto-fit e não auto-fill: com 4 contadores numa tela larga, auto-fill
-     deixava colunas vazias desenhando faixas de fundo à direita */
+  /* auto-fit and not auto-fill: with 4 counters on a wide screen, auto-fill
+     left empty columns drawing background bands off to the right */
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 1px;
   background: var(--line-soft);
@@ -621,7 +621,7 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 .log::-webkit-scrollbar { width: 8px; }
 .log::-webkit-scrollbar-thumb { background: var(--rail); border-radius: 4px; }
 
-/* ---------- passos do wizard ---------- */
+/* ---------- wizard steps ---------- */
 
 .steps { display: flex; gap: 0; border: 1px solid var(--line);
   border-radius: var(--r); overflow: hidden; }
@@ -646,7 +646,7 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
   height: 2px; background: var(--amber);
 }
 
-/* ---------- tabela ---------- */
+/* ---------- table ---------- */
 
 .table { width: 100%; border-collapse: collapse; }
 .table th {
@@ -689,14 +689,14 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 .side { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
 
 /* ============================================================
-   RESPONSIVO
-   Três faixas: desktop (barra fixa), tablet (coluna única) e
-   celular (barra vira gaveta com botão no topo). O iOS entra com
-   as notches via env(safe-area-inset-*), e todo alvo de toque
-   respeita os 44px recomendados pela Apple / 48dp do Android.
+   RESPONSIVE
+   Three bands: desktop (fixed sidebar), tablet (single column) and
+   phone (sidebar becomes a drawer with a button at the top). iOS comes
+   in with its notches via env(safe-area-inset-*), and every touch target
+   respects the 44px Apple recommends / Android's 48dp.
    ============================================================ */
 
-/* seletor de idioma ------------------------------------------------ */
+/* language picker ------------------------------------------------- */
 
 .locale { position: relative; }
 
@@ -748,13 +748,13 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 .locale-menu button:hover { background: var(--rail); color: var(--ink); }
 .locale-menu button[data-on="true"] { color: var(--amber); }
 
-/* botão de menu: só existe no celular ------------------------------ */
+/* menu button: only exists on phones ------------------------------ */
 
 .menu-toggle { display: none; }
 
 .rail-scrim { display: none; }
 
-/* --- tablet e telas médias --- */
+/* --- tablet and medium screens --- */
 @media (max-width: 1080px) {
   .shell { grid-template-columns: 1fr; }
   .rail { position: static; height: auto; }
@@ -763,13 +763,13 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
   .topbar { padding: 0 20px; }
 }
 
-/* --- celular --- */
+/* --- phone --- */
 @media (max-width: 760px) {
-  html, body { font-size: 15px; }        /* 16px no input evita zoom no iOS */
+  html, body { font-size: 15px; }        /* 16px on inputs avoids zoom on iOS */
 
   .shell { grid-template-columns: 1fr; }
 
-  /* a barra lateral vira gaveta deslizante */
+  /* the sidebar becomes a sliding drawer */
   .rail {
     position: fixed;
     top: 0;
@@ -821,7 +821,7 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
     gap: 8px;
   }
   .topbar h2 { font-size: 16px; }
-  /* na barra de título só cabe o essencial no celular */
+  /* only the essentials fit in the title bar on phones */
   .topbar .label { display: none; }
 
   .content {
@@ -830,11 +830,11 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
     padding-right: max(14px, env(safe-area-inset-right));
   }
 
-  /* alvos de toque: 44px é o mínimo recomendado no iOS */
+  /* touch targets: 44px is the recommended minimum on iOS */
   .btn, .chip, .select, .input { min-height: 44px; }
   .btn.sm, .chip { min-height: 38px; }
   .btn { padding: 10px 14px; }
-  input, select, textarea { font-size: 16px; }   /* impede o zoom automático */
+  input, select, textarea { font-size: 16px; }   /* prevents the automatic zoom */
   input[type="range"] { height: 34px; }
 
   .metrics { grid-template-columns: repeat(2, 1fr); }
@@ -843,30 +843,30 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
   .steps { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .steps > div { white-space: nowrap; }
 
-  /* tabelas largas passam a rolar em vez de estourar a página */
+  /* wide tables start scrolling instead of blowing out the page */
   .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .table { min-width: 560px; }
 
   .jobs .job { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
   .job .thumb { width: 64px; }
-  /* no toque não existe hover: o botão de excluir fica sempre visível */
+  /* on touch there is no hover: the delete button stays always visible */
   .job-delete, .job:hover .job-delete { opacity: 1; }
   .job-actions { grid-column: 2; justify-content: flex-start; }
 
   .phone { width: 100%; max-width: 320px; }
   .prose pre { font-size: 11.5px; }
-  /* o seletor de idioma fica no rodapé da gaveta: o menu tem que subir,
-     senão abre para fora da tela */
+  /* the language picker sits at the foot of the drawer: the menu has to open
+     upward, otherwise it opens off-screen */
 }
 
-/* telas muito estreitas (iPhone SE e afins) */
+/* very narrow screens (iPhone SE and the like) */
 @media (max-width: 400px) {
   .metrics { grid-template-columns: 1fr; }
   .two { gap: 10px; }
   .content { padding-left: 11px; padding-right: 11px; }
 }
 
-/* quem prefere menos movimento não recebe a transição da gaveta */
+/* anyone who prefers less motion does not get the drawer transition */
 @media (prefers-reduced-motion: reduce) {
   .rail, .rail-scrim { transition: none; }
 }
@@ -901,7 +901,7 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 }
 .prose pre code { background: none; border: 0; padding: 0; color: var(--ink); }
 
-/* ---------- editor de linha do tempo ---------- */
+/* ---------- timeline editor ---------- */
 
 .tl {
   overflow-x: auto;
@@ -985,7 +985,7 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 .tl-clip.caption { background: linear-gradient(180deg, #2c2410, #1e1a0b);
   border-color: #5c4a1c; }
 
-/* pegadores de trim nas bordas do clipe */
+/* trim handles on the clip edges */
 .tl-handle {
   position: absolute;
   top: 0;
@@ -1043,7 +1043,7 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
   line-height: 1.45;
 }
 
-/* barra indeterminada: sinaliza trabalho em curso sem progresso conhecido */
+/* indeterminate bar: signals work in progress with no known progress value */
 .bar > i.indeterminate {
   width: 34%;
   animation: slide 1.15s ease-in-out infinite;
@@ -1073,8 +1073,8 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 
 .voice-row:hover { background: var(--panel); border-color: var(--line); }
 
-/* ações da linha: o botão de excluir só aparece no hover, para não
-   competir com o conteúdo nem convidar ao clique acidental */
+/* row actions: the delete button only shows on hover, so it neither competes
+   with the content nor invites an accidental click */
 .job-actions { flex-shrink: 0; }
 
 .job-delete {

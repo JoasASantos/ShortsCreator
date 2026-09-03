@@ -1,10 +1,15 @@
-"""Fatiamento de um vídeo longo em vários shorts ("clipes virais").
+"""Slicing a long video into several shorts ("viral clips").
 
-Recebe a transcrição inteira de um vídeo de 20min–2h e pede ao LLM que escolha
-os N momentos que funcionam sozinhos como short: cada um com começo/fim em
-segundos, um gancho e um motivo. Cada trecho escolhido vira um job próprio,
-com seu roteiro, narração, legenda e QA — ou seja, N shorts independentes a
-partir de um upload só.
+Takes the full transcript of a 20min–2h video and asks the LLM to pick the N
+moments that stand on their own as a short: each with a start/end in seconds,
+a hook and a reason. Every chosen stretch becomes its own job, with its own
+script, narration, captions and QA — that is, N independent shorts out of a
+single upload.
+
+The SYSTEM prompt and SCHEMA below stay in Portuguese on purpose: the prompt
+is calibrated in Portuguese and the response JSON uses Portuguese keys
+(`clipes`, `inicio`, `fim`, `titulo`, `motivo`, `assunto`), which the rest of
+the pipeline reads by name.
 """
 from __future__ import annotations
 
@@ -55,11 +60,11 @@ SCHEMA = {
 
 def pick_clips(transcript: str, total_duration: float, count: int,
                target_seconds: int, log=lambda m: None) -> list[dict]:
-    """Escolhe até `count` trechos do vídeo que funcionam como short sozinhos."""
+    """Picks up to `count` stretches of the video that stand alone as a short."""
     if not transcript.strip():
         raise RuntimeError(
-            "Sem transcrição não dá para escolher os melhores momentos. "
-            "Instale faster-whisper ou use um vídeo com legenda disponível."
+            "Without a transcript there is no way to pick the best moments. "
+            "Install faster-whisper or use a video that has captions available."
         )
 
     prompt = f"""Duração total do vídeo: {total_duration:.0f} segundos.
@@ -82,9 +87,9 @@ Selecione os melhores momentos."""
         start = max(float(clip.get("inicio", 0)), 0.0)
         end = min(float(clip.get("fim", 0)), total_duration)
         if end - start < settings.min_short_seconds * 0.5:
-            continue  # curto demais para virar short
+            continue  # too short to become a short
         if any(start < v["fim"] and end > v["inicio"] for v in valid):
-            continue  # sobreposto a um clipe já aceito
+            continue  # overlaps a clip already accepted
         valid.append({
             "inicio": round(start, 2),
             "fim": round(end, 2),
@@ -94,13 +99,13 @@ Selecione os melhores momentos."""
         })
 
     valid.sort(key=lambda c: c["inicio"])
-    log(f"{len(valid)} clipe(s) aproveitável(is) de {len(clips)} sugerido(s)")
+    log(f"{len(valid)} usable clip(s) out of {len(clips)} suggested")
     return valid[:count]
 
 
 def transcript_with_timestamps(segments) -> str:
-    """Formata segmentos do whisper como '[MM:SS] texto' — sem os tempos o LLM
-    não tem como devolver início/fim confiáveis."""
+    """Formats whisper segments as '[MM:SS] text' — without the timings the LLM
+    has no way to return reliable start/end values."""
     lines = []
     for seg in segments:
         minutes, seconds = divmod(int(seg["start"]), 60)

@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { LOCALES, LOCALE_NAMES, LOCALE_SHORT, useI18n } from "@/lib/i18n";
 
-/** Seletor compacto de idioma. Fica no pé da barra lateral e, no celular,
- *  dentro do menu — em ambos os casos com área de toque de 40px. */
+/** Compact language picker. It sits at the foot of the sidebar and, on phones,
+ *  inside the menu — in both cases with a 40px touch target. */
 export function LocalePicker({ compact = false }: { compact?: boolean }) {
   const { locale, setLocale, t } = useI18n();
   const [open, setOpen] = useState(false);

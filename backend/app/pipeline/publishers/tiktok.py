@@ -1,4 +1,4 @@
-"""Upload para TikTok via Content Posting API v2 (FILE_UPLOAD direto)."""
+"""Upload to TikTok via the Content Posting API v2 (direct FILE_UPLOAD)."""
 from __future__ import annotations
 
 import time
@@ -11,12 +11,12 @@ from .. import connectors
 
 AUTH_BASE = "https://www.tiktok.com/v2/auth/authorize/"
 TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
-# video.list dá acesso a views/likes dos vídeos publicados (métricas)
+# video.list grants access to views/likes of published videos (metrics)
 SCOPES = "user.info.basic,video.upload,video.publish,video.list"
 
 
 def _app_creds() -> tuple[str, str]:
-    """Painel de Contas (connector 'tiktok') vence o .env."""
+    """The Accounts screen (connector 'tiktok') beats .env."""
     creds = connectors.credentials("tiktok")
     return (creds.get("client_key") or settings.tiktok_client_key,
             creds.get("client_secret") or settings.tiktok_client_secret)
@@ -84,13 +84,13 @@ def creator_info(access_token: str) -> dict:
 def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> dict:
     access_token = credentials.get("access_token")
     if not access_token:
-        raise RuntimeError("Conta TikTok sem access_token")
+        raise RuntimeError("TikTok account without an access_token")
 
     size = video.stat().st_size
     headers = {"Authorization": f"Bearer {access_token}",
                "Content-Type": "application/json; charset=UTF-8"}
 
-    # Contas em modo sandbox/unaudited só conseguem enviar para o inbox de rascunhos.
+    # Accounts in sandbox/unaudited mode can only send to the drafts inbox.
     direct_post = bool(payload.get("direct_post", False))
     endpoint = ("https://open.tiktokapis.com/v2/post/publish/video/init/"
                 if direct_post else
@@ -111,7 +111,7 @@ def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> di
             "disable_duet": False,
             "disable_comment": False,
             "disable_stitch": False,
-            # mesmo instante escolhido para a capa do job, quando existe
+            # the same instant chosen for the job's cover, when there is one
             "video_cover_timestamp_ms": int(payload.get("cover_at", 1.0) * 1000),
         }
 
@@ -121,7 +121,7 @@ def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> di
     upload_url = data.get("upload_url")
     publish_id = data.get("publish_id")
     if not upload_url:
-        raise RuntimeError(f"TikTok não devolveu upload_url: {init.text[:300]}")
+        raise RuntimeError(f"TikTok returned no upload_url: {init.text[:300]}")
 
     with video.open("rb") as fh:
         put = httpx.put(

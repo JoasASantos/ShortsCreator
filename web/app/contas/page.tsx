@@ -6,7 +6,7 @@ import { api, PLATFORM_LABEL, type Account, type Connector } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { TableWrap, Topbar, useToast } from "@/components/ui";
 
-// a ordem das categorias não muda com o idioma; só o rótulo vem do dicionário
+// the category order does not change with the language; only the label comes from the dictionary
 const CATEGORY_ORDER: Connector["category"][] = [
   "publicacao", "notificacao", "video", "avatar", "voz", "broll",
 ];
@@ -24,8 +24,8 @@ export default function Contas() {
   };
   useEffect(() => { pull(); }, []);
 
-  // callback OAuth do YouTube/TikTok volta pra cá com ?connected= ou ?error=
-  // — sem isso, uma falha na troca do code por token passava em silêncio.
+  // the YouTube/TikTok OAuth callback comes back here with ?connected= or ?error=
+  // — without this, a failure exchanging the code for a token passed silently.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");

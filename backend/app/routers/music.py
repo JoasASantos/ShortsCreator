@@ -1,4 +1,4 @@
-"""Biblioteca de trilhas sonoras: envie seus áudios e escolha por job."""
+"""Soundtrack library: upload your audio files and pick one per job."""
 from __future__ import annotations
 
 import subprocess
@@ -50,9 +50,9 @@ def list_tracks():
 async def upload_track(file: UploadFile = File(...)):
     ext = Path(file.filename or "").suffix.lower()
     if ext not in AUDIO_EXT:
-        raise HTTPException(400, f"Formato de áudio não suportado: {ext or '(nenhum)'}")
+        raise HTTPException(400, f"Unsupported audio format: {ext or '(none)'}")
 
-    # nome do arquivo é o id: previsível e fácil de gerenciar na pasta
+    # the file name is the id: predictable and easy to manage inside the folder
     safe = Path(file.filename or "trilha").name.replace("/", "_")
     dest = music_dir() / safe
     counter = 1
@@ -68,7 +68,7 @@ async def upload_track(file: UploadFile = File(...)):
             if size > limit:
                 fh.close()
                 dest.unlink(missing_ok=True)
-                raise HTTPException(413, f"Arquivo maior que {settings.max_upload_mb}MB")
+                raise HTTPException(413, f"File larger than {settings.max_upload_mb}MB")
             fh.write(chunk)
 
     return {"id": dest.name, "name": dest.stem,
@@ -79,7 +79,7 @@ async def upload_track(file: UploadFile = File(...)):
 def preview(track_id: str):
     path = resolve(track_id)
     if path is None:
-        raise HTTPException(404, "Trilha não encontrada")
+        raise HTTPException(404, "Track not found")
     return FileResponse(path, media_type="audio/mpeg")
 
 
@@ -87,13 +87,13 @@ def preview(track_id: str):
 def delete_track(track_id: str):
     path = resolve(track_id)
     if path is None:
-        raise HTTPException(404, "Trilha não encontrada")
+        raise HTTPException(404, "Track not found")
     path.unlink()
     return {"deleted": track_id}
 
 
 def resolve(track_id: str) -> Path | None:
-    """Traduz um id de trilha em caminho, barrando travessia de diretório."""
+    """Turns a track id into a path, blocking directory traversal."""
     if not track_id:
         return None
     candidate = (music_dir() / Path(track_id).name).resolve()

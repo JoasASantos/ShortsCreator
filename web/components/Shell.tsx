@@ -13,21 +13,21 @@ const Drawer = createContext<DrawerCtx>({
   close: () => undefined,
 });
 
-/** Estado da gaveta lateral, consumido pelo botão ☰ do Topbar. */
+/** Side drawer state, consumed by the Topbar's ☰ button. */
 export function useDrawer(): DrawerCtx {
   return useContext(Drawer);
 }
 
-/** Casca da aplicação. No celular a barra lateral é uma gaveta deslizante;
- *  no desktop ela é uma coluna fixa e o botão de menu não existe. */
+/** Application shell. On phones the sidebar is a sliding drawer; on desktop
+ *  it is a fixed column and the menu button does not exist. */
 export function Shell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const path = usePathname();
 
-  // navegar fecha a gaveta
+  // navigating closes the drawer
   useEffect(() => { setOpen(false); }, [path]);
 
-  // com a gaveta aberta, o conteúdo atrás não rola
+  // with the drawer open, the content behind it does not scroll
   useEffect(() => {
     if (!open) return;
     const anterior = document.body.style.overflow;

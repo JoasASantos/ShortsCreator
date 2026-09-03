@@ -9,19 +9,20 @@ Niche = Literal[
     "historia", "ciencia", "curiosidades", "negocios", "generico",
 ]
 
-# roteiro: usuário cola o texto final, pula geração por LLM.
-# github: URL de repositório — o pipeline clona e narra sobre o código.
-# imagem: 1+ fotos enviadas, narração por cima com efeito Ken Burns.
+# roteiro: the user pastes the final text, skipping LLM generation.
+# github: repository URL — the pipeline clones it and narrates over the code.
+# imagem: 1+ uploaded photos, narrated over with a Ken Burns effect.
 SourceType = Literal["url", "tema", "texto", "video", "github", "imagem", "roteiro"]
 ScrollStyle = Literal["nenhum", "texto", "pan", "codigo"]
 
-# narrar_por_cima: usa o vídeo/repo inteiro no ritmo normal da narração.
-# resumo: extrai só os trechos de destaque e condensa no duration alvo —
-# é o modo "episódio de 40min -> short de 60s".
+# narrar_por_cima: uses the whole video/repo at the narration's normal pace.
+# resumo: extracts only the highlight stretches and condenses them into the
+# target duration — this is the "40min episode -> 60s short" mode.
 EditMode = Literal["narrar_por_cima", "resumo"]
 
-# Que ângulo o roteiro deve tomar sobre o material. Muda o que é o ASSUNTO:
-# "descreva a cena" é diferente de "fale da obra usando a cena como apoio".
+# Which angle the script should take on the material. It changes what the
+# SUBJECT is: "describe the scene" differs from "talk about the work, using
+# the scene as support".
 Angle = Literal[
     "auto", "critica", "contexto", "analise", "historia",
     "explicacao", "enredo", "curiosidade", "tutorial",
@@ -37,17 +38,17 @@ class JobInput(BaseModel):
     source_type: SourceType = "tema"
     source: str = Field(
         default="",
-        description="URL, tema, texto bruto, URL de repo GitHub ou vazio quando usa attachments",
+        description="URL, topic, raw text, GitHub repo URL, or empty when using attachments",
     )
     attachments: list[str] = Field(
         default=[],
-        description="IDs retornados por /api/uploads — imagens ou vídeo local",
+        description="IDs returned by /api/uploads — images or a local video",
     )
     edit_mode: EditMode = "narrar_por_cima"
     angle: Angle = "auto"
     instruction: str = Field(
         default="",
-        description="Instrução livre do que fazer neste vídeo, em linguagem natural",
+        description="Free-form instruction of what to do in this video, in natural language",
     )
     niche: Niche = "generico"
     language: str = "pt-BR"
@@ -59,9 +60,9 @@ class JobInput(BaseModel):
     background: BackgroundMode = "auto"
     background_query: str = ""
     music: bool = True
-    music_track: str = ""          # id de /api/music; vazio = primeira da pasta
+    music_track: str = ""          # id from /api/music; empty = first in the folder
     music_volume: float = 0.12
-    caption_offset: float = 0.0    # ajuste fino de sincronia, em segundos
+    caption_offset: float = 0.0    # fine sync adjustment, in seconds
     hook_hard: bool = True
     cta: str = "Segue pra mais."
     title_overlay: bool = True
@@ -107,15 +108,15 @@ class QAReport(BaseModel):
 
 
 class QAAttempt(BaseModel):
-    """Um round do loop de autoajuste: o que foi tentado e o resultado."""
+    """One round of the self-correction loop: what was tried and the outcome."""
     attempt: int
     action: str
     report: QAReport
 
 
 class ScriptEdit(BaseModel):
-    """Edição manual do roteiro + ajustes de montagem, aplicados numa
-    re-renderização sem passar de novo pelo LLM."""
+    """Manual script edit + assembly tweaks, applied in a re-render without
+    going through the LLM again."""
     segments: list[ScriptSegment] | None = None
     title: str | None = None
     voice_id: str | None = None
@@ -139,4 +140,4 @@ class PublishRequest(BaseModel):
     description: str = ""
     tags: list[str] = []
     privacy: Literal["public", "private", "unlisted"] = "private"
-    publish_at: str | None = None  # ISO8601; se ausente publica agora
+    publish_at: str | None = None  # ISO8601; when absent, publishes now

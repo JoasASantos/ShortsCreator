@@ -1,9 +1,9 @@
-"""Compila uma Timeline (EDL) em MP4 com FFmpeg.
+"""Compiles a Timeline (EDL) into an MP4 with FFmpeg.
 
-Estratégia: montar a trilha de vídeo primeiro (cada clipe recortado, normalizado
-para 9:16 e posicionado; buracos viram preto), depois sobrepor as legendas como
-PNG e mixar o áudio. É o mesmo alvo de formato do pipeline principal, então o
-QA continua valendo sobre o resultado.
+Strategy: build the video track first (each clip cut, normalized to 9:16 and
+positioned; holes become black), then composite the subtitles as PNGs and mix
+the audio. It targets the same format as the main pipeline, so QA still applies
+to the result.
 """
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ def render_timeline(job_dir: Path, timeline: Timeline, out: Path,
                     log=lambda m: None) -> Path:
     timeline.normalize()
     if timeline.duration <= 0:
-        raise RuntimeError("A linha do tempo está vazia.")
+        raise RuntimeError("The timeline is empty.")
 
-    log(f"Compilando timeline: {len(timeline.video)} clipe(s) de vídeo, "
-        f"{len(timeline.audio)} de áudio, {len(timeline.captions)} legenda(s)")
+    log(f"Compiling timeline: {len(timeline.video)} video clip(s), "
+        f"{len(timeline.audio)} audio, {len(timeline.captions)} subtitle(s)")
 
     background = _build_video_track(job_dir, timeline, log)
     overlays = _build_caption_overlays(job_dir, timeline, log)
@@ -32,7 +32,7 @@ def render_timeline(job_dir: Path, timeline: Timeline, out: Path,
 
 
 def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
-    """Recorta e posiciona cada clipe; lacunas entre clipes viram preto."""
+    """Cut and position each clip; gaps between clips become black."""
     work = job_dir / "tl"
     work.mkdir(exist_ok=True)
     parts: list[Path] = []
@@ -46,7 +46,7 @@ def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
 
         source = (job_dir / clip.source).resolve()
         if not source.exists():
-            raise RuntimeError(f"Arquivo do clipe não encontrado: {clip.source}")
+            raise RuntimeError(f"Clip file not found: {clip.source}")
 
         dest = work / f"part_{index:03d}.mp4"
         length = max(clip.duration, 0.1)
@@ -59,8 +59,8 @@ def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
                 "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast",
                 "-crf", "21", "-pix_fmt", "yuv420p", "-color_range", "tv", str(dest)])
         else:
-            # -stream_loop cobre o caso de o usuário esticar o clipe além do
-            # material disponível no arquivo de origem
+            # -stream_loop covers the case where the user stretched the clip
+            # beyond the material available in the source file
             render._run([
                 "ffmpeg", "-y", "-stream_loop", "-1",
                 "-ss", f"{clip.in_point:.3f}", "-i", str(source),
@@ -74,7 +74,7 @@ def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
         parts.append(_black(work, len(parts) + 900, timeline.duration - cursor))
 
     if not parts:
-        raise RuntimeError("Nenhum clipe de vídeo na linha do tempo.")
+        raise RuntimeError("No video clip on the timeline.")
 
     listing = work / "concat.txt"
     listing.write_text("".join(f"file '{p.name}'\n" for p in parts), encoding="utf-8")
@@ -106,7 +106,7 @@ def _build_caption_overlays(job_dir: Path, timeline: Timeline, log) -> list:
                                         timeline.duration)
     if mark:
         items = [mark] + items
-    log(f"{len(items)} sobreposição(ões) de legenda")
+    log(f"{len(items)} subtitle overlay(s)")
     return items
 
 
@@ -119,8 +119,8 @@ def _mux(job_dir: Path, timeline: Timeline, background: Path,
         source = job_dir / clip.source
         if not source.exists():
             continue
-        # -ss antes de -i recorta na origem; o atraso na linha do tempo é
-        # aplicado depois com adelay
+        # -ss before -i cuts at the source; the timeline offset is applied
+        # afterwards with adelay
         cmd += ["-ss", f"{clip.in_point:.3f}", "-t", f"{clip.duration:.3f}",
                 "-i", clip.source]
         audio_inputs.append(clip)

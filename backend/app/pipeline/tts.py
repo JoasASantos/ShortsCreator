@@ -1,8 +1,8 @@
-"""Síntese de voz com timings por palavra.
+"""Voice synthesis with per-word timings.
 
-O truque central: em vez de transcrever o áudio depois (ASR), pegamos os
-timings direto do provedor de TTS — edge-tts emite eventos WordBoundary e a
-ElevenLabs devolve `character_start_times_seconds`. Timings exatos, custo zero.
+The core trick: instead of transcribing the audio afterwards (ASR), we take the
+timings straight from the TTS provider — edge-tts emits WordBoundary events and
+ElevenLabs returns `character_start_times_seconds`. Exact timings, zero cost.
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def synthesize(text: str, out_path: Path, voice: dict | None = None,
     elif provider == "fishaudio":
         narration = _fishaudio(text, out_path, voice, log)
     else:
-        raise RuntimeError(f"TTS_PROVIDER desconhecido: {provider}")
+        raise RuntimeError(f"Unknown TTS_PROVIDER: {provider}")
 
     if not narration.words:
         narration.words = estimate_words(text, narration.duration)
@@ -53,8 +53,8 @@ def synthesize(text: str, out_path: Path, voice: dict | None = None,
 
 def trim_leading_silence(narration: Narration, out_path: Path,
                          threshold_db: str = "-45dB", min_dur: float = 0.15) -> Narration:
-    """Corta o silêncio morto no início do áudio — usado pelo autoajuste de QA
-    quando o hook começa atrasado e mata a retenção nos primeiros segundos."""
+    """Cuts the dead silence at the start of the audio — used by the QA autofix
+    when the hook starts late and kills retention in the first few seconds."""
     proc = subprocess.run(
         ["ffmpeg", "-hide_banner", "-nostats", "-i", str(narration.audio_path),
          "-af", f"silencedetect=noise={threshold_db}:d={min_dur}", "-f", "null", "-"],
@@ -65,7 +65,7 @@ def trim_leading_silence(narration: Narration, out_path: Path,
 
     cut = ends[0] if starts and ends and starts[0] <= 0.4 else 0.0
     if cut <= 0.05:
-        return narration  # nada relevante para cortar
+        return narration  # nothing worth cutting
 
     subprocess.run(
         ["ffmpeg", "-y", "-ss", f"{cut:.3f}", "-i", str(narration.audio_path),
@@ -90,12 +90,12 @@ def audio_duration(path: Path) -> float:
 
 
 def words_from_sentences(sentences: list[dict]) -> list[dict]:
-    """Converte marcadores de FRASE em marcadores de PALAVRA.
+    """Converts SENTENCE markers into WORD markers.
 
-    Cada frase tem início e fim reais medidos pelo TTS; dentro dela as palavras
-    são distribuídas por peso. O erro fica confinado à frase (décimos de
-    segundo) em vez de acumular ao longo do vídeo inteiro, que é o que
-    acontece quando se estima sobre a duração total.
+    Each sentence has a real start and end measured by the TTS; within it the
+    words are distributed by weight. The error stays confined to the sentence
+    (tenths of a second) instead of piling up across the whole video, which is
+    what happens when you estimate over the total duration.
     """
     out: list[dict] = []
     for sentence in sentences:
@@ -111,7 +111,7 @@ def words_from_sentences(sentences: list[dict]) -> list[dict]:
 
 
 def estimate_words(text: str, duration: float) -> list[dict]:
-    """Fallback: distribui o tempo proporcional ao tamanho de cada palavra."""
+    """Fallback: spreads the time in proportion to the length of each word."""
     tokens = [w for w in re.findall(r"\S+", text) if w]
     if not tokens:
         return []
@@ -127,7 +127,7 @@ def estimate_words(text: str, duration: float) -> list[dict]:
     return words
 
 
-# ---------------- edge-tts (grátis, vozes neurais pt-BR) ----------------
+# ---------------- edge-tts (free, pt-BR neural voices) ----------------
 
 def _edge(text: str, out_path: Path, voice: dict, log) -> Narration:
     import edge_tts
@@ -135,16 +135,16 @@ def _edge(text: str, out_path: Path, voice: dict, log) -> Narration:
     voice_name = voice.get("provider_voice_id") or settings.edge_voice
     rate = voice.get("rate", "+0%")
     pitch = voice.get("pitch", "+0Hz")
-    log(f"edge-tts voz={voice_name} rate={rate} pitch={pitch}")
+    log(f"edge-tts voice={voice_name} rate={rate} pitch={pitch}")
 
     words: list[dict] = []
 
     sentences: list[dict] = []
 
     async def run() -> None:
-        # boundary="WordBoundary" é o que dá timing por PALAVRA; o padrão da
-        # biblioteca é SentenceBoundary, que só marca frases inteiras e faria a
-        # legenda karaokê cair no fallback estimado (dessincronizada).
+        # boundary="WordBoundary" is what gives per-WORD timing; the library's
+        # default is SentenceBoundary, which only marks whole sentences and would
+        # drop the karaoke caption into the estimated fallback (out of sync).
         comm = edge_tts.Communicate(text, voice_name, rate=rate, pitch=pitch,
                                     boundary="WordBoundary")
         with out_path.open("wb") as fh:
@@ -159,8 +159,8 @@ def _edge(text: str, out_path: Path, voice: dict, log) -> Narration:
                              "start": round(start, 3), "end": round(end, 3)}
                     (words if kind == "WordBoundary" else sentences).append(entry)
 
-    # O endpoint público da Microsoft derruba conexão com alguma frequência;
-    # sem retry uma falha transiente mata o job inteiro no meio do pipeline.
+    # Microsoft's public endpoint drops the connection fairly often; without a
+    # retry, one transient failure kills the whole job mid-pipeline.
     last_error: Exception | None = None
     for attempt in range(1, EDGE_MAX_ATTEMPTS + 1):
         words.clear()
@@ -171,32 +171,32 @@ def _edge(text: str, out_path: Path, voice: dict, log) -> Narration:
                 duration = audio_duration(out_path)
                 timings = words or words_from_sentences(sentences)
                 if not timings:
-                    log("Nenhum marcador de tempo do TTS — legenda usará estimativa")
+                    log("No time markers from the TTS — caption will use an estimate")
                 return Narration(out_path, duration, timings)
-            raise RuntimeError("edge-tts devolveu áudio vazio")
-        except Exception as exc:  # noqa: BLE001 — qualquer falha de rede entra no retry
+            raise RuntimeError("edge-tts returned empty audio")
+        except Exception as exc:  # noqa: BLE001 — any network failure goes to retry
             last_error = exc
             if attempt < EDGE_MAX_ATTEMPTS:
                 delay = 2 ** (attempt - 1)
-                log(f"edge-tts falhou ({exc}); nova tentativa em {delay}s "
+                log(f"edge-tts failed ({exc}); retrying in {delay}s "
                     f"[{attempt}/{EDGE_MAX_ATTEMPTS}]")
                 time.sleep(delay)
 
     raise RuntimeError(
-        f"edge-tts falhou após {EDGE_MAX_ATTEMPTS} tentativas: {last_error}"
+        f"edge-tts failed after {EDGE_MAX_ATTEMPTS} attempts: {last_error}"
     )
 
 
-# ---------------- ElevenLabs (clonagem de voz de personagem) ----------------
+# ---------------- ElevenLabs (character voice cloning) ----------------
 
 def _elevenlabs(text: str, out_path: Path, voice: dict, log) -> Narration:
     if not settings.elevenlabs_api_key:
-        raise RuntimeError("ELEVENLABS_API_KEY não configurada")
+        raise RuntimeError("ELEVENLABS_API_KEY is not set")
     voice_id = voice.get("provider_voice_id")
     if not voice_id:
-        raise RuntimeError("Voz ElevenLabs sem provider_voice_id")
+        raise RuntimeError("ElevenLabs voice with no provider_voice_id")
 
-    log(f"elevenlabs voz={voice_id}")
+    log(f"elevenlabs voice={voice_id}")
     extra = json.loads(voice.get("settings_json") or "{}") if isinstance(
         voice.get("settings_json"), str) else (voice.get("settings_json") or {})
 
@@ -247,14 +247,14 @@ def _words_from_chars(chars: list[str], starts: list[float],
     return words
 
 
-# ---------------- XTTS local (clonagem por sample de áudio) ----------------
+# ---------------- local XTTS (cloning from an audio sample) ----------------
 
 def _xtts(text: str, out_path: Path, voice: dict, log) -> Narration:
-    """XTTS local. Também não devolve timings, então sintetiza frase a frase e
-    mede cada arquivo — mesma estratégia usada no fish.audio."""
+    """Local XTTS. It returns no timings either, so it synthesizes sentence by
+    sentence and measures each file — the same strategy used for fish.audio."""
     sample = voice.get("sample_path")
     if not sample or not Path(sample).exists():
-        raise RuntimeError("Voz XTTS exige sample_path com áudio de referência")
+        raise RuntimeError("An XTTS voice requires sample_path with reference audio")
     log(f"xtts sample={Path(sample).name}")
 
     sentences = _split_sentences(text)
@@ -292,18 +292,19 @@ FISH_BASE = "https://api.fish.audio"
 def _fishaudio(text: str, out_path: Path, voice: dict, log) -> Narration:
     """Fish Audio TTS.
 
-    A API devolve só áudio, sem marcação de tempo. Sintetizar o texto inteiro
-    de uma vez obrigaria a estimar os tempos sobre a duração total — o erro se
-    acumula e a legenda karaokê sai dessincronizada. Por isso sintetizamos
-    frase a frase e medimos cada arquivo: cada frase vira uma âncora real.
+    The API returns audio only, with no time markers. Synthesizing the whole
+    text in one go would force us to estimate the times over the total duration
+    — the error piles up and the karaoke caption comes out of sync. That is why
+    we synthesize sentence by sentence and measure each file: every sentence
+    becomes a real anchor.
     """
     if not settings.fishaudio_api_key:
-        raise RuntimeError("FISHAUDIO_API_KEY não configurada")
+        raise RuntimeError("FISHAUDIO_API_KEY is not set")
 
     reference_id = voice.get("provider_voice_id") or settings.fishaudio_model
     extra = _voice_settings(voice)
     model = extra.get("fish_model") or settings.fishaudio_backend
-    log(f"fish.audio modelo={model} voz={reference_id or '(padrão)'}")
+    log(f"fish.audio model={model} voice={reference_id or '(default)'}")
 
     sentences = _split_sentences(text)
     work = out_path.parent / f"{out_path.stem}_fish"
@@ -353,7 +354,7 @@ def _fish_request(text: str, dest: Path, reference_id: str, model: str,
         headers={
             "Authorization": f"Bearer {settings.fishaudio_api_key}",
             "Content-Type": "application/json",
-            # seleciona a família do modelo (s1, s2-pro, s2.1-pro, s2.1-pro-free)
+            # selects the model family (s1, s2-pro, s2.1-pro, s2.1-pro-free)
             "model": model,
         },
         json=body,
@@ -361,17 +362,17 @@ def _fish_request(text: str, dest: Path, reference_id: str, model: str,
     )
     if resp.status_code >= 400:
         raise RuntimeError(
-            f"fish.audio devolveu {resp.status_code}: {resp.text[:300]}")
+            f"fish.audio returned {resp.status_code}: {resp.text[:300]}")
     dest.write_bytes(resp.content)
 
 
 def list_fish_voices(query: str = "", language: str = "pt",
                      page_size: int = 30) -> list[dict]:
-    """Catálogo de vozes do fish.audio (marketplace + suas vozes).
+    """fish.audio voice catalog (marketplace + your own voices).
 
-    O endpoint público responde sem autenticação, então dá para navegar as
-    vozes antes de ter a chave. Com a chave, a listagem também inclui as
-    vozes privadas da sua conta.
+    The public endpoint answers without authentication, so you can browse the
+    voices before having a key. With the key, the listing also includes the
+    private voices on your account.
     """
     params = {"page_size": page_size, "page_number": 1}
     if query:
@@ -391,16 +392,16 @@ def list_fish_voices(query: str = "", language: str = "pt",
 
 
 def _fish_voice_summary(item: dict) -> dict:
-    """Resume um modelo do fish.audio para a interface.
+    """Summarizes a fish.audio model for the interface.
 
-    `samples[0].audio` é uma amostra pronta hospedada por eles — dá para ouvir
-    a voz antes de instalar, sem gastar crédito de API sintetizando.
+    `samples[0].audio` is a ready-made sample hosted by them — you can listen to
+    the voice before installing it, without spending API credit on synthesis.
     """
     samples = item.get("samples") or []
     sample = samples[0] if samples else {}
     return {
         "id": item.get("_id") or item.get("id"),
-        "name": item.get("title") or item.get("name") or "(sem nome)",
+        "name": item.get("title") or item.get("name") or "(unnamed)",
         "languages": item.get("languages", []),
         "likes": item.get("like_count", 0),
         "author": (item.get("author") or {}).get("nickname", ""),
@@ -411,8 +412,8 @@ def _fish_voice_summary(item: dict) -> dict:
 
 
 def fish_sample_url(reference_id: str) -> str | None:
-    """URL do áudio de amostra de uma voz (some depois de um tempo, por isso
-    é buscada na hora em vez de guardada)."""
+    """URL of a voice's sample audio (it disappears after a while, which is why
+    it is fetched on demand instead of stored)."""
     headers = ({"Authorization": f"Bearer {settings.fishaudio_api_key}"}
                if settings.fishaudio_api_key else {})
     resp = httpx.get(f"{FISH_BASE}/model/{reference_id}", headers=headers, timeout=45)
@@ -422,10 +423,11 @@ def fish_sample_url(reference_id: str) -> str | None:
     return samples[0].get("audio") if samples else None
 
 
-# ---------------- utilidades compartilhadas de síntese ----------------
+# ---------------- shared synthesis utilities ----------------
 
 def _voice_settings(voice: dict) -> dict:
-    """settings_json vem como string do banco e como dict quando montado na mão."""
+    """settings_json comes in as a string from the database and as a dict when
+    it is assembled by hand."""
     raw = voice.get("settings_json")
     if isinstance(raw, str):
         try:
@@ -436,8 +438,8 @@ def _voice_settings(voice: dict) -> dict:
 
 
 def _split_sentences(text: str, max_chars: int = 220) -> list[str]:
-    """Divide em frases para sintetizar por partes; frases muito longas são
-    quebradas em vírgulas para não estourar o limite de chunk do provedor."""
+    """Splits into sentences to synthesize in parts; very long sentences are
+    broken at commas so as not to blow the provider's chunk limit."""
     rough = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
     out: list[str] = []
     for sentence in rough:

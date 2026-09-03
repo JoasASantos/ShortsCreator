@@ -12,7 +12,7 @@ export default function Painel() {
   const { t, f, dateTime } = useI18n();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
-  // exclusão apaga arquivos e histórico: pede confirmação no próprio botão
+  // deleting wipes files and history: ask for confirmation on the button itself
   const [confirming, setConfirming] = useState("");
   const [deleting, setDeleting] = useState("");
   const { toast, node } = useToast();
@@ -165,9 +165,9 @@ function metricsOf(job: Job): JobMetricsSummary | null {
   return m.views || m.likes ? m : null;
 }
 
-// Miniatura estática; ao passar o mouse troca pelo GIF dos 3 primeiros
-// segundos — o hook em movimento, sem abrir o job. No toque não há hover,
-// então o GIF entra ao tocar e sai ao soltar.
+// Static thumbnail; on hover it swaps for the GIF of the first 3 seconds —
+// the hook in motion, without opening the job. Touch has no hover, so the
+// GIF comes in on touch down and leaves on touch up.
 function Thumb({ job }: { job: Job }) {
   const [ativo, setAtivo] = useState(false);
   const base = `/api/jobs/${job.id}/file/`;

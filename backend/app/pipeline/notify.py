@@ -1,8 +1,12 @@
-"""Avisos de fim de pipeline e de publicação — Telegram, Discord ou webhook.
+"""End-of-pipeline and publication notices — Telegram, Discord or webhook.
 
-Tudo opcional: sem credencial configurada, `send` vira no-op. Cada destino é
-um conector da tela de Contas (categoria "notificacao"), com fallback no .env.
-Erros de rede aqui nunca podem derrubar o job que já terminou.
+All optional: with no credential configured, `send` becomes a no-op. Each
+destination is a connector from the Accounts screen (category "notificacao"),
+with a fallback in .env. Network errors here must never bring down the job
+that has already finished.
+
+The notice texts themselves stay in Portuguese: they are messages to the end
+user, not developer-facing strings.
 """
 from __future__ import annotations
 
@@ -33,7 +37,8 @@ def is_configured() -> bool:
 
 
 def send(title: str, body: str = "", url: str = "", level: str = "info") -> None:
-    """Dispara em background; a thread do worker segue sem esperar rede."""
+    """Fires in the background; the worker thread moves on without waiting on
+    the network."""
     targets = _targets()
     if not targets:
         return
@@ -65,11 +70,11 @@ def _deliver(targets, title: str, body: str, url: str, level: str) -> None:
                 httpx.post(creds["url"], json={"title": title, "body": body,
                                                "url": url, "level": level},
                            timeout=TIMEOUT)
-        except Exception:  # noqa: BLE001 — aviso é cortesia, não requisito
+        except Exception:  # noqa: BLE001 — a notice is a courtesy, not a requirement
             continue
 
 
-# ------------------------------------------------------------- atalhos
+# ------------------------------------------------------------- shortcuts
 
 def job_done(job_id: str, title: str, duration: float, qa_score: int, passed: bool) -> None:
     send(
@@ -101,44 +106,45 @@ def _job_url(job_id: str) -> str:
     return f"http://localhost:3000/job/{job_id}"
 
 
-# ------------------------------------------------------------- checagens
+# ------------------------------------------------------------- checks
 
 def check_telegram(creds: dict) -> str:
-    """O Telegram responde 404 (não 401) a token inválido — sem tratar, o
-    usuário via um HTTPStatusError cru com o token dentro da URL."""
+    """Telegram answers 404 (not 401) to an invalid token — left unhandled, the
+    user saw a raw HTTPStatusError with the token inside the URL."""
     r = httpx.get(f"https://api.telegram.org/bot{creds.get('bot_token', '')}/getMe",
                   timeout=TIMEOUT)
     if r.status_code in (401, 404):
-        raise RuntimeError("Token do bot recusado pelo Telegram. Confira o valor "
-                           "que o @BotFather devolveu.")
+        raise RuntimeError("Bot token rejected by Telegram. Check the value "
+                           "@BotFather gave you.")
     if r.status_code >= 400:
-        raise RuntimeError(f"Telegram respondeu {r.status_code}")
+        raise RuntimeError(f"Telegram answered {r.status_code}")
     name = (r.json().get("result") or {}).get("username", "?")
     if not str(creds.get("chat_id", "")).strip():
-        raise RuntimeError(f"Bot @{name} válido, mas falta o chat_id (@userinfobot)")
-    return f"Bot @{name} válido — mande /start para ele antes do primeiro aviso"
+        raise RuntimeError(f"Bot @{name} is valid, but the chat_id is missing "
+                           "(@userinfobot)")
+    return f"Bot @{name} is valid — send it /start before the first notice"
 
 
 def check_discord(creds: dict) -> str:
     url = creds.get("webhook_url", "")
     if not url.startswith("https://"):
-        raise RuntimeError("URL do webhook inválida")
+        raise RuntimeError("Invalid webhook URL")
     r = httpx.get(url, timeout=TIMEOUT)
     if r.status_code >= 400:
-        raise RuntimeError("Webhook do Discord recusado — a URL pode ter sido "
-                           "revogada no canal")
-    return f"Webhook do canal #{r.json().get('name', '?')} respondendo"
+        raise RuntimeError("Discord webhook rejected — the URL may have been "
+                           "revoked in the channel")
+    return f"Webhook for channel #{r.json().get('name', '?')} is responding"
 
 
 def check_webhook(creds: dict) -> str:
     url = creds.get("url", "")
     if not url.startswith("http"):
-        raise RuntimeError("URL inválida")
+        raise RuntimeError("Invalid URL")
     try:
-        r = httpx.post(url, json={"title": "ShortsCreator", "body": "teste de webhook",
+        r = httpx.post(url, json={"title": "ShortsCreator", "body": "webhook test",
                                   "level": "info"}, timeout=TIMEOUT)
     except httpx.RequestError as exc:
-        raise RuntimeError(f"Não foi possível alcançar a URL: {type(exc).__name__}")
+        raise RuntimeError(f"Could not reach the URL: {type(exc).__name__}")
     if r.status_code >= 400:
-        raise RuntimeError(f"A URL respondeu {r.status_code}")
-    return f"Webhook respondeu {r.status_code}"
+        raise RuntimeError(f"The URL answered {r.status_code}")
+    return f"Webhook answered {r.status_code}"

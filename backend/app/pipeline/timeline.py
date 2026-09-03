@@ -1,11 +1,12 @@
-"""Linha do tempo editável (EDL) — o modelo por trás do editor de vídeo.
+"""Editable timeline (EDL) — the model behind the video editor.
 
-Depois que o pipeline gera o short, ele descreve o resultado como uma lista de
-decisões de edição: quais trechos de vídeo, em que ordem, com qual áudio e
-quais legendas. O editor da interface manipula esse JSON, e `timeline_render`
-recompila tudo com FFmpeg — sem passar de novo pelo LLM nem pelo TTS.
+Once the pipeline has produced the short, it describes the result as a list of
+edit decisions: which video excerpts, in what order, with which audio and which
+subtitles. The editor in the UI manipulates that JSON, and `timeline_render`
+recompiles everything with FFmpeg — without going back through the LLM or TTS.
 
-Isso é o que permite cortar, mover, esticar e reescrever texto depois de pronto.
+That is what makes it possible to cut, move, stretch and rewrite text after the
+fact.
 """
 from __future__ import annotations
 
@@ -21,14 +22,14 @@ def _new_id(prefix: str) -> str:
 
 @dataclass
 class VideoClip:
-    """Um trecho de vídeo posicionado na linha do tempo.
+    """A video excerpt placed on the timeline.
 
-    `in_point`/`out_point` recortam o arquivo de origem; `start` é onde esse
-    recorte aparece no short final. Separar os dois é o que permite mover um
-    clipe sem reescolher o trecho, e vice-versa.
+    `in_point`/`out_point` cut into the source file; `start` is where that cut
+    appears in the final short. Keeping the two separate is what lets a clip be
+    moved without re-picking the excerpt, and vice versa.
     """
     id: str
-    source: str            # caminho relativo ao diretório do job
+    source: str            # path relative to the job directory
     in_point: float
     out_point: float
     start: float
@@ -105,10 +106,10 @@ class Timeline:
         )
 
     def normalize(self) -> "Timeline":
-        """Ordena as trilhas e recalcula a duração total a partir do conteúdo.
+        """Sort the tracks and recompute the total duration from the content.
 
-        Chamado antes de renderizar: o editor pode deixar a timeline em qualquer
-        estado, e a renderização precisa de algo coerente.
+        Called before rendering: the editor may leave the timeline in any state
+        at all, and the render needs something coherent.
         """
         self.video.sort(key=lambda c: c.start)
         self.audio.sort(key=lambda c: c.start)
@@ -118,7 +119,7 @@ class Timeline:
                 + [c.end for c in self.captions])
         self.duration = round(max(ends), 3) if ends else 0.0
 
-        # legenda não pode passar do fim do vídeo — o QA reprova isso
+        # a subtitle must not run past the end of the video — QA flags that
         for cue in self.captions:
             cue.end = min(cue.end, self.duration)
         self.captions = [c for c in self.captions if c.end > c.start and c.text.strip()]
@@ -130,7 +131,7 @@ def build_from_job(job_dir: Path, words: list[dict], narration_duration: float,
                    caption_position: str, watermark: str,
                    music: Path | None = None, music_gain: float = 0.12,
                    ) -> Timeline:
-    """Descreve o resultado do pipeline como timeline editável."""
+    """Describe the pipeline's result as an editable timeline."""
     video: list[VideoClip] = []
     cursor = 0.0
     for part in background_parts:
@@ -166,8 +167,8 @@ def build_from_job(job_dir: Path, words: list[dict], narration_duration: float,
 
 
 def captions_from_words(words: list[dict]) -> list[CaptionCue]:
-    """Agrupa palavras cronometradas em falas curtas — a unidade que o usuário
-    edita na interface (editar palavra por palavra seria inutilizável)."""
+    """Group timed words into short cues — the unit the user edits in the UI
+    (editing word by word would be unusable)."""
     from .captions import group_lines
 
     cues: list[CaptionCue] = []
@@ -182,8 +183,8 @@ def captions_from_words(words: list[dict]) -> list[CaptionCue]:
 
 
 def words_from_captions(cues: list[CaptionCue]) -> list[dict]:
-    """Volta de falas para palavras cronometradas, distribuindo o tempo da fala
-    entre suas palavras — é o que o renderizador de legenda karaokê consome."""
+    """Go back from cues to timed words, spreading each cue's time across its
+    words — this is what the karaoke subtitle renderer consumes."""
     from .tts import estimate_words
 
     words: list[dict] = []

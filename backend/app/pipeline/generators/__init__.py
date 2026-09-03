@@ -1,1 +1,1 @@
-"""Geradores de mídia por IA usados como fundo ou apresentador do short."""
+"""AI media generators used as the short's background or presenter."""

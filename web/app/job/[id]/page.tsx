@@ -14,13 +14,13 @@ import { PhonePreview } from "@/components/PhonePreview";
 import { QAPanel } from "@/components/QAPanel";
 import { Chips, Field, StatusTag, TableWrap, Topbar, useToast } from "@/components/ui";
 
-// Nomes técnicos das etapas: são comparados com job.stage e enviados ao
-// backend, então nunca são traduzidos — só o rótulo na tela é.
+// Technical stage names: they are compared against job.stage and sent to the
+// backend, so they are never translated — only the on-screen label is.
 const STAGES = ["ingest", "roteiro", "voz", "legendas", "fundo", "render", "qa"];
-// mesma ordem de RESUME_STAGES no backend: o menu fatia daqui para frente
+// same order as RESUME_STAGES in the backend: the menu slices from here onward
 const RESUMABLE = ["voz", "fundo", "legendas", "render"];
 
-/** Rótulo traduzido de uma etapa, mantendo a chave técnica como fallback. */
+/** Translated label for a stage, keeping the technical key as the fallback. */
 function useStageLabel() {
   const { t } = useI18n();
   return (stage: string) =>
@@ -337,8 +337,8 @@ function RetryMenu({ job, onRetry }: { job: Job; onRetry: (from: string) => void
   );
 }
 
-// Ganchos alternativos: ouve cada um na voz do job, troca no lugar ou cria o
-// par A/B como um job novo para publicar os dois e comparar em Desempenho.
+// Alternative hooks: listen to each one in the job's voice, swap it in place or
+// create the A/B pair as a new job to publish both and compare in Performance.
 function HooksPanel({ jobId, job, toast, onChanged }: {
   jobId: string; job: Job; toast: (m: string) => void; onChanged: () => void;
 }) {
@@ -445,10 +445,10 @@ function CoverPanel({ jobId, job, toast, onChanged }: {
   const duration = job.result?.duration ?? 10;
   const coverAt = job.result?.cover_at ?? null;
 
-  // A página recarrega o job a cada 2,5s. Sem sincronizar, o estado local fica
-  // congelado no valor da primeira montagem e o slider passa a mentir sobre
-  // qual frame a capa realmente usa. Só sincroniza enquanto o usuário não
-  // mexeu, para não sobrescrever o que ele está ajustando.
+  // The page reloads the job every 2.5s. Without syncing, the local state stays
+  // frozen at the value from the first mount and the slider starts lying about
+  // which frame the cover actually uses. It only syncs while the user has not
+  // touched anything, so we don't overwrite what they are adjusting.
   useEffect(() => {
     if (!tocado && coverAt != null) setAt(coverAt);
   }, [coverAt, tocado]);
@@ -461,7 +461,7 @@ function CoverPanel({ jobId, job, toast, onChanged }: {
     try {
       const r = await api.rebuildCover(jobId, title, auto ? null : at);
       setAt(r.at);
-      setTocado(false);   // voltou a refletir o que está no disco
+      setTocado(false);   // back to reflecting what is on disk
       onChanged();
       toast(f(t.cover.done, { at: r.at.toFixed(1) }));
     } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
@@ -596,7 +596,7 @@ function PublishBox({ jobId, job, accounts, toast, onCaption }: {
   const platform = account?.platform;
   const blocked = job.qa ? !job.qa.passed : false;
 
-  // cada plataforma tem seu texto; o título só existe no YouTube
+  // each platform has its own text; the title only exists on YouTube
   const [title, setTitle] = useState(caption?.youtube_titulo ?? job.result?.title ?? "");
   const [body, setBody] = useState(caption?.youtube_descricao ?? job.result?.description ?? "");
 
@@ -682,7 +682,7 @@ function PublishBox({ jobId, job, accounts, toast, onCaption }: {
         )}
 
         {accounts.length === 0 ? (
-          // O <b> vem do nosso dicionário, não de texto do usuário.
+          // The <b> comes from our own dictionary, not from user text.
           <p className="dimmer" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6 }}>
             <span dangerouslySetInnerHTML={{ __html: t.publish.noAccounts }} />
           </p>

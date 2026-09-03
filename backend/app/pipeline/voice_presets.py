@@ -1,14 +1,14 @@
-"""Catálogo curado de vozes do fish.audio, agrupado por uso.
+"""Curated catalog of fish.audio voices, grouped by use.
 
-O catálogo cru da fish.audio tem milhares de vozes com nomes repetidos e
-qualidade irregular. Esta lista é uma seleção verificada: cada entrada foi
-buscada no catálogo real, é em português e tem um número de curtidas que
-indica que a comunidade aprovou. Instalar um preset só cria a voz local
-apontando para o `reference_id` — nada é copiado nem hospedado aqui.
+The raw fish.audio catalog holds thousands of voices with repeated names and
+uneven quality. This list is a vetted selection: every entry was looked up in
+the real catalog, speaks Portuguese and carries a like count showing the
+community approved of it. Installing a preset only creates the local voice
+pointing at the `reference_id` — nothing is copied or hosted here.
 """
 from __future__ import annotations
 
-# category -> lista de vozes. `id` é o reference_id do fish.audio.
+# category -> list of voices. `id` is the fish.audio reference_id.
 PRESETS: dict[str, dict] = {
     "narracao": {
         "label": "Narração e documentário",
@@ -74,7 +74,7 @@ PRESETS: dict[str, dict] = {
 
 
 def all_presets() -> list[dict]:
-    """Achata o catálogo para a interface, mantendo a categoria em cada item."""
+    """Flatten the catalog for the UI, keeping the category on each item."""
     out: list[dict] = []
     for key, group in PRESETS.items():
         for voice in group["voices"]:

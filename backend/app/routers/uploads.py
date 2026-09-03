@@ -1,4 +1,4 @@
-"""Upload de anexos (imagens ou vídeo local) referenciados por JobInput.attachments."""
+"""Attachment uploads (images or a local video) referenced by JobInput.attachments."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -21,7 +21,7 @@ def _kind(filename: str) -> str:
         return "imagem"
     if ext in VIDEO_EXT:
         return "video"
-    raise HTTPException(400, f"Extensão não suportada: {ext or '(nenhuma)'}")
+    raise HTTPException(400, f"Unsupported extension: {ext or '(none)'}")
 
 
 @router.post("")
@@ -39,7 +39,7 @@ async def upload(file: UploadFile = File(...)):
             if size > limit:
                 fh.close()
                 dest.unlink(missing_ok=True)
-                raise HTTPException(413, f"Arquivo maior que {settings.max_upload_mb}MB")
+                raise HTTPException(413, f"File larger than {settings.max_upload_mb}MB")
             fh.write(chunk)
 
     return {"id": upload_id, "kind": kind, "filename": file.filename,
@@ -50,13 +50,13 @@ async def upload(file: UploadFile = File(...)):
 def get_upload(upload_id: str):
     matches = list(settings.uploads_dir.glob(f"{upload_id}.*"))
     if not matches:
-        raise HTTPException(404, "Upload não encontrado")
+        raise HTTPException(404, "Upload not found")
     return FileResponse(matches[0])
 
 
 def resolve(upload_id: str) -> Path:
-    """Usado pelo pipeline para traduzir um id de attachment em caminho real."""
+    """Used by the pipeline to turn an attachment id into a real path."""
     matches = list(settings.uploads_dir.glob(f"{upload_id}.*"))
     if not matches:
-        raise FileNotFoundError(f"Upload {upload_id} não encontrado")
+        raise FileNotFoundError(f"Upload {upload_id} not found")
     return matches[0]

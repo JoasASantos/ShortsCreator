@@ -1,8 +1,8 @@
-"""Cliente HeyGen — avatar falante a partir do roteiro do short.
+"""HeyGen client — talking avatar built from the short's script.
 
-API: https://docs.heygen.com — base https://api.heygen.com, auth via
-header `X-Api-Key`. Fluxo: POST /v2/video/generate -> video_id -> poll em
-GET /v1/video_status.get?video_id=... até completed -> baixa video_url.
+API: https://docs.heygen.com — base https://api.heygen.com, auth via the
+`X-Api-Key` header. Flow: POST /v2/video/generate -> video_id -> poll
+GET /v1/video_status.get?video_id=... until completed -> download video_url.
 """
 from __future__ import annotations
 
@@ -24,10 +24,10 @@ def _headers(creds: dict) -> dict:
 def verify(creds: dict) -> str:
     r = httpx.get(f"{BASE}/v2/avatars", headers=_headers(creds), timeout=TIMEOUT)
     if r.status_code in (401, 403):
-        raise RuntimeError("Chave recusada pelo HeyGen")
+        raise RuntimeError("Key rejected by HeyGen")
     r.raise_for_status()
     avatars = (r.json().get("data") or {}).get("avatars", [])
-    return f"HeyGen respondendo — {len(avatars)} avatares disponíveis"
+    return f"HeyGen responding — {len(avatars)} avatars available"
 
 
 def list_avatars(creds: dict) -> list[dict]:
@@ -56,16 +56,16 @@ def generate_avatar_video(script_text: str, avatar_id: str, voice_id: str,
         }],
         "dimension": {"width": width, "height": height},
     }
-    log("heygen: pedindo vídeo de avatar")
+    log("heygen: requesting avatar video")
     r = httpx.post(f"{BASE}/v2/video/generate", headers=_headers(creds),
                    json=body, timeout=TIMEOUT)
     if r.status_code in (401, 403):
-        raise RuntimeError("Chave recusada pelo HeyGen")
+        raise RuntimeError("Key rejected by HeyGen")
     r.raise_for_status()
     payload = r.json().get("data") or {}
     video_id = payload.get("video_id")
     if not video_id:
-        raise RuntimeError(f"HeyGen não retornou video_id: {r.json()}")
+        raise RuntimeError(f"HeyGen returned no video_id: {r.json()}")
 
     deadline = time.monotonic() + POLL_TIMEOUT
     while time.monotonic() < deadline:
@@ -78,15 +78,15 @@ def generate_avatar_video(script_text: str, avatar_id: str, voice_id: str,
         if status == "completed":
             url = info.get("video_url")
             if not url:
-                raise RuntimeError("HeyGen concluiu mas não trouxe video_url")
+                raise RuntimeError("HeyGen completed but returned no video_url")
             with httpx.stream("GET", url, timeout=TIMEOUT) as resp:
                 resp.raise_for_status()
                 with out_path.open("wb") as fh:
                     for chunk in resp.iter_bytes():
                         fh.write(chunk)
-            log("heygen: vídeo baixado")
+            log("heygen: video downloaded")
             return out_path
         if status == "failed":
-            raise RuntimeError(f"HeyGen: geração falhou — {info.get('error')}")
+            raise RuntimeError(f"HeyGen: generation failed — {info.get('error')}")
         time.sleep(POLL_INTERVAL)
-    raise RuntimeError("HeyGen: tempo limite esperando a geração terminar")
+    raise RuntimeError("HeyGen: timed out waiting for the generation to finish")

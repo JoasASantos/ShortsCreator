@@ -517,6 +517,14 @@ export const ptBR = {
       "sem resultado agora — a fonte pode estar limitando requisições, ou não cobre este nicho",
     sourceAge: "coletado há {n} min",
     createShort: "Criar short",
+    // o backend manda números; a frase é montada aqui, em cada idioma
+    heat: {
+      searches: "{searches}+ buscas",
+      rising: "em alta",
+      reddit_rising: "subindo · #{position} em r/{sub}",
+      points_comments: "{points} pontos · {comments} comentários",
+      views: "{views} views",
+    },
     regions: { BR: "Brasil", US: "EUA", PT: "Portugal", ES: "Espanha", RU: "Rússia", CN: "China" },
     sourceNames: {
       google_trends: "Google Trends",

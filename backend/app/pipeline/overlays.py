@@ -1,10 +1,10 @@
-"""Renderização de legendas e textos como PNGs transparentes.
+"""Rendering subtitles and text as transparent PNGs.
 
-O build padrão do FFmpeg no Homebrew vem sem libass/libfreetype, então os
-filtros `ass`, `subtitles` e `drawtext` não existem. Em vez de exigir uma
-recompilação, geramos as imagens com Pillow e sobrepomos com `overlay` —
-que existe em qualquer build. Se o FFmpeg tiver libass, o pipeline usa o
-filtro `ass` diretamente (mais rápido).
+Homebrew's default FFmpeg build ships without libass/libfreetype, so the `ass`,
+`subtitles` and `drawtext` filters do not exist. Rather than demanding a
+recompile, we draw the images with Pillow and composite them with `overlay` —
+which exists in every build. If FFmpeg does have libass, the pipeline uses the
+`ass` filter directly (faster).
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from .captions import ACTIVE_COLOR, POSITION_MARGIN_V, SIDE_MARGIN, group_lines
 W, H = settings.width, settings.height
 
 WHITE = (255, 255, 255, 255)
-ACTIVE = (255, 200, 0, 255)          # âmbar — mesma cor do estilo ASS
+ACTIVE = (255, 200, 0, 255)          # amber — same color as the ASS style
 STROKE = (0, 0, 0, 255)
 
 BOLD_FONTS = [
@@ -55,7 +55,7 @@ def find_font(mono: bool = False) -> str:
         if Path(candidate).exists():
             return candidate
     raise RuntimeError(
-        "Nenhuma fonte TrueType encontrada. Coloque um .ttf em assets/fonts/."
+        "No TrueType font found. Drop a .ttf into assets/fonts/."
     )
 
 
@@ -70,7 +70,7 @@ def _measure(draw: ImageDraw.ImageDraw, text: str, font, stroke: int) -> tuple[i
 
 def render_captions(words: list[dict], out_dir: Path, style: str = "karaoke",
                     position: str = "centro", font_size: int = 88) -> list[Overlay]:
-    """Gera um PNG por evento de legenda, já posicionado dentro da safe area."""
+    """Generate one PNG per subtitle event, already placed inside the safe area."""
     out_dir.mkdir(parents=True, exist_ok=True)
     font = _font(font_size)
     stroke = max(6, font_size // 14)
@@ -94,7 +94,7 @@ def render_captions(words: list[dict], out_dir: Path, style: str = "karaoke",
         space_w = _measure(ruler, " ", font, stroke)[0]
         widths = [_measure(ruler, t, font, stroke)[0] for t in tokens]
 
-        # quebra em até duas linhas visuais se estourar a largura útil
+        # wrap into up to two visual rows if it overflows the usable width
         rows: list[list[int]] = [[]]
         row_width = 0
         for i, width in enumerate(widths):
@@ -180,7 +180,7 @@ def render_watermark(text: str, out_dir: Path, duration: float,
                                stroke_width=3, stroke_fill=(0, 0, 0, 160))
     path = out_dir / "watermark.png"
     image.save(path)
-    # acima da faixa ocupada pela UI do app, senão fica encoberta
+    # above the band the app UI occupies, otherwise it ends up covered
     return Overlay(path, 0.0, duration, (W - width) // 2,
                    H - POSITION_MARGIN_V["baixo"] - height - 30,
                    kind="watermark")
@@ -188,15 +188,16 @@ def render_watermark(text: str, out_dir: Path, duration: float,
 
 def render_scroll_panel(text: str, out_dir: Path, mono: bool = False,
                         font_size: int = 38) -> Path:
-    """Painel alto de texto para o efeito de scroll vertical."""
+    """A tall text panel for the vertical scroll effect."""
     out_dir.mkdir(parents=True, exist_ok=True)
     font = _font(font_size, mono=mono)
     panel_w = W - 160
     chars = max(int(panel_w / (font_size * (0.62 if mono else 0.52))), 20)
 
     if mono:
-        # Código precisa manter quebras de linha e indentação — colapsar tudo
-        # num parágrafo só destrói a leitura e não parece código na tela.
+        # Code has to keep its line breaks and indentation — collapsing it all
+        # into a single paragraph destroys readability and doesn't look like
+        # code on screen.
         lines: list[str] = []
         for raw in text.splitlines():
             raw = raw.rstrip().replace("\t", "    ")

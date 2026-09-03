@@ -42,16 +42,18 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
   const dragRef = useRef<Drag | null>(null);
   const laneRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  // enquanto o vídeo toca, ele manda no cursor; ao arrastar o cursor, o
-  // vídeo obedece. Esta trava evita os dois brigarem pelo mesmo estado.
+  // while the video plays, it drives the playhead; when the playhead is
+  // dragged, the video follows. This lock keeps the two from fighting over
+  // the same state.
   const seekingRef = useRef(false);
 
   useEffect(() => {
     api.timeline(jobId).then(setTimeline).catch((e) => setError(String(e.message)));
   }, [jobId]);
 
-  // arrastar e redimensionar acontecem na janela: o ponteiro costuma sair
-  // da faixa durante o gesto e perderíamos o movimento se ouvíssemos só nela
+  // dragging and trimming listen on the window: the pointer usually leaves
+  // the lane mid-gesture and we would lose the movement if we only listened
+  // on the lane itself
   useEffect(() => {
     const onMove = (event: PointerEvent) => {
       const drag = dragRef.current;
@@ -82,8 +84,8 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
         if (drag.mode === "move") {
           clip.start = Math.max(0, drag.origStart + delta);
         } else if (drag.mode === "trim-start") {
-          // encurtar pela esquerda avança o ponto de entrada no arquivo de
-          // origem e desloca a posição na linha do tempo em igual medida
+          // trimming from the left advances the in point inside the source
+          // file and shifts the timeline position by the same amount
           const shift = Math.min(Math.max(delta, -drag.origIn),
                                  drag.origOut - drag.origIn - MIN_LEN);
           clip.in_point = drag.origIn + shift;
@@ -246,7 +248,7 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
     else { video.pause(); setPlaying(false); }
   };
 
-  // legenda que está no ar no instante do cursor — confere o texto sem renderizar
+  // caption on air at the playhead instant — check the text without rendering
   const activeCue = timeline.captions.find(
     (c) => playhead >= c.start && playhead <= c.end);
 
@@ -464,7 +466,7 @@ function TrackLabel({ text }: { text: string }) {
 }
 
 function Ruler({ duration, pxPerSec }: { duration: number; pxPerSec: number }) {
-  // marca a cada 1s, 5s ou 10s conforme o zoom, para não virar uma parede de traços
+  // ticks every 1s, 5s or 10s depending on zoom, so it doesn't become a wall of marks
   const step = pxPerSec > 60 ? 1 : pxPerSec > 20 ? 5 : 10;
   const ticks = [];
   for (let t = 0; t <= duration; t += step) {

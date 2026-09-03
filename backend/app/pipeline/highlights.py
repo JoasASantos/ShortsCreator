@@ -1,10 +1,10 @@
-"""Extração de trechos de destaque de um vídeo longo (episódio, trailer, VOD).
+"""Extracting highlight excerpts from a long video (episode, trailer, VOD).
 
-Usa detecção de corte de cena nativa do FFmpeg (`select='gt(scene,X)'`) — não
-depende de libass nem de nenhuma lib externa. A ideia: em vez de narrar sobre
-um vídeo de 40 minutos do início ao fim, escolhemos N janelas espalhadas pela
-linha do tempo (uma por segmento de roteiro), cada uma ancorada no corte de
-cena mais próximo pra não abrir/fechar no meio de uma ação.
+Uses FFmpeg's native scene-cut detection (`select='gt(scene,X)'`) — it depends
+on neither libass nor any external library. The idea: instead of narrating over
+a 40-minute video from start to finish, we pick N windows spread across the
+timeline (one per script segment), each anchored to the nearest scene cut so it
+doesn't open or close in the middle of an action.
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def probe_duration(video: Path) -> float:
 
 def detect_scene_cuts(video: Path, threshold: float = SCENE_THRESHOLD,
                       max_points: int = 400) -> list[float]:
-    """Timestamps (segundos) onde a imagem muda bruscamente de um frame pro outro."""
+    """Timestamps (seconds) where the picture changes abruptly from one frame to the next."""
     proc = subprocess.run(
         ["ffmpeg", "-hide_banner", "-nostats", "-i", str(video),
          "-vf", f"select='gt(scene,{threshold})',showinfo", "-an", "-f", "null", "-"],
@@ -42,11 +42,11 @@ def detect_scene_cuts(video: Path, threshold: float = SCENE_THRESHOLD,
 def pick_windows(total_duration: float, count: int, window_len: float,
                  scene_cuts: list[float] | None = None,
                  skip_start: float = 1.0, skip_end: float = 1.0) -> list[tuple[float, float]]:
-    """Escolhe `count` janelas de `window_len`s espalhadas por todo o vídeo.
+    """Pick `count` windows of `window_len`s spread across the whole video.
 
-    Cada âncora é puxada pro corte de cena mais próximo (se houver um a menos
-    de 3s de distância), senão fica no ponto uniforme mesmo — melhor um corte
-    seco do que perder a cobertura de uma parte do vídeo.
+    Each anchor is pulled to the nearest scene cut (if there is one less than 3s
+    away), otherwise it stays at the evenly spaced point — a hard cut is better
+    than losing coverage of a part of the video.
     """
     usable_start = min(skip_start, total_duration * 0.05)
     usable_end = max(total_duration - skip_end, usable_start + window_len)
@@ -54,7 +54,7 @@ def pick_windows(total_duration: float, count: int, window_len: float,
 
     anchors: list[float] = []
     for i in range(count):
-        # centros distribuídos uniformemente, não nas pontas exatas
+        # centers spread evenly, not right at the extremes
         frac = (i + 0.5) / count
         anchor = usable_start + frac * span
         if scene_cuts:
@@ -69,7 +69,7 @@ def pick_windows(total_duration: float, count: int, window_len: float,
         start = max(anchor, last_end)
         end = min(start + window_len, usable_end)
         if end - start < window_len * 0.4:
-            # não sobrou espaço suficiente (vídeo curto/muitos segmentos); comprime
+            # not enough room left (short video / many segments); compress it
             start = max(usable_start, end - window_len * 0.4)
         windows.append((round(start, 2), round(end, 2)))
         last_end = end
@@ -79,15 +79,15 @@ def pick_windows(total_duration: float, count: int, window_len: float,
 def highlight_windows_for_script(video: Path, segment_count: int,
                                  segment_durations: list[float],
                                  log=lambda m: None) -> list[tuple[float, float]]:
-    """Ponto de entrada usado pelo orchestrator: uma janela por segmento de corpo."""
+    """Entry point used by the orchestrator: one window per body segment."""
     total = probe_duration(video)
     if total <= 0:
-        raise RuntimeError("Não foi possível medir a duração do vídeo de origem.")
+        raise RuntimeError("Could not measure the duration of the source video.")
 
     avg_window = sum(segment_durations) / len(segment_durations) if segment_durations else 4.0
-    log(f"Detectando cortes de cena em {total:.0f}s de vídeo…")
+    log(f"Detecting scene cuts across {total:.0f}s of video…")
     cuts = detect_scene_cuts(video)
-    log(f"{len(cuts)} corte(s) de cena detectado(s); montando {segment_count} destaque(s)")
+    log(f"{len(cuts)} scene cut(s) detected; assembling {segment_count} highlight(s)")
 
     windows = pick_windows(total, segment_count, avg_window, scene_cuts=cuts)
     return windows
@@ -96,11 +96,11 @@ def highlight_windows_for_script(video: Path, segment_count: int,
 def windows_across_sources(sources: list[Path], segment_count: int,
                            segment_durations: list[float],
                            log=lambda m: None) -> list[tuple[Path, float, float]]:
-    """Distribui os trechos entre VÁRIOS vídeos de origem.
+    """Distribute the excerpts across SEVERAL source videos.
 
-    Cada vídeo recebe uma fatia proporcional à sua duração — um vídeo de 2min
-    junto com um de 30s não pode ceder o mesmo número de trechos. Dentro de
-    cada vídeo os pontos ainda são ancorados nos cortes de cena.
+    Each video gets a share proportional to its duration — a 2-minute video
+    alongside a 30-second one cannot hand over the same number of excerpts.
+    Within each video the points are still anchored to the scene cuts.
     """
     if len(sources) == 1:
         windows = highlight_windows_for_script(
@@ -109,9 +109,9 @@ def windows_across_sources(sources: list[Path], segment_count: int,
 
     durations = [probe_duration(src) for src in sources]
     total = sum(durations) or 1.0
-    log(f"Distribuindo {segment_count} trecho(s) entre {len(sources)} vídeos")
+    log(f"Distributing {segment_count} excerpt(s) across {len(sources)} videos")
 
-    # quantos trechos cada vídeo cede, proporcional à sua duração
+    # how many excerpts each video hands over, proportional to its duration
     quotas = [max(1, round(segment_count * d / total)) for d in durations]
     while sum(quotas) > segment_count:
         quotas[quotas.index(max(quotas))] -= 1
@@ -129,6 +129,6 @@ def windows_across_sources(sources: list[Path], segment_count: int,
         for start, end in pick_windows(duration, quota, avg, scene_cuts=cuts):
             out.append((source, start, end))
         cursor += quota
-        log(f"  {source.name}: {quota} trecho(s) de {duration:.0f}s")
+        log(f"  {source.name}: {quota} excerpt(s) out of {duration:.0f}s")
 
     return out[:segment_count]

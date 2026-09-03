@@ -1,12 +1,12 @@
-"""Post de vídeo nativo no LinkedIn pela Posts API (versionada).
+"""Native video post on LinkedIn through the Posts API (versioned).
 
   1. POST /rest/videos?action=initializeUpload -> uploadUrl + video URN
-  2. PUT do arquivo inteiro na uploadUrl (ETag volta no header)
-  3. POST /rest/videos?action=finalizeUpload com o ETag
-  4. POST /rest/posts com content.media.id = URN do vídeo
+  2. PUT the whole file to the uploadUrl (the ETag comes back in the header)
+  3. POST /rest/videos?action=finalizeUpload with the ETag
+  4. POST /rest/posts with content.media.id = the video's URN
 
-Precisa de token com `w_member_social`. Se `author_urn` não vier, descobre
-pelo /v2/userinfo (exige `openid` e `profile`).
+Requires a token with `w_member_social`. If `author_urn` is not supplied, it
+is discovered through /v2/userinfo (which requires `openid` and `profile`).
 """
 from __future__ import annotations
 
@@ -38,8 +38,9 @@ def resolve_author(creds: dict) -> str:
                   timeout=TIMEOUT)
     if r.status_code >= 400:
         raise RuntimeError(
-            "Sem author_urn e o token não tem escopo openid/profile para "
-            f"descobrir sozinho ({r.status_code}). Informe o URN em Contas.")
+            "No author_urn, and the token lacks the openid/profile scope to "
+            f"discover it on its own ({r.status_code}). Supply the URN under "
+            "Accounts.")
     return f"urn:li:person:{r.json()['sub']}"
 
 
@@ -52,14 +53,15 @@ def verify(creds: dict) -> str:
         name = r.json().get("name", "")
     except Exception:  # noqa: BLE001
         name = ""
-    return f"Token válido para {name or urn}"
+    return f"Token valid for {name or urn}"
 
 
 def profile_name(creds: dict) -> str:
-    """Nome do autor. Levanta se o token não servir.
+    """Author name. Raises if the token is no good.
 
-    Um token só com `w_member_social` não consegue ler o perfil; nesse caso o
-    URN informado à mão já identifica a conta e serve como nome.
+    A token holding only `w_member_social` cannot read the profile; in that
+    case the hand-supplied URN already identifies the account and serves as
+    the name.
     """
     r = httpx.get(f"{API}/v2/userinfo",
                   headers={"Authorization": f"Bearer {creds.get('access_token', '')}"},
@@ -72,14 +74,14 @@ def profile_name(creds: dict) -> str:
     if urn:
         return urn
     raise RuntimeError(
-        f"Token recusado pelo LinkedIn ({r.status_code}) e sem author_urn para "
-        "identificar a conta. Informe o URN em Contas.")
+        f"Token rejected by LinkedIn ({r.status_code}) and no author_urn to "
+        "identify the account. Supply the URN under Accounts.")
 
 
 def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> dict:
     token = credentials.get("access_token")
     if not token:
-        raise RuntimeError("Conta LinkedIn sem access_token")
+        raise RuntimeError("LinkedIn account without an access_token")
     author = resolve_author(credentials)
     headers = _headers(token)
     size = video.stat().st_size
@@ -92,7 +94,7 @@ def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> di
         timeout=TIMEOUT,
     )
     if init.status_code >= 400:
-        raise RuntimeError(f"LinkedIn recusou o upload: {init.text[:300]}")
+        raise RuntimeError(f"LinkedIn rejected the upload: {init.text[:300]}")
     value = init.json()["value"]
     video_urn = value["video"]
     instructions = value["uploadInstructions"]
@@ -117,7 +119,7 @@ def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> di
         timeout=TIMEOUT,
     )
     if fin.status_code >= 400:
-        raise RuntimeError(f"LinkedIn não finalizou o upload: {fin.text[:300]}")
+        raise RuntimeError(f"LinkedIn did not finalize the upload: {fin.text[:300]}")
 
     _wait_available(video_urn, headers)
 
@@ -143,7 +145,7 @@ def upload(video: Path, payload: dict, credentials: dict, account_id: str) -> di
         timeout=TIMEOUT,
     )
     if post.status_code >= 400:
-        raise RuntimeError(f"LinkedIn recusou o post: {post.text[:300]}")
+        raise RuntimeError(f"LinkedIn rejected the post: {post.text[:300]}")
     post_urn = post.headers.get("x-restli-id", "")
     return {"platform": "linkedin", "video_id": post_urn or video_urn,
             "url": f"https://www.linkedin.com/feed/update/{post_urn}" if post_urn else "",
@@ -159,6 +161,6 @@ def _wait_available(video_urn: str, headers: dict, tries: int = 30) -> None:
             if status == "AVAILABLE":
                 return
             if status == "PROCESSING_FAILED":
-                raise RuntimeError("LinkedIn falhou ao processar o vídeo")
+                raise RuntimeError("LinkedIn failed to process the video")
         time.sleep(5)
-    raise RuntimeError("LinkedIn não terminou de processar o vídeo em tempo")
+    raise RuntimeError("LinkedIn did not finish processing the video in time")
