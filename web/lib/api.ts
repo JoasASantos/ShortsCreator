@@ -118,10 +118,20 @@ export interface JobInput {
   cta: string;
   title_overlay: boolean;
   watermark: string;
+  watermark_position: WatermarkPosition;
+  watermark_size: WatermarkSize;
+  watermark_opacity: number;
   variants: number;
   qa_autofix: boolean;
   qa_max_attempts: number;
 }
+
+/** Where the channel handle sits, how big and how visible. Values are the
+ *  technical keys the backend expects — only the label is translated. */
+export type WatermarkPosition =
+  | "baixo_centro" | "baixo_esquerda" | "baixo_direita"
+  | "topo_centro" | "topo_esquerda" | "topo_direita";
+export type WatermarkSize = "pequeno" | "medio" | "grande";
 
 export interface ScriptSegment {
   kind: string;
@@ -170,6 +180,9 @@ export interface ScriptEdit {
   music_track?: string;
   music_volume?: number;
   watermark?: string;
+  watermark_position?: WatermarkPosition;
+  watermark_size?: WatermarkSize;
+  watermark_opacity?: number;
   background?: string;
   scroll?: string;
 }
@@ -186,6 +199,10 @@ export interface ScriptDraft {
   music: boolean;
   music_track: string;
   music_volume: number;
+  watermark: string;
+  watermark_position: WatermarkPosition;
+  watermark_size: WatermarkSize;
+  watermark_opacity: number;
   saved_at?: string;
 }
 

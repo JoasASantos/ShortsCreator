@@ -60,11 +60,34 @@ def group_lines(words: list[dict], max_words: int = 4,
     return lines
 
 
+# ASS alignment codes for each watermark placement (numpad layout).
+WATERMARK_ALIGN = {
+    "baixo_centro": 2, "baixo_esquerda": 1, "baixo_direita": 3,
+    "topo_centro": 8, "topo_esquerda": 7, "topo_direita": 9,
+}
+
+WATERMARK_FONT_SIZES = {"pequeno": 30, "medio": 38, "grande": 52}
+
+
+def _watermark_colour(opacity: float) -> str:
+    """ASS colours are &HAABBGGRR — the alpha byte is inverted, so 0x00 is
+    fully opaque and 0xFF invisible."""
+    alpha = max(0, min(int(round((1 - opacity) * 255)), 255))
+    return f"&H{alpha:02X}FFFFFF"
+
+
 def build_ass(words: list[dict], out_path: Path, style: str = "karaoke",
               position: str = "centro", font: str = "Arial Black",
               font_size: int = 92, title: str = "",
-              watermark: str = "") -> Path:
+              watermark: str = "", watermark_position: str = "baixo_centro",
+              watermark_size: str = "medio",
+              watermark_opacity: float = 0.6) -> Path:
     margin_v = POSITION_MARGIN_V.get(position, POSITION_MARGIN_V["centro"])
+    mark_align = WATERMARK_ALIGN.get(watermark_position, 2)
+    mark_size = WATERMARK_FONT_SIZES.get(watermark_size, 38)
+    mark_colour = _watermark_colour(watermark_opacity)
+    # both vertical anchors clear the app's own interface
+    mark_margin_v = SAFE_TOP if mark_align >= 7 else 120
 
     header = f"""[Script Info]
 Title: ShortsCreator
@@ -79,7 +102,7 @@ PlayResY: {settings.height}
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Legenda,{font},{font_size},{BASE_COLOR},{ACTIVE_COLOR},{OUTLINE_COLOR},&H80000000,-1,0,0,0,100,100,0,0,1,7,3,2,{SIDE_MARGIN},{SIDE_MARGIN},{margin_v},1
 Style: Titulo,{font},58,{BASE_COLOR},{BASE_COLOR},{OUTLINE_COLOR},&H80000000,-1,0,0,0,100,100,0,0,1,5,2,8,80,80,{SAFE_TOP},1
-Style: Marca,{font},38,&H50FFFFFF,&H50FFFFFF,{OUTLINE_COLOR},&H00000000,0,0,0,0,100,100,0,0,1,3,0,2,60,60,120,1
+Style: Marca,{font},{mark_size},{mark_colour},{mark_colour},{OUTLINE_COLOR},&H00000000,0,0,0,0,100,100,0,0,1,3,0,{mark_align},60,60,{mark_margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

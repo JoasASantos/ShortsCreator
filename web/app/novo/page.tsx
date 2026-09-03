@@ -3,8 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { api, type JobInput, type SourceType, type UploadResult, type Voice } from "@/lib/api";
+import { api, type JobInput, type SourceType, type UploadResult, type Voice,
+         type WatermarkPosition, type WatermarkSize } from "@/lib/api";
 import { useI18n, type Dictionary } from "@/lib/i18n";
+import { readDefaultWatermark, saveDefaultWatermark } from "@/lib/watermark";
 import { Chips, Field, Topbar, useToast } from "@/components/ui";
 
 // The `value`s below are the technical keys that go to the API: they don't
@@ -22,6 +24,12 @@ const ANGLE_VALUES = [
 const SOURCE_VALUES: SourceType[] = [
   "tema", "url", "video", "github", "imagem", "texto", "roteiro",
 ];
+
+const WATERMARK_POSITION_VALUES: WatermarkPosition[] = [
+  "baixo_centro", "baixo_esquerda", "baixo_direita",
+  "topo_centro", "topo_esquerda", "topo_direita",
+];
+const WATERMARK_SIZE_VALUES: WatermarkSize[] = ["pequeno", "medio", "grande"];
 
 const CAPTION_STYLE_VALUES = ["karaoke", "bloco", "palavra"] as const;
 const SCROLL_VALUES = ["nenhum", "texto", "codigo", "pan"] as const;
@@ -77,6 +85,9 @@ const defaults = (language: string, cta: string): JobInput => ({
   cta,
   title_overlay: true,
   watermark: "",
+  watermark_position: "baixo_centro",
+  watermark_size: "medio",
+  watermark_opacity: 0.6,
   variants: 1,
   qa_autofix: true,
   qa_max_attempts: 3,
@@ -95,6 +106,7 @@ export default function NovoShort() {
   const fileInput = useRef<HTMLInputElement>(null);
   // a hand-written CTA is not overwritten when the language changes
   const ctaTouched = useRef(false);
+  const watermarkTouched = useRef(false);
 
   const sourceOptions = useMemo(() => sources(t), [t]);
   const angleOptions = useMemo(() => angles(t), [t]);
@@ -102,6 +114,14 @@ export default function NovoShort() {
 
   useEffect(() => {
     api.voices().then(setVoices).catch(() => setVoices([]));
+
+    // the handle used on the last short comes pre-filled: it is the same on
+    // practically every video, and retyping it was pure friction
+    const savedWatermark = readDefaultWatermark();
+    if (savedWatermark && !watermarkTouched.current) {
+      setForm((prev) => (prev.watermark ? prev : { ...prev, watermark: savedWatermark }));
+    }
+
     // coming from Trends: ?tema=...&niche=...&url=... already filled in
     const params = new URLSearchParams(window.location.search);
     const tema = params.get("tema");
@@ -438,15 +458,54 @@ export default function NovoShort() {
                       onChange={(e) => set("background_query", e.target.value)}
                     />
                   </Field>
-                  <Field label={t.newJob.watermark}>
+                  <Field label={t.newJob.watermark}
+                         hint={form.watermark ? t.editor.watermarkHint : undefined}>
                     <input
                       className="input"
                       placeholder={t.newJob.watermarkPlaceholder}
                       value={form.watermark}
-                      onChange={(e) => set("watermark", e.target.value)}
+                      onChange={(e) => {
+                        watermarkTouched.current = true;
+                        set("watermark", e.target.value);
+                        // typing here also updates the remembered handle, so the
+                        // next short starts from the value actually in use
+                        saveDefaultWatermark(e.target.value);
+                      }}
                     />
                   </Field>
                 </div>
+
+                {form.watermark.trim() ? (
+                  <div className="grid" style={{ gap: 12 }}>
+                    <Field label={t.editor.watermarkPositionField}>
+                      <Chips
+                        value={form.watermark_position}
+                        onChange={(v) => set("watermark_position", v)}
+                        options={WATERMARK_POSITION_VALUES.map((value) => ({
+                          value, label: t.editor.watermarkPositions[value],
+                        }))}
+                      />
+                    </Field>
+                    <div className="two">
+                      <Field label={t.editor.watermarkSizeField}>
+                        <Chips
+                          value={form.watermark_size}
+                          onChange={(v) => set("watermark_size", v)}
+                          options={WATERMARK_SIZE_VALUES.map((value) => ({
+                            value, label: t.editor.watermarkSizes[value],
+                          }))}
+                        />
+                      </Field>
+                      <Field label={t.editor.watermarkOpacityField}
+                             hint={`${Math.round(form.watermark_opacity * 100)}%`}>
+                        <input type="range" min={0.15} max={1} step={0.05}
+                               value={form.watermark_opacity}
+                               onChange={(e) =>
+                                 set("watermark_opacity", Number(e.target.value))} />
+                      </Field>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="row wrap" style={{ gap: 18 }}>
                   <Toggle label={t.newJob.musicToggle} on={form.music}

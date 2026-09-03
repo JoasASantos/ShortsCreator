@@ -286,12 +286,53 @@ def rebuild_cover(job_id: str, request: CoverRequest | None = None):
     return {"cover": result["cover"], "at": at}
 
 
+# Which pipeline stage each editable field actually invalidates. Changing the
+# watermark has no business re-running the scriptwriter: it used to spend an
+# LLM call and, because the model is not deterministic, could hand back a
+# different script than the one the user had approved.
+#
+# `legendas` is the cheapest safe resume point, even for music-only changes:
+# resuming straight at `render` would leave the subtitle file unloaded and
+# burn a video with no captions at all.
+FIELD_STAGE = {
+    "voice_id": "voz",
+    "background": "fundo",
+    "background_query": "fundo",
+    "scroll": "fundo",
+    "caption_style": "legendas",
+    "caption_position": "legendas",
+    "caption_offset": "legendas",
+    "watermark": "legendas",
+    "watermark_position": "legendas",
+    "watermark_size": "legendas",
+    "watermark_opacity": "legendas",
+    "music": "legendas",
+    "music_track": "legendas",
+    "music_volume": "legendas",
+}
+
+# earliest (most expensive) first: a change set redoes from the earliest stage
+# any of its fields touches
+STAGE_ORDER = ["voz", "fundo", "legendas"]
+
+
+def _earliest_stage(fields) -> str | None:
+    stages = {FIELD_STAGE[f] for f in fields if f in FIELD_STAGE}
+    if not stages:
+        return None
+    return min(stages, key=STAGE_ORDER.index)
+
+
 @router.post("/{job_id}/edit")
 def edit_job(job_id: str, edit: ScriptEdit):
     """Applies manual edits and re-renders.
 
     The edited script is written as an override, so the re-render does not
     call the LLM again — the text you wrote is exactly what gets narrated.
+
+    Only the stages the change actually touches are redone: swapping the
+    watermark rebuilds captions and video, while a new voice also re-runs the
+    TTS. Neither spends the scriptwriter.
     """
     row = db.get_job(job_id)
     if row is None:
@@ -316,6 +357,7 @@ def edit_job(job_id: str, edit: ScriptEdit):
 
     for field in ("voice_id", "caption_style", "caption_position", "caption_offset",
                   "music", "music_track", "music_volume", "watermark",
+                  "watermark_position", "watermark_size", "watermark_opacity",
                   "background", "background_query", "scroll"):
         if field in changes:
             setattr(job, field, changes[field])
@@ -324,8 +366,24 @@ def edit_job(job_id: str, edit: ScriptEdit):
                   error=None, qa_json=None)
     # what was a draft has just become the official version
     (settings.job_dir(job_id) / "draft.json").unlink(missing_ok=True)
+
+    # An edited script is already on disk as an override, so the narration is
+    # the only thing that has to be redone; anything else resumes from the
+    # earliest stage its fields touch. Falls back to the full pipeline when
+    # the artifacts needed to resume are not there.
+    job_dir = settings.job_dir(job_id)
+    wanted = "voz" if edit.segments is not None else _earliest_stage(changes)
+    resumed_from = None
+    if wanted:
+        available = orchestrator.resumable_stage(job_dir)
+        if available in STAGE_ORDER:
+            # never resume later than what is actually on disk
+            resumed_from = min(wanted, available, key=STAGE_ORDER.index)
+            orchestrator.request_resume(job_id, resumed_from)
+
     worker.enqueue(job_id)
-    return {"job_id": job_id, "status": "queued", "applied": sorted(changes)}
+    return {"job_id": job_id, "status": "queued", "applied": sorted(changes),
+            "resumed_from": resumed_from}
 
 
 @router.delete("/{job_id}/edit")

@@ -207,3 +207,74 @@ def test_trends_responds_with_the_expected_structure(monkeypatch):
     body = client.get("/api/trends?niche=tecnologia").json()
     assert body["niche"] == "tecnologia"
     assert body["items"][0]["title"] == "assunto quente"
+
+
+# ----------------------------------------------------- editing the minimum
+
+def test_changing_the_watermark_does_not_re_run_the_scriptwriter():
+    """This used to spend an LLM call and, since the model is not
+    deterministic, could hand back a different script than the approved one."""
+    from app.routers.jobs import _earliest_stage
+
+    assert _earliest_stage(["watermark"]) == "legendas"
+
+
+def test_a_new_voice_resumes_from_the_voice_stage():
+    from app.routers.jobs import _earliest_stage
+
+    assert _earliest_stage(["voice_id"]) == "voz"
+
+
+def test_a_change_set_redoes_from_its_earliest_stage():
+    from app.routers.jobs import _earliest_stage
+
+    # background is earlier than captions, so both are redone
+    assert _earliest_stage(["watermark", "background"]) == "fundo"
+    assert _earliest_stage(["voice_id", "music_volume"]) == "voz"
+
+
+def test_music_only_changes_still_rebuild_captions():
+    """Resuming straight at `render` would leave the subtitle file unloaded and
+    burn a video with no captions."""
+    from app.routers.jobs import FIELD_STAGE, STAGE_ORDER
+
+    assert FIELD_STAGE["music_volume"] == "legendas"
+    assert "render" not in STAGE_ORDER
+
+
+def test_unknown_fields_ask_for_no_resume():
+    from app.routers.jobs import _earliest_stage
+
+    assert _earliest_stage(["title"]) is None
+    assert _earliest_stage([]) is None
+
+
+def test_editing_the_watermark_applies_it_and_asks_to_resume(tmp_path):
+    """End to end through the route: the field lands on the job and the
+    response says which stage is being redone."""
+    from app.config import settings
+    from app.pipeline.script import ShortScript
+
+    job_id = _job()
+    _finish(job_id)
+    job_dir = settings.job_dir(job_id)
+    # artifacts that make a resume possible
+    (job_dir / "script.json").write_text(ShortScript(
+        title="t", description="", segments=[{"kind": "hook", "text": "x"}],
+    ).model_dump_json(), encoding="utf-8")
+    (job_dir / "narration.mp3").write_bytes(b"fake")
+    (job_dir / "narration.json").write_text(
+        json.dumps({"duration": 5.0, "words": []}), encoding="utf-8")
+    background = job_dir / "background.mp4"
+    background.write_bytes(b"fake")
+    (job_dir / "background.json").write_text(
+        json.dumps({"path": str(background)}), encoding="utf-8")
+
+    body = client.post(f"/api/jobs/{job_id}/edit",
+                       json={"watermark": "@mychannel"}).json()
+
+    assert body["applied"] == ["watermark"]
+    assert body["resumed_from"] == "legendas"
+    assert client.get(f"/api/jobs/{job_id}").json()["input"]["watermark"] == "@mychannel"
+    # the marker the orchestrator consumes on the next run
+    assert (job_dir / "resume.json").exists()

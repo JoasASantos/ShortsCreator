@@ -232,6 +232,9 @@ def run_job(job_id: str) -> dict:
                     style=job.caption_style, position=job.caption_position,
                     title=short.title if job.title_overlay else "",
                     watermark=job.watermark,
+                    watermark_position=job.watermark_position,
+                    watermark_size=job.watermark_size,
+                    watermark_opacity=job.watermark_opacity,
                 )
                 captions.build_srt(caption_words, job_dir / "captions.srt")
 
@@ -243,7 +246,10 @@ def run_job(job_id: str) -> dict:
                         style=job.caption_style, position=job.caption_position)
                     title_ov = (overlay_mod.render_title(short.title, overlay_dir)
                                 if job.title_overlay else None)
-                    mark_ov = overlay_mod.render_watermark(job.watermark, overlay_dir, duration)
+                    mark_ov = overlay_mod.render_watermark(
+                        job.watermark, overlay_dir, duration,
+                        position=job.watermark_position, size=job.watermark_size,
+                        opacity=job.watermark_opacity)
                     overlays_list = [o for o in (title_ov, mark_ov) if o] + overlays_list
                     (job_dir / "overlays.json").write_text(json.dumps([
                         {"file": o.path.name, "start": o.start, "end": o.end,
