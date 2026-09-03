@@ -167,3 +167,69 @@ def test_transcript_with_timestamps_formata_mm_ss():
     linhas = clipper.transcript_with_timestamps([
         {"start": 5, "text": " começo "}, {"start": 125, "text": "depois"}])
     assert linhas.splitlines() == ["[00:05] começo", "[02:05] depois"]
+
+
+# ---------------------------------------------------------------- idioma
+
+def test_language_name_traduz_as_tags_conhecidas():
+    assert script_mod.language_name("pt-BR") == "português do Brasil"
+    assert "English" in script_mod.language_name("en-US")
+    assert "español" in script_mod.language_name("es")
+    assert "русский" in script_mod.language_name("ru-RU")
+    assert "简体中文" in script_mod.language_name("zh-CN")
+
+
+def test_language_name_tag_desconhecida_volta_como_esta():
+    """Ainda é instrução útil para o modelo — melhor que cair no português."""
+    assert script_mod.language_name("sw-KE") == "sw-KE"
+
+
+def test_language_name_vazio_cai_no_portugues():
+    assert script_mod.language_name("") == "português do Brasil"
+    assert script_mod.language_name(None) == "português do Brasil"  # type: ignore[arg-type]
+
+
+def test_prompt_do_roteiro_pede_o_idioma_do_job(monkeypatch):
+    """Antes o prompt fixava 'português do Brasil' e ignorava job.language:
+    a interface em espanhol continuava produzindo narração em português."""
+    capturado = {}
+
+    def fake(system, prompt, schema=None, max_tokens=8000, purpose=""):
+        capturado["system"] = system
+        return {"title": "t", "description": "d", "hashtags": [],
+                "estimated_seconds": 20,
+                "segments": [{"kind": "hook", "text": "hola", "broll_query": "x",
+                              "on_screen": "y"}]}
+
+    monkeypatch.setattr(script_mod.llm, "complete_json", fake)
+    job = JobInput(source_type="tema", source="tema", language="es-ES")
+    script_mod.build_script(job, SourceMaterial(kind="tema", title="t", text="t"))
+
+    assert "español" in capturado["system"]
+    assert "em português do Brasil" not in capturado["system"]
+
+
+def test_prompts_de_hooks_legenda_e_refino_tambem_seguem_o_idioma(monkeypatch):
+    vistos: list[str] = []
+
+    def fake(system, prompt, schema=None, max_tokens=8000, purpose=""):
+        vistos.append(system)
+        if purpose == "hooks":
+            return {"hooks": [{"text": "a", "mechanism": "m", "why": "w"}]}
+        if purpose == "legenda_post":
+            return {"youtube_titulo": "t", "youtube_descricao": "d",
+                    "tiktok_legenda": "l", "instagram_legenda": "i", "hashtags": []}
+        return {"title": "t", "description": "d", "hashtags": [],
+                "estimated_seconds": 20,
+                "segments": [{"kind": "hook", "text": "x", "broll_query": "",
+                              "on_screen": ""}]}
+
+    monkeypatch.setattr(script_mod.llm, "complete_json", fake)
+    job = JobInput(source_type="tema", source="x", language="ru-RU")
+
+    script_mod.build_hook_variants(SCRIPT, job, count=1)
+    script_mod.build_post_caption(SCRIPT, job)
+    script_mod.refine_script(SCRIPT, "encurta", job)
+
+    assert len(vistos) == 3
+    assert all("русский" in system for system in vistos)

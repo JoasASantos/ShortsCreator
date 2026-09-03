@@ -1,4 +1,4 @@
-.PHONY: help setup api web dev doctor test test-fast typecheck check clean
+.PHONY: help setup api web dev doctor test test-fast typecheck i18n check clean
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -13,7 +13,8 @@ help:
 	@echo "make test      — roda os testes do backend"
 	@echo "make test-fast — só os testes que não usam FFmpeg"
 	@echo "make typecheck — checa os tipos do frontend"
-	@echo "make check     — test + typecheck"
+	@echo "make i18n      — audita os dicionários dos 5 idiomas"
+	@echo "make check     — test + typecheck + i18n"
 
 setup:
 	python3 -m venv $(VENV)
@@ -53,7 +54,10 @@ test-fast:
 typecheck:
 	cd web && npx tsc --noEmit -p .
 
-check: test typecheck
+i18n:
+	cd web && node lib/i18n/check.mjs
+
+check: test typecheck i18n
 
 clean:
 	rm -rf data/jobs/* data/cache/* data/outputs/*

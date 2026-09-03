@@ -3,22 +3,16 @@
 import { useEffect, useState } from "react";
 
 import { api, PLATFORM_LABEL, type Account, type Connector } from "@/lib/api";
-import { Topbar, useToast } from "@/components/ui";
+import { useI18n } from "@/lib/i18n";
+import { TableWrap, Topbar, useToast } from "@/components/ui";
 
-const CATEGORY_LABEL: Record<Connector["category"], string> = {
-  publicacao: "Publicação",
-  notificacao: "Avisos",
-  video: "Geração de vídeo",
-  avatar: "Avatar falante",
-  voz: "Voz",
-  broll: "Banco de b-roll",
-};
-
+// a ordem das categorias não muda com o idioma; só o rótulo vem do dicionário
 const CATEGORY_ORDER: Connector["category"][] = [
   "publicacao", "notificacao", "video", "avatar", "voz", "broll",
 ];
 
 export default function Contas() {
+  const { t, f, dateTime } = useI18n();
   const { toast, node } = useToast();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
@@ -36,8 +30,10 @@ export default function Contas() {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
     const error = params.get("error");
-    if (connected) toast(`Conta ${PLATFORM_LABEL[connected] ?? connected} conectada.`);
-    if (error) toast(`Falha ao conectar: ${error}`);
+    if (connected) {
+      toast(f(t.accounts.connectedToast, { name: PLATFORM_LABEL[connected] ?? connected }));
+    }
+    if (error) toast(f(t.accounts.connectFailed, { message: error }));
     if (connected || error) window.history.replaceState({}, "", "/contas");
   }, []);
 
@@ -58,12 +54,12 @@ export default function Contas() {
 
   return (
     <>
-      <Topbar title="Contas" />
+      <Topbar title={t.accounts.title} />
 
       <div className="content grid" style={{ gap: 22 }}>
         {loaded && grouped.map(({ cat, items }) => (
           <section key={cat} className="grid" style={{ gap: 10 }}>
-            <span className="label dim">{CATEGORY_LABEL[cat]}</span>
+            <span className="label dim">{t.accounts.categories[cat]}</span>
             <div className="two" style={{ alignItems: "start" }}>
               {items.map((connector) => (
                 <ConnectorCard
@@ -82,48 +78,48 @@ export default function Contas() {
 
         <section className="panel">
           <div className="panel-head">
-            <span className="label">Conectadas</span>
+            <span className="label">{t.accounts.connected}</span>
           </div>
           {accounts.length === 0 ? (
             <div className="panel-body">
               <div className="empty" style={{ border: 0, padding: "26px 0" }}>
-                Nenhuma conta conectada ainda.
+                {t.accounts.noneConnected}
               </div>
             </div>
           ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Plataforma</th>
-                  <th>Conta</th>
-                  <th>Conectada em</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((account) => (
-                  <tr key={account.id}>
-                    <td>
-                      <span className="tag" data-tone="amber">
-                        {PLATFORM_LABEL[account.platform] ?? account.platform}
-                      </span>
-                    </td>
-                    <td>{account.display_name}</td>
-                    <td className="mono dim">
-                      {new Date(account.created_at).toLocaleString("pt-BR")}
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <button
-                        className="btn sm danger"
-                        onClick={() => api.deleteAccount(account.id).then(pull)}
-                      >
-                        Desconectar
-                      </button>
-                    </td>
+            <TableWrap>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>{t.accounts.platform}</th>
+                    <th>{t.accounts.account}</th>
+                    <th>{t.accounts.connectedAt}</th>
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {accounts.map((account) => (
+                    <tr key={account.id}>
+                      <td>
+                        <span className="tag" data-tone="amber">
+                          {PLATFORM_LABEL[account.platform] ?? account.platform}
+                        </span>
+                      </td>
+                      <td>{account.display_name}</td>
+                      <td className="mono dim">{dateTime(account.created_at)}</td>
+                      <td style={{ textAlign: "right" }}>
+                        <button
+                          className="btn sm danger"
+                          onClick={() => api.deleteAccount(account.id).then(pull)}
+                        >
+                          {t.accounts.disconnect}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableWrap>
           )}
         </section>
       </div>
@@ -138,6 +134,7 @@ function ConnectorCard({ connector, onConnectOAuth, onSaved, toast }: {
   onSaved: () => void;
   toast: (msg: string) => void;
 }) {
+  const { t, f } = useI18n();
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -152,7 +149,7 @@ function ConnectorCard({ connector, onConnectOAuth, onSaved, toast }: {
     try {
       await api.saveConnector(connector.id, values);
       setValues({});
-      toast(`${connector.name} salvo.`);
+      toast(f(t.accounts.saved, { name: connector.name }));
       onSaved();
     } catch (error) {
       toast((error as Error).message);
@@ -164,7 +161,7 @@ function ConnectorCard({ connector, onConnectOAuth, onSaved, toast }: {
   const clear = async () => {
     try {
       await api.clearConnector(connector.id);
-      toast(`${connector.name} desconfigurado.`);
+      toast(f(t.accounts.cleared, { name: connector.name }));
       onSaved();
     } catch (error) {
       toast((error as Error).message);
@@ -189,61 +186,69 @@ function ConnectorCard({ connector, onConnectOAuth, onSaved, toast }: {
       <div className="panel-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span className="label">{connector.name}</span>
         <div className="row" style={{ gap: 6 }}>
-          {planned && <span className="tag">Em breve</span>}
+          {planned && <span className="tag">{t.accounts.comingSoon}</span>}
           {connector.configured && (
             <span className="tag" data-tone="amber">
-              {connector.source === "painel" ? "configurado" : "via .env"}
+              {connector.source === "painel" ? t.accounts.configured : t.accounts.viaEnv}
             </span>
           )}
           {connector.accounts > 0 && (
-            <span className="tag" data-tone="amber">{connector.accounts} conta{connector.accounts > 1 ? "s" : ""}</span>
+            <span className="tag" data-tone="amber">
+              {f(t.accounts.accountCount, { n: connector.accounts })}
+            </span>
           )}
         </div>
       </div>
       <div className="panel-body grid" style={{ gap: 12 }}>
         <p className="dim" style={{ margin: 0, lineHeight: 1.65, fontSize: 13 }}>{connector.detail}</p>
         <p className="mono dimmer" style={{ margin: 0, fontSize: 11, lineHeight: 1.6 }}>
-          Requer {connector.requirement}
+          {f(t.accounts.requires, { what: connector.requirement })}
           {" — "}
-          <a href={connector.docs} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>docs ↗</a>
+          <a href={connector.docs} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>
+            {t.common.docs} ↗
+          </a>
         </p>
 
         {planned ? (
           <p className="dimmer" style={{ margin: 0, fontSize: 12 }}>
-            Conector previsto — ainda sem chamada de publicação/geração implementada.
+            {t.accounts.plannedNote}
           </p>
         ) : connector.auth === "oauth" && connector.fields.length === 0 ? (
-          <button className="btn" onClick={onConnectOAuth}>Conectar {connector.name}</button>
+          <button className="btn" onClick={onConnectOAuth}>
+            {f(t.accounts.connect, { name: connector.name })}
+          </button>
         ) : (
           <>
             <div className="grid" style={{ gap: 8 }}>
-              {connector.fields.map((f) => (
-                <div className="field" key={f.key}>
-                  <label className="dim" style={{ fontSize: 11.5 }}>{f.label}</label>
+              {connector.fields.map((field) => (
+                <div className="field" key={field.key}>
+                  <label className="dim" style={{ fontSize: 11.5 }}>{field.label}</label>
                   <input
                     className="input"
-                    type={f.secret ? "password" : "text"}
-                    placeholder={f.filled ? "•••••••• (já salvo — digite para trocar)" : `cole aqui, ou defina ${f.env} no .env`}
-                    value={values[f.key] ?? ""}
-                    onChange={(e) => set(f.key, e.target.value)}
+                    type={field.secret ? "password" : "text"}
+                    placeholder={field.filled
+                      ? t.accounts.fieldSaved
+                      : f(t.accounts.fieldPlaceholder, { env: field.env })}
+                    value={values[field.key] ?? ""}
+                    onChange={(e) => set(field.key, e.target.value)}
                   />
                 </div>
               ))}
             </div>
             <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
               <button className="btn sm" disabled={saving} onClick={save}>
-                {saving ? "Salvando…" : "Salvar"}
+                {saving ? t.common.saving : t.common.save}
               </button>
               {connector.testable && (
                 <button className="btn sm ghost" disabled={testing || !connector.configured} onClick={test}>
-                  {testing ? "Testando…" : "Testar conexão"}
+                  {testing ? t.common.testing : t.common.test}
                 </button>
               )}
               {connector.configured && connector.source === "painel" && (
-                <button className="btn sm ghost" onClick={clear}>Remover</button>
+                <button className="btn sm ghost" onClick={clear}>{t.common.remove}</button>
               )}
               {connector.auth === "oauth" && onConnectOAuth && (
-                <button className="btn sm" onClick={onConnectOAuth}>Conectar conta</button>
+                <button className="btn sm" onClick={onConnectOAuth}>{t.accounts.connectAccount}</button>
               )}
             </div>
             {testResult && (

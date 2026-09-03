@@ -6,9 +6,11 @@ import {
   api, type Job, type MusicTrack, type ScriptDraft, type ScriptEdit,
   type ScriptSegment, type Voice,
 } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import { Chips, Field } from "@/components/ui";
 import { VoiceBrowser } from "@/components/VoiceBrowser";
 
+// Valores técnicos enviados ao backend; o rótulo vem do dicionário.
 const KINDS = ["hook", "corpo", "cta"];
 const AUTOSAVE_MS = 1200;
 
@@ -17,6 +19,7 @@ export function Editor({ job, onApplied, toast }: {
   onApplied: () => void;
   toast: (message: string) => void;
 }) {
+  const { t, f, dateTime } = useI18n();
   const [segments, setSegments] = useState<ScriptSegment[]>(
     job.result?.script.segments ?? []);
   const [title, setTitle] = useState(job.result?.title ?? "");
@@ -159,7 +162,7 @@ export function Editor({ job, onApplied, toast }: {
   const apply = async (withScript: boolean) => {
     const clean = segments.filter((s) => s.text.trim());
     if (withScript && clean.length === 0) {
-      toast("O roteiro precisa de ao menos um trecho com texto.");
+      toast(t.editor.needSegment);
       return;
     }
     const edit: ScriptEdit = {
@@ -182,8 +185,7 @@ export function Editor({ job, onApplied, toast }: {
       editando.current = false;
       setRascunho("limpo");
       setSalvoEm(null);
-      toast(`Re-renderizando (${result.applied.length} ajuste(s)). ` +
-            "Pode fechar a tela — continua no servidor.");
+      toast(f(t.editor.applied, { n: result.applied.length }));
       onApplied();
     } catch (error) {
       toast((error as Error).message);
@@ -200,7 +202,7 @@ export function Editor({ job, onApplied, toast }: {
       setSalvoEm(null);
       if (serverScript) setSegments(serverScript);
       if (serverTitle) setTitle(serverTitle);
-      toast("Rascunho descartado — voltou ao roteiro renderizado.");
+      toast(t.editor.draftDiscarded);
     } catch (error) {
       toast((error as Error).message);
     }
@@ -208,7 +210,7 @@ export function Editor({ job, onApplied, toast }: {
 
   const refine = async () => {
     if (!prompt.trim()) {
-      toast("Escreva o que você quer mudar no roteiro.");
+      toast(t.editor.promptEmpty);
       return;
     }
     setRefining(true);
@@ -219,7 +221,7 @@ export function Editor({ job, onApplied, toast }: {
       setSegments(result.script.segments);
       setTitle(result.script.title);
       setPrompt("");
-      toast("Roteiro reescrito e guardado como rascunho. Revise e salve para renderizar.");
+      toast(t.editor.rewritten);
     } catch (error) {
       toast((error as Error).message);
     } finally {
@@ -228,19 +230,21 @@ export function Editor({ job, onApplied, toast }: {
   };
 
   const selectedVoice = voices.find((v) => v.id === voiceId);
+  const kindLabel = (kind: string) =>
+    (t.segmentKinds as Record<string, string>)[kind] ?? kind;
 
   /** Toca a amostra da voz escolhida direto do catálogo, sem gastar síntese. */
   const previewVoice = () => {
     voiceAudio.current?.pause();
     if (previewing) { setPreviewing(false); return; }
     if (!selectedVoice?.provider_voice_id) {
-      toast("Esta voz não tem amostra publicada.");
+      toast(t.editor.noSample);
       return;
     }
     const audio = new Audio(api.sampleUrl(selectedVoice.provider_voice_id));
     audio.onended = () => setPreviewing(false);
-    audio.onerror = () => { setPreviewing(false); toast("Amostra indisponível."); };
-    audio.play().catch(() => { setPreviewing(false); toast("Não foi possível tocar."); });
+    audio.onerror = () => { setPreviewing(false); toast(t.editor.sampleUnavailable); };
+    audio.play().catch(() => { setPreviewing(false); toast(t.editor.cantPlay); });
     voiceAudio.current = audio;
     setPreviewing(true);
   };
@@ -252,7 +256,7 @@ export function Editor({ job, onApplied, toast }: {
       await loadTracks();
       setMusicTrack(track.id);
       setMusic(true);
-      toast(`Trilha "${track.name}" adicionada.`);
+      toast(f(t.editor.musicAdded, { name: track.name }));
     } catch (error) {
       toast((error as Error).message);
     } finally {
@@ -264,42 +268,41 @@ export function Editor({ job, onApplied, toast }: {
     <div className="grid" style={{ gap: 14 }}>
       <section className="panel">
         <div className="panel-head">
-          <span className="label">Roteiro</span>
+          <span className="label">{t.editor.scriptTitle}</span>
           <div className="grow" />
           <RascunhoTag estado={rascunho} salvoEm={salvoEm} />
           <span className="label">
-            {totalWords} palavras · ~{estimate.toFixed(0)}s narrados
+            {f(t.editor.wordsEstimate,
+               { words: totalWords, seconds: estimate.toFixed(0) })}
           </span>
         </div>
         <div className="panel-body grid" style={{ gap: 12 }}>
-          <Field label="Título">
+          <Field label={t.editor.titleField}>
             <input className="input" value={title}
                    onChange={(e) => { tocar(); setTitle(e.target.value); }} />
           </Field>
 
           <Field
-            label="Pedir mudança por prompt"
-            hint="reescreve o roteiro sem perder o resto"
+            label={t.editor.promptField}
+            hint={t.editor.promptHint}
           >
             <div className="grid" style={{ gap: 8 }}>
               <textarea
                 className="textarea"
                 style={{ minHeight: 58 }}
-                placeholder="ex.: deixa o hook mais agressivo · corta pela metade · tira o jargão técnico · adiciona um dado sobre o preço"
+                placeholder={t.editor.promptPlaceholder}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) refine();
                 }}
               />
-              <div className="row spread">
+              <div className="row spread wrap">
                 <span className="label">
-                  {refining
-                    ? "a IA está reescrevendo — costuma levar de 30 a 60 segundos"
-                    : "⌘/Ctrl + Enter para aplicar"}
+                  {refining ? t.editor.promptRunning : t.editor.promptShortcut}
                 </span>
                 <button className="btn sm" onClick={refine} disabled={refining}>
-                  {refining ? "Reescrevendo…" : "Reescrever roteiro"}
+                  {refining ? t.editor.rewriting : t.editor.rewrite}
                 </button>
               </div>
               {refining ? (
@@ -317,7 +320,9 @@ export function Editor({ job, onApplied, toast }: {
                   value={segment.kind}
                   onChange={(e) => updateSegment(index, { kind: e.target.value })}
                 >
-                  {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+                  {KINDS.map((k) => (
+                    <option key={k} value={k}>{kindLabel(k)}</option>
+                  ))}
                 </select>
                 <span className="label">
                   {segment.text.split(/\s+/).filter(Boolean).length}p
@@ -336,19 +341,19 @@ export function Editor({ job, onApplied, toast }: {
                   className="textarea"
                   style={{ minHeight: 64 }}
                   value={segment.text}
-                  placeholder="Texto narrado deste trecho…"
+                  placeholder={t.editor.segmentPlaceholder}
                   onChange={(e) => updateSegment(index, { text: e.target.value })}
                 />
                 <div className="two">
                   <input
                     className="input"
-                    placeholder="busca de B-roll (inglês)"
+                    placeholder={t.editor.brollPlaceholder}
                     value={segment.broll_query ?? ""}
                     onChange={(e) => updateSegment(index, { broll_query: e.target.value })}
                   />
                   <input
                     className="input"
-                    placeholder="texto de destaque na tela"
+                    placeholder={t.editor.onScreenPlaceholder}
                     value={segment.on_screen ?? ""}
                     onChange={(e) => updateSegment(index, { on_screen: e.target.value })}
                   />
@@ -358,22 +363,23 @@ export function Editor({ job, onApplied, toast }: {
           ))}
 
           <button className="btn sm ghost" onClick={() => addSegment(segments.length - 1)}>
-            + Adicionar trecho
+            {t.editor.addSegment}
           </button>
         </div>
       </section>
 
       <section className="panel">
         <div className="panel-head">
-          <span className="label">Áudio</span>
+          <span className="label">{t.editor.audioTitle}</span>
         </div>
         <div className="panel-body grid" style={{ gap: 13 }}>
-          <Field label="Voz da narração" hint={`${voices.length} salva(s)`}>
+          <Field label={t.editor.voiceField}
+                 hint={f(t.editor.voiceSaved, { n: voices.length })}>
             <div className="grid" style={{ gap: 8 }}>
-              <div className="row" style={{ gap: 8 }}>
+              <div className="row wrap" style={{ gap: 8 }}>
                 <select className="select grow" value={voiceId}
                         onChange={(e) => { tocar(); setVoiceId(e.target.value); }}>
-                  <option value="">Padrão do sistema (edge-tts pt-BR)</option>
+                  <option value="">{t.editor.voiceDefault}</option>
                   {voices.map((voice) => (
                     <option key={voice.id} value={voice.id}>
                       {voice.name} · {voice.provider}
@@ -385,10 +391,10 @@ export function Editor({ job, onApplied, toast }: {
                   onClick={previewVoice}
                   disabled={!selectedVoice?.provider_voice_id}
                   title={selectedVoice?.provider_voice_id
-                    ? "Ouvir amostra desta voz"
-                    : "A voz padrão do sistema não tem amostra"}
+                    ? t.editor.listenTooltip
+                    : t.editor.listenUnavailable}
                 >
-                  {previewing ? "■ parar" : "▶ ouvir"}
+                  {previewing ? t.editor.stop : t.editor.listen}
                 </button>
               </div>
 
@@ -405,7 +411,8 @@ export function Editor({ job, onApplied, toast }: {
             </div>
           </Field>
 
-          <Field label="Trilha de fundo" hint={`${tracks.length} na biblioteca`}>
+          <Field label={t.editor.musicField}
+                 hint={f(t.editor.musicLibrary, { n: tracks.length })}>
             <div className="grid" style={{ gap: 8 }}>
               <select className="select" value={music ? musicTrack : ""}
                       onChange={(e) => {
@@ -413,14 +420,14 @@ export function Editor({ job, onApplied, toast }: {
                         setMusicTrack(e.target.value);
                         setMusic(Boolean(e.target.value));
                       }}>
-                <option value="">Sem trilha</option>
+                <option value="">{t.editor.noMusic}</option>
                 {tracks.map((track) => (
                   <option key={track.id} value={track.id}>
-                    {track.name} · {track.duration}s
+                    {track.name} · {track.duration}{t.common.seconds}
                   </option>
                 ))}
               </select>
-              <div className="row" style={{ gap: 8 }}>
+              <div className="row wrap" style={{ gap: 8 }}>
                 <input ref={musicInput} className="input grow" type="file"
                        accept="audio/*" onChange={(e) => uploadMusic(e.target.files)} />
                 {musicTrack ? (
@@ -432,7 +439,7 @@ export function Editor({ job, onApplied, toast }: {
           </Field>
 
           {music ? (
-            <Field label="Volume da trilha" hint={musicVolume.toFixed(2)}>
+            <Field label={t.editor.musicVolume} hint={musicVolume.toFixed(2)}>
               <input type="range" min={0.02} max={0.4} step={0.01}
                      value={musicVolume}
                      onChange={(e) => { tocar(); setMusicVolume(Number(e.target.value)); }} />
@@ -443,87 +450,85 @@ export function Editor({ job, onApplied, toast }: {
 
       <section className="panel">
         <div className="panel-head">
-          <span className="label">Legenda</span>
+          <span className="label">{t.editor.captionTitle}</span>
           <div className="grow" />
-          <span className="label">{words.length} palavras cronometradas</span>
+          <span className="label">{f(t.editor.timedWords, { n: words.length })}</span>
         </div>
         <div className="panel-body grid" style={{ gap: 13 }}>
-          <Field label="Estilo">
+          <Field label={t.editor.styleField}>
             <Chips
               value={captionStyle}
               onChange={(v) => { tocar(); setCaptionStyle(v); }}
               options={[
-                { value: "karaoke", label: "Karaokê" },
-                { value: "bloco", label: "Bloco" },
-                { value: "palavra", label: "Palavra a palavra" },
+                { value: "karaoke", label: t.captionStyles.karaokeShort },
+                { value: "bloco", label: t.captionStyles.blocoShort },
+                { value: "palavra", label: t.captionStyles.palavraShort },
               ]}
             />
           </Field>
 
-          <Field label="Posição">
+          <Field label={t.editor.positionField}>
             <Chips
               value={captionPosition}
               onChange={(v) => { tocar(); setCaptionPosition(v); }}
               options={[
-                { value: "centro", label: "Centro" },
-                { value: "baixo", label: "Base" },
-                { value: "topo", label: "Topo" },
+                { value: "centro", label: t.positions.centroShort },
+                { value: "baixo", label: t.positions.baixoShort },
+                { value: "topo", label: t.positions.topoShort },
               ]}
             />
           </Field>
 
           <Field
-            label="Ajuste fino de sincronia"
-            hint={`${offset >= 0 ? "+" : ""}${offset.toFixed(2)}s`}
+            label={t.editor.offsetField}
+            hint={`${offset >= 0 ? "+" : ""}${offset.toFixed(2)}${t.common.seconds}`}
           >
             <div className="grid" style={{ gap: 6 }}>
               <input type="range" min={-1} max={1} step={0.05} value={offset}
                      onChange={(e) => { tocar(); setOffset(Number(e.target.value)); }} />
-              <div className="row spread">
-                <span className="label">legenda adianta</span>
+              <div className="row spread wrap">
+                <span className="label">{t.editor.offsetEarly}</span>
                 <button className="btn sm ghost"
-                        onClick={() => { tocar(); setOffset(0); }}>zerar</button>
-                <span className="label">legenda atrasa</span>
+                        onClick={() => { tocar(); setOffset(0); }}>
+                  {t.editor.offsetReset}
+                </button>
+                <span className="label">{t.editor.offsetLate}</span>
               </div>
             </div>
           </Field>
 
           <p className="dimmer" style={{ margin: 0, fontSize: 12, lineHeight: 1.6 }}>
-            Os tempos vêm marcados palavra a palavra pelo próprio sintetizador de voz,
-            então normalmente não precisa de ajuste. Use este controle apenas se a voz
-            escolhida tiver um atraso de ataque perceptível.
+            {t.editor.offsetExplain}
           </p>
         </div>
       </section>
 
       <div className="grid" style={{ gap: 8 }}>
-        <div className="row" style={{ gap: 10 }}>
+        <div className="row wrap" style={{ gap: 10 }}>
           <button className="btn primary grow" onClick={() => apply(true)} disabled={busy}>
-            {busy ? "Aplicando…" : "Salvar roteiro e re-renderizar"}
+            {busy ? t.common.applying : t.editor.saveAndRender}
           </button>
           <button className="btn" onClick={() => apply(false)} disabled={busy}>
-            Só áudio e legenda
+            {t.editor.audioOnly}
           </button>
           {rascunho !== "limpo" ? (
             <button className="btn ghost" onClick={descartarRascunho}>
-              Descartar rascunho
+              {t.editor.discardDraft}
             </button>
           ) : (
             <button
               className="btn ghost"
               onClick={() => api.resetEdit(job.id).then(() => {
                 editando.current = false;
-                toast("Roteiro manual descartado.");
+                toast(t.editor.manualDiscarded);
               })}
             >
-              Voltar ao roteiro da IA
+              {t.editor.backToAi}
             </button>
           )}
         </div>
         <p className="dimmer" style={{ margin: 0, fontSize: 11.5, lineHeight: 1.5 }}>
-          O que você digita é guardado no servidor a cada poucos segundos: pode fechar
-          a aba e voltar depois. A renderização também roda no servidor — sair da tela
-          não interrompe.
+          {t.editor.persistExplain}
         </p>
       </div>
     </div>
@@ -535,15 +540,16 @@ function RascunhoTag({ estado, salvoEm }: {
   estado: "limpo" | "pendente" | "salvando" | "salvo";
   salvoEm: string | null;
 }) {
+  const { t, f, dateTime } = useI18n();
   if (estado === "limpo") return null;
   const mapa = {
-    pendente: { tone: "amber", texto: "alterações não salvas" },
-    salvando: { tone: "amber", texto: "guardando…" },
-    salvo: { tone: "ok", texto: "rascunho guardado" },
+    pendente: { tone: "amber", texto: t.editor.draftUnsaved },
+    salvando: { tone: "amber", texto: t.editor.draftSaving },
+    salvo: { tone: "ok", texto: t.editor.draftSaved },
   }[estado];
   return (
     <span className="tag" data-tone={mapa.tone}
-          title={salvoEm ? `guardado em ${new Date(salvoEm).toLocaleString("pt-BR")}` : ""}>
+          title={salvoEm ? f(t.editor.draftSavedAt, { when: dateTime(salvoEm) }) : ""}>
       {mapa.texto}
     </span>
   );

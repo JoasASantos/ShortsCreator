@@ -94,7 +94,45 @@ RESUMO_ADDENDUM = (
     "não uma transcrição truncada."
 )
 
-SYSTEM_TEMPLATE = """Você é roteirista sênior de vídeos curtos verticais (YouTube Shorts, TikTok, Reels) em português do Brasil.
+# A interface existe em cinco idiomas, e o roteiro tem que sair no idioma
+# pedido — antes o prompt fixava "português do Brasil" e ignorava job.language,
+# então uma interface em espanhol continuava produzindo narração em português.
+LANGUAGE_NAMES = {
+    "pt": "português do Brasil",
+    "en": "inglês (English)",
+    "es": "espanhol (español)",
+    "ru": "russo (русский)",
+    "zh": "chinês simplificado (简体中文)",
+    "fr": "francês (français)",
+    "de": "alemão (Deutsch)",
+    "it": "italiano",
+    "ja": "japonês (日本語)",
+}
+
+
+def language_name(tag: str) -> str:
+    """'es-ES' -> 'espanhol (español)'. Tag desconhecida volta como ela mesma,
+    o que ainda é uma instrução útil para o modelo."""
+    tag = (tag or "").strip()
+    if not tag:
+        return LANGUAGE_NAMES["pt"]
+    return LANGUAGE_NAMES.get(tag.split("-")[0].lower(), tag)
+
+
+def _in_language(template: str, tag: str) -> str:
+    """Injeta o idioma no prompt.
+
+    `str.format` não serve aqui: estes prompts trazem exemplos de JSON, e as
+    chaves `{` viram placeholder — daí a substituição direta do marcador.
+    """
+    return template.replace("{language}", language_name(tag))
+
+
+SYSTEM_TEMPLATE = """Você é roteirista sênior de vídeos curtos verticais (YouTube Shorts, TikTok, Reels).
+
+O ROTEIRO INTEIRO — título, descrição, hashtags e todo texto narrado — deve ser
+escrito em {language}. Escreva como um nativo desse idioma escreveria, não como
+uma tradução: expressões, ritmo e referências naturais para quem fala esse idioma.
 
 {addendum}
 
@@ -150,8 +188,10 @@ def build_script(job: JobInput, material: SourceMaterial) -> ShortScript:
     if job.instruction.strip() or (job.angle != "auto" and material.kind == "video"):
         addendum = f"{addendum}\n\n{VISUAL_IS_SUPPORT}".strip()
 
-    system = SYSTEM_TEMPLATE.format(addendum=addendum or "Você narra um short comum.",
-                                    rules=BASE_RULES)
+    system = _in_language(
+        SYSTEM_TEMPLATE.format(addendum=addendum or "Você narra um short comum.",
+                               rules=BASE_RULES, language="{language}"),
+        job.language)
 
     source_duration = material.metadata.get("duration")
     duration_note = (
@@ -282,7 +322,9 @@ def segment_time_spans(script: ShortScript, words: list[dict]) -> list[tuple[flo
     return spans
 
 
-REFINE_SYSTEM = """Você reescreve roteiros de vídeos curtos verticais em português do Brasil seguindo uma instrução do usuário.
+REFINE_SYSTEM = """Você reescreve roteiros de vídeos curtos verticais seguindo uma instrução do usuário.
+
+O roteiro reescrito continua em {language} — o mesmo idioma do roteiro recebido.
 
 Regras:
 - Aplique EXATAMENTE a instrução dada. Não faça mudanças que não foram pedidas.
@@ -321,7 +363,8 @@ MATERIAL DE ORIGEM (para checar fatos, não copie literalmente):
 """ if context else "") + """
 Reescreva o roteiro aplicando a instrução."""
 
-    data = llm.complete_json(REFINE_SYSTEM, prompt, SCHEMA, purpose="refinar")
+    data = llm.complete_json(_in_language(REFINE_SYSTEM, job.language),
+                             prompt, SCHEMA, purpose="refinar")
     segments = [ScriptSegment(**s) for s in data.get("segments", []) if s.get("text")]
     if not segments:
         raise RuntimeError("O modelo não devolveu segmentos ao refinar o roteiro.")
@@ -337,7 +380,10 @@ Reescreva o roteiro aplicando a instrução."""
     )
 
 
-CAPTION_SYSTEM = """Você escreve o TEXTO DE PUBLICAÇÃO de vídeos curtos verticais em português do Brasil.
+CAPTION_SYSTEM = """Você escreve o TEXTO DE PUBLICAÇÃO de vídeos curtos verticais.
+
+Todo o texto de publicação sai em {language}, no registro que a audiência desse
+idioma espera nessas plataformas.
 
 Não é o roteiro narrado — é o que vai escrito no post, ao lado do vídeo.
 
@@ -385,13 +431,16 @@ ROTEIRO NARRADO NO VÍDEO:
 
 Escreva o texto de publicação."""
 
-    data = llm.complete_json(CAPTION_SYSTEM, prompt, CAPTION_SCHEMA, purpose="legenda_post")
+    data = llm.complete_json(_in_language(CAPTION_SYSTEM, job.language),
+                             prompt, CAPTION_SCHEMA, purpose="legenda_post")
     hashtags = [h if h.startswith("#") else f"#{h}" for h in data.get("hashtags", [])]
     data["hashtags"] = hashtags[:10]
     return data
 
 
-HOOKS_SYSTEM = """Você escreve GANCHOS (a primeira frase falada) de vídeos curtos verticais em português do Brasil.
+HOOKS_SYSTEM = """Você escreve GANCHOS (a primeira frase falada) de vídeos curtos verticais.
+
+Os ganchos saem em {language}, o mesmo idioma do roteiro.
 
 O gancho decide se a pessoa fica ou desliza. Ele precisa:
 - Ter no máximo 12 palavras, faladas, sem "olá" nem "hoje eu vou".
@@ -452,7 +501,8 @@ RESTO DO ROTEIRO (o gancho precisa levar pra isso):
 
 Escreva {count} ganchos alternativos, cada um com um mecanismo diferente."""
 
-    data = llm.complete_json(HOOKS_SYSTEM, prompt, HOOKS_SCHEMA, purpose="hooks")
+    data = llm.complete_json(_in_language(HOOKS_SYSTEM, job.language),
+                             prompt, HOOKS_SCHEMA, purpose="hooks")
     hooks = [h for h in data.get("hooks", []) if h.get("text", "").strip()]
     if not hooks:
         raise RuntimeError("O modelo não devolveu ganchos alternativos.")

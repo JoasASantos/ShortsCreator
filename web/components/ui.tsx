@@ -2,9 +2,23 @@
 
 import { useEffect, useState } from "react";
 
+import { useDrawer } from "@/components/Shell";
+import { useI18n } from "@/lib/i18n";
+
 export function Topbar({ title, children }: { title: string; children?: React.ReactNode }) {
+  const { open, toggle } = useDrawer();
+  const { t } = useI18n();
   return (
     <header className="topbar">
+      <button
+        type="button"
+        className="menu-toggle"
+        aria-label={t.common.language ? "Menu" : "Menu"}
+        aria-expanded={open}
+        onClick={toggle}
+      >
+        ☰
+      </button>
       <h2>{title}</h2>
       <div className="grow" />
       {children}
@@ -13,18 +27,19 @@ export function Topbar({ title, children }: { title: string; children?: React.Re
 }
 
 export function StatusTag({ status }: { status: string }) {
+  const { t } = useI18n();
   const map: Record<string, { tone: string; text: string }> = {
-    queued: { tone: "amber", text: "na fila" },
-    running: { tone: "run", text: "processando" },
-    done: { tone: "ok", text: "pronto" },
-    error: { tone: "err", text: "erro" },
-    pending: { tone: "amber", text: "agendado" },
-    publishing: { tone: "run", text: "enviando" },
-    published: { tone: "ok", text: "publicado" },
+    queued: { tone: "amber", text: t.status.queued },
+    running: { tone: "run", text: t.status.running },
+    done: { tone: "ok", text: t.status.done },
+    error: { tone: "err", text: t.status.error },
+    pending: { tone: "amber", text: t.status.pending },
+    publishing: { tone: "run", text: t.status.publishing },
+    published: { tone: "ok", text: t.status.published },
     // planos de lote: analisar é demorado e "rendered" não é "publicado"
-    analisando: { tone: "run", text: "transcrevendo" },
-    ready: { tone: "amber", text: "trechos prontos" },
-    rendered: { tone: "ok", text: "shorts gerados" },
+    analisando: { tone: "run", text: t.status.analyzing },
+    ready: { tone: "amber", text: t.status.clipsReady },
+    rendered: { tone: "ok", text: t.status.rendered },
   };
   const item = map[status] ?? { tone: "", text: status };
   return (
@@ -83,4 +98,10 @@ export function Chips<T extends string>({ options, value, onChange }: {
       ))}
     </div>
   );
+}
+
+/** Envolve tabelas largas para elas rolarem no celular em vez de estourar
+ *  a largura da página. */
+export function TableWrap({ children }: { children: React.ReactNode }) {
+  return <div className="table-wrap">{children}</div>;
 }

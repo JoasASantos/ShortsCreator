@@ -5,9 +5,11 @@ import { useEffect, useState } from "react";
 
 import { api, type Job, type JobMetricsSummary } from "@/lib/api";
 import { formatCount } from "@/lib/format";
+import { useI18n } from "@/lib/i18n";
 import { StatusTag, Topbar, useToast } from "@/components/ui";
 
 export default function Painel() {
+  const { t, f, dateTime } = useI18n();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   // exclusão apaga arquivos e histórico: pede confirmação no próprio botão
@@ -28,7 +30,7 @@ export default function Painel() {
     try {
       await api.deleteJob(job.id);
       setJobs((prev) => prev.filter((j) => j.id !== job.id));
-      toast(`"${job.title || "Short"}" excluído.`);
+      toast(f(t.dashboard.deleted, { title: job.title || t.job.untitled }));
     } catch (error) {
       toast((error as Error).message);
     } finally {
@@ -43,109 +45,111 @@ export default function Painel() {
 
   return (
     <>
-      <Topbar title="Painel">
+      <Topbar title={t.dashboard.title}>
         <Link className="btn primary" href="/novo">
-          Novo short
+          {t.dashboard.newShort}
         </Link>
       </Topbar>
 
       <div className="content grid" style={{ gap: 20 }}>
         <div className="metrics">
-          <Counter label="Shorts gerados" value={jobs.length} />
-          <Counter label="Na esteira" value={running} tone="var(--cyan)" />
-          <Counter label="Aprovados no QA" value={approved} tone="var(--ok)" />
-          <Counter label="Com falha" value={failed} tone={failed ? "var(--err)" : undefined} />
+          <Counter label={t.dashboard.generated} value={jobs.length} />
+          <Counter label={t.dashboard.inQueue} value={running} tone="var(--cyan)" />
+          <Counter label={t.dashboard.qaApproved} value={approved} tone="var(--ok)" />
+          <Counter label={t.dashboard.failed} value={failed}
+                   tone={failed ? "var(--err)" : undefined} />
         </div>
 
         <section className="grid" style={{ gap: 10 }}>
           <div className="row spread">
-            <span className="label">Produções recentes</span>
-            <span className="label">{jobs.length} registro(s)</span>
+            <span className="label">{t.dashboard.recent}</span>
+            <span className="label">{jobs.length} {t.common.record}</span>
           </div>
 
           {loading ? (
-            <div className="empty">carregando…</div>
+            <div className="empty">{t.common.loading}</div>
           ) : jobs.length === 0 ? (
             <div className="empty">
-              <p style={{ margin: "0 0 14px" }}>
-                Nada produzido ainda. Cole um link, um tema ou um texto e o pipeline cuida do resto.
-              </p>
+              <p style={{ margin: "0 0 14px" }}>{t.dashboard.emptyTitle}</p>
               <Link className="btn primary" href="/novo">
-                Criar o primeiro short
+                {t.dashboard.emptyAction}
               </Link>
             </div>
           ) : (
             <div className="jobs">
-              {jobs.map((job, index) => (
-                <Link
-                  href={`/job/${job.id}`}
-                  key={job.id}
-                  className="job"
-                  style={{ animationDelay: `${Math.min(index, 12) * 28}ms` }}
-                >
-                  <Thumb job={job} />
-                  <div className="grow" style={{ minWidth: 0 }}>
-                    <h3>{job.title || job.input.source.slice(0, 70) || "Sem título"}</h3>
-                    <div className="row" style={{ gap: 8, marginBottom: 8 }}>
-                      <StatusTag status={job.status} />
-                      <span className="tag">{job.input.niche}</span>
-                      {job.qa ? (
-                        <span className="tag" data-tone={job.qa.passed ? "ok" : "err"}>
-                          QA {job.qa.score}
-                        </span>
-                      ) : null}
-                      {job.result ? (
-                        <span className="tag">{job.result.duration.toFixed(0)}s</span>
-                      ) : null}
-                      {metricsOf(job) ? (
-                        <span className="tag" data-tone="amber" title="views somadas nas plataformas">
-                          {formatCount(metricsOf(job)!.views)} views
-                          {metricsOf(job)!.avg_view_pct ? ` · ${metricsOf(job)!.avg_view_pct!.toFixed(0)}% ret.` : ""}
-                        </span>
-                      ) : null}
+              {jobs.map((job, index) => {
+                const metrics = metricsOf(job);
+                return (
+                  <Link
+                    href={`/job/${job.id}`}
+                    key={job.id}
+                    className="job"
+                    style={{ animationDelay: `${Math.min(index, 12) * 28}ms` }}
+                  >
+                    <Thumb job={job} />
+                    <div className="grow" style={{ minWidth: 0 }}>
+                      <h3>{job.title || job.input.source.slice(0, 70) || t.dashboard.untitled}</h3>
+                      <div className="row wrap" style={{ gap: 8, marginBottom: 8 }}>
+                        <StatusTag status={job.status} />
+                        <span className="tag">{t.niches[job.input.niche as keyof typeof t.niches] ?? job.input.niche}</span>
+                        {job.qa ? (
+                          <span className="tag" data-tone={job.qa.passed ? "ok" : "err"}>
+                            QA {job.qa.score}
+                          </span>
+                        ) : null}
+                        {job.result ? (
+                          <span className="tag">{job.result.duration.toFixed(0)}{t.common.seconds}</span>
+                        ) : null}
+                        {metrics ? (
+                          <span className="tag" data-tone="amber" title={t.dashboard.viewsTooltip}>
+                            {formatCount(metrics.views)} {t.performance.views.toLowerCase()}
+                            {metrics.avg_view_pct
+                              ? ` · ${metrics.avg_view_pct.toFixed(0)}% ${t.dashboard.retentionShort}`
+                              : ""}
+                          </span>
+                        ) : null}
+                      </div>
+                      {job.status === "running" || job.status === "queued" ? (
+                        <div className="bar">
+                          <i style={{ width: `${Math.max(job.progress * 100, 4)}%` }} />
+                        </div>
+                      ) : (
+                        <div className="mono dimmer" style={{ fontSize: 11 }}>
+                          {job.error ? job.error.slice(0, 110) : dateTime(job.created_at)}
+                        </div>
+                      )}
                     </div>
-                    {job.status === "running" || job.status === "queued" ? (
-                      <div className="bar">
-                        <i style={{ width: `${Math.max(job.progress * 100, 4)}%` }} />
-                      </div>
-                    ) : (
-                      <div className="mono dimmer" style={{ fontSize: 11 }}>
-                        {job.error
-                          ? job.error.slice(0, 110)
-                          : new Date(job.created_at).toLocaleString("pt-BR")}
-                      </div>
-                    )}
-                  </div>
-                  <div className="row job-actions" style={{ gap: 6 }}>
-                    <span className="label">{job.stage ?? ""}</span>
-                    {confirming === job.id ? (
-                      <>
+                    <div className="row job-actions" style={{ gap: 6 }}>
+                      <span className="label">{job.stage ?? ""}</span>
+                      {confirming === job.id ? (
+                        <>
+                          <button
+                            className="btn sm danger"
+                            disabled={deleting === job.id}
+                            onClick={(e) => { e.preventDefault(); remove(job); }}
+                          >
+                            {deleting === job.id ? t.common.deleting : t.common.confirm}
+                          </button>
+                          <button
+                            className="btn sm ghost"
+                            onClick={(e) => { e.preventDefault(); setConfirming(""); }}
+                          >
+                            {t.common.cancel}
+                          </button>
+                        </>
+                      ) : (
                         <button
-                          className="btn sm danger"
-                          disabled={deleting === job.id}
-                          onClick={(e) => { e.preventDefault(); remove(job); }}
+                          className="btn sm ghost job-delete"
+                          title={t.dashboard.deleteTitle}
+                          onClick={(e) => { e.preventDefault(); setConfirming(job.id); }}
                         >
-                          {deleting === job.id ? "Excluindo…" : "Confirmar"}
+                          {t.common.delete}
                         </button>
-                        <button
-                          className="btn sm ghost"
-                          onClick={(e) => { e.preventDefault(); setConfirming(""); }}
-                        >
-                          Cancelar
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        className="btn sm ghost job-delete"
-                        title="Excluir este short"
-                        onClick={(e) => { e.preventDefault(); setConfirming(job.id); }}
-                      >
-                        Excluir
-                      </button>
-                    )}
-                  </div>
-                </Link>
-              ))}
+                      )}
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           )}
         </section>
@@ -162,18 +166,21 @@ function metricsOf(job: Job): JobMetricsSummary | null {
 }
 
 // Miniatura estática; ao passar o mouse troca pelo GIF dos 3 primeiros
-// segundos — o hook em movimento, sem abrir o job.
+// segundos — o hook em movimento, sem abrir o job. No toque não há hover,
+// então o GIF entra ao tocar e sai ao soltar.
 function Thumb({ job }: { job: Job }) {
-  const [hover, setHover] = useState(false);
+  const [ativo, setAtivo] = useState(false);
   const base = `/api/jobs/${job.id}/file/`;
   const still = job.result ? `url(${base}thumb.jpg?v=${job.updated_at})` : undefined;
   const gif = job.result?.preview_gif ? `url(${base}preview.gif?v=${job.updated_at})` : null;
   return (
     <div
       className="thumb"
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{ backgroundImage: hover && gif ? gif : still }}
+      onMouseEnter={() => setAtivo(true)}
+      onMouseLeave={() => setAtivo(false)}
+      onTouchStart={() => setAtivo(true)}
+      onTouchEnd={() => setAtivo(false)}
+      style={{ backgroundImage: ativo && gif ? gif : still }}
     />
   );
 }

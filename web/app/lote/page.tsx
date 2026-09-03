@@ -5,23 +5,19 @@ import { useEffect, useRef, useState } from "react";
 
 import { api, PLATFORM_LABEL, type Account, type ClipPlan, type UploadResult, type Voice } from "@/lib/api";
 import { formatSeconds } from "@/lib/format";
+import { useI18n } from "@/lib/i18n";
 import { Chips, Field, StatusTag, Topbar, useToast } from "@/components/ui";
 
-const NICHES = [
-  { value: "tecnologia", label: "Tecnologia" },
-  { value: "ciberseguranca", label: "Cibersegurança" },
-  { value: "programacao", label: "Programação" },
-  { value: "cinema", label: "Cinema" },
-  { value: "historia", label: "História" },
-  { value: "ciencia", label: "Ciência" },
-  { value: "curiosidades", label: "Curiosidades" },
-  { value: "negocios", label: "Negócios" },
-  { value: "generico", label: "Genérico" },
-];
+// A chave é o que a API entende; o rótulo é o que o idioma escolhido mostra.
+const NICHE_KEYS = [
+  "tecnologia", "ciberseguranca", "programacao", "cinema", "historia",
+  "ciencia", "curiosidades", "negocios", "generico",
+] as const;
 
 // Um vídeo longo vira N shorts: transcreve, o LLM escolhe os momentos, cada
 // um vira um job normal — e, se quiser, já sai agendado um por dia.
 export default function Lote() {
+  const { t, f, date } = useI18n();
   const { toast, node } = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
   const [upload, setUpload] = useState<UploadResult | null>(null);
@@ -32,6 +28,9 @@ export default function Lote() {
   const [plans, setPlans] = useState<ClipPlan[]>([]);
   const [active, setActive] = useState<string>("");
   const [busy, setBusy] = useState(false);
+
+  const niches: { value: string; label: string }[] =
+    NICHE_KEYS.map((value) => ({ value, label: t.niches[value] }));
 
   const pull = () => api.clipPlans().then(setPlans).catch(() => setPlans([]));
 
@@ -53,19 +52,19 @@ export default function Lote() {
     setUploading(true);
     try {
       setUpload(await api.upload(files[0]));
-    } catch (e) { toast(`Falha no upload: ${(e as Error).message}`); }
+    } catch (e) { toast(f(t.newJob.uploadFailed, { message: (e as Error).message })); }
     finally { setUploading(false); if (fileInput.current) fileInput.current.value = ""; }
   };
 
   const analyze = async () => {
-    if (!upload) { toast("Envie o vídeo primeiro."); return; }
+    if (!upload) { toast(t.batch.needVideo); return; }
     setBusy(true);
     try {
       const { plan_id } = await api.createClipPlan({
         attachment_id: upload.id, count, target_seconds: target, niche,
       });
       setActive(plan_id);
-      toast("Análise enfileirada — transcrição leva alguns minutos.");
+      toast(t.batch.queued);
       pull();
     } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
   };
@@ -74,48 +73,47 @@ export default function Lote() {
 
   return (
     <>
-      <Topbar title="Lote">
-        <span className="label">um vídeo longo → vários shorts</span>
+      <Topbar title={t.batch.title}>
+        <span className="label">{t.batch.subtitle}</span>
       </Topbar>
 
       <div className="content grid" style={{ gap: 18 }}>
         <div className="side">
           <div className="grid" style={{ gap: 14 }}>
             <section className="panel">
-              <div className="panel-head"><span className="label">01 · Vídeo de origem</span></div>
+              <div className="panel-head"><span className="label">{t.batch.stepSource}</span></div>
               <div className="panel-body grid" style={{ gap: 12 }}>
                 <input ref={fileInput} className="input" type="file" accept="video/*"
                        onChange={(e) => handleFile(e.target.files)} />
-                {uploading ? <span className="label">enviando…</span> : null}
+                {uploading ? <span className="label">{t.newJob.uploading}</span> : null}
                 {upload ? (
-                  <div className="row spread">
+                  <div className="row spread wrap" style={{ gap: 8 }}>
                     <span className="mono" style={{ fontSize: 12 }}>
                       {upload.filename}
                       {upload.size_bytes ? <span className="dimmer"> ({(upload.size_bytes / 1048576).toFixed(0)} MB)</span> : null}
                     </span>
-                    <button className="btn sm ghost" onClick={() => setUpload(null)}>Trocar</button>
+                    <button className="btn sm ghost" onClick={() => setUpload(null)}>{t.batch.swap}</button>
                   </div>
                 ) : (
                   <p className="dimmer" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6 }}>
-                    Podcast, aula, live, entrevista. Precisa ter fala — a escolha dos momentos
-                    é feita sobre a transcrição.
+                    {t.batch.sourceHint}
                   </p>
                 )}
                 <div className="two">
-                  <Field label="Quantos shorts" hint={`${count}`}>
+                  <Field label={t.batch.howMany} hint={`${count}`}>
                     <input type="range" min={1} max={12} step={1} value={count}
                            onChange={(e) => setCount(Number(e.target.value))} />
                   </Field>
-                  <Field label="Duração de cada um" hint={`${target}s`}>
+                  <Field label={t.batch.eachDuration} hint={`${target}${t.common.seconds}`}>
                     <input type="range" min={20} max={90} step={5} value={target}
                            onChange={(e) => setTarget(Number(e.target.value))} />
                   </Field>
                 </div>
-                <Field label="Nicho">
-                  <Chips value={niche} onChange={setNiche} options={NICHES} />
+                <Field label={t.newJob.niche}>
+                  <Chips value={niche} onChange={setNiche} options={niches} />
                 </Field>
                 <button className="btn primary" onClick={analyze} disabled={busy || uploading || !upload}>
-                  {busy ? "Enfileirando…" : "Encontrar os melhores momentos"}
+                  {busy ? t.batch.analyzing : t.batch.analyze}
                 </button>
               </div>
             </section>
@@ -124,23 +122,27 @@ export default function Lote() {
           </div>
 
           <aside className="grid" style={{ gap: 10 }}>
-            <span className="label">Lotes anteriores</span>
+            <span className="label">{t.batch.previous}</span>
             {plans.length === 0 ? (
-              <div className="empty" style={{ padding: 22 }}>nenhum lote ainda</div>
+              <div className="empty" style={{ padding: 22 }}>{t.batch.noPrevious}</div>
             ) : plans.map((p) => (
               <button key={p.id} className="panel" style={{ textAlign: "left", cursor: "pointer",
                       borderColor: p.id === current?.id ? "var(--amber)" : undefined }}
                       onClick={() => setActive(p.id)}>
                 <div className="panel-body grid" style={{ gap: 6 }}>
-                  <div className="row spread">
+                  <div className="row spread wrap" style={{ gap: 8 }}>
                     <StatusTag status={p.status} />
                     <span className="mono dimmer" style={{ fontSize: 11 }}>
-                      {new Date(p.created_at).toLocaleDateString("pt-BR")}
+                      {date(p.created_at)}
                     </span>
                   </div>
                   <span className="mono" style={{ fontSize: 12 }}>
-                    {p.requested} × {p.target_seconds}s · {p.options?.niche}
-                    {p.jobs?.length ? ` · ${p.jobs.length} short(s)` : ""}
+                    {f(t.batch.planSummary, {
+                      count: p.requested,
+                      seconds: p.target_seconds,
+                      niche: nicheLabel(t.niches, p.options?.niche),
+                    })}
+                    {p.jobs?.length ? ` · ${f(t.batch.planShorts, { n: p.jobs.length })}` : ""}
                   </span>
                 </div>
               </button>
@@ -153,9 +155,16 @@ export default function Lote() {
   );
 }
 
+/** Nicho do plano salvo: traduz quando a chave é conhecida, senão mostra crua. */
+function nicheLabel(niches: Record<string, string>, value?: string): string {
+  if (!value) return "";
+  return niches[value] ?? value;
+}
+
 function PlanPanel({ plan, toast, onChanged }: {
   plan: ClipPlan; toast: (m: string) => void; onChanged: () => void;
 }) {
+  const { t, f } = useI18n();
   const [selected, setSelected] = useState<number[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -179,8 +188,8 @@ function PlanPanel({ plan, toast, onChanged }: {
     setSelected((prev) => prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i].sort());
 
   const render = async () => {
-    if (!selected.length) { toast("Selecione ao menos um trecho."); return; }
-    if (schedule && (!accountId || !startAt)) { toast("Escolha conta e data inicial."); return; }
+    if (!selected.length) { toast(t.batch.pickClip); return; }
+    if (schedule && (!accountId || !startAt)) { toast(t.batch.pickAccountAndDate); return; }
     setBusy(true);
     try {
       const r = await api.renderClips(plan.id, {
@@ -191,7 +200,9 @@ function PlanPanel({ plan, toast, onChanged }: {
           every_hours: everyHours, privacy,
         } : null,
       });
-      toast(`${r.jobs.length} short(s) na esteira${r.schedules.length ? `, ${r.schedules.length} agendado(s)` : ""}.`);
+      toast(r.schedules.length
+        ? f(t.batch.doneScheduled, { n: r.jobs.length, s: r.schedules.length })
+        : f(t.batch.done, { n: r.jobs.length }));
       onChanged();
     } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
   };
@@ -199,19 +210,21 @@ function PlanPanel({ plan, toast, onChanged }: {
   return (
     <section className="panel">
       <div className="panel-head">
-        <span className="label">02 · Momentos encontrados</span>
+        <span className="label">{t.batch.stepClips}</span>
         <div className="grow" />
         <StatusTag status={plan.status} />
-        <button className="btn sm ghost" onClick={() => api.deleteClipPlan(plan.id).then(onChanged)}>Remover</button>
+        <button className="btn sm ghost" onClick={() => api.deleteClipPlan(plan.id).then(onChanged)}>
+          {t.common.remove}
+        </button>
       </div>
       <div className="panel-body grid" style={{ gap: 12 }}>
         {plan.status === "queued" || plan.status === "analisando" ? (
           <div className="empty" style={{ border: 0 }}>
-            transcrevendo e escolhendo os trechos… pode levar alguns minutos num vídeo longo
+            {t.batch.working}
           </div>
         ) : plan.status === "error" ? (
           <div className="issue" data-sev="fatal">
-            <span className="label" style={{ minWidth: 52 }}>falha</span>
+            <span className="label" style={{ minWidth: 52 }}>{t.job.failure}</span>
             <div className="mono" style={{ fontSize: 12 }}>{plan.error}</div>
           </div>
         ) : plan.clips?.length ? (
@@ -222,11 +235,13 @@ function PlanPanel({ plan, toast, onChanged }: {
                 <input type="checkbox" checked={selected.includes(i)} onChange={() => toggle(i)}
                        style={{ marginTop: 3 }} />
                 <div className="grow">
-                  <div className="row" style={{ gap: 8, marginBottom: 3 }}>
+                  <div className="row wrap" style={{ gap: 8, marginBottom: 3 }}>
                     <span className="tag" data-tone="amber">
                       {formatSeconds(clip.inicio)} → {formatSeconds(clip.fim)}
                     </span>
-                    <span className="mono dimmer" style={{ fontSize: 11 }}>{Math.round(clip.fim - clip.inicio)}s</span>
+                    <span className="mono dimmer" style={{ fontSize: 11 }}>
+                      {Math.round(clip.fim - clip.inicio)}{t.common.seconds}
+                    </span>
                   </div>
                   <b style={{ fontSize: 14 }}>{clip.titulo}</b>
                   <p className="dim" style={{ margin: "3px 0 0", fontSize: 12.5, lineHeight: 1.5 }}>{clip.motivo}</p>
@@ -236,7 +251,7 @@ function PlanPanel({ plan, toast, onChanged }: {
 
             {plan.jobs?.length ? (
               <div className="row wrap" style={{ gap: 6 }}>
-                <span className="label" style={{ alignSelf: "center" }}>shorts gerados:</span>
+                <span className="label" style={{ alignSelf: "center" }}>{t.batch.generatedShorts}</span>
                 {plan.jobs.map((j) => (
                   <Link key={j} href={`/job/${j}`} className="tag" style={{ color: "var(--amber)" }}>
                     {j.slice(4, 12)}
@@ -247,65 +262,70 @@ function PlanPanel({ plan, toast, onChanged }: {
 
             <hr className="rule" />
             <div className="two">
-              <Field label="Voz">
+              <Field label={t.batch.voice}>
                 <select className="select" value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
-                  <option value="">Padrão do sistema</option>
+                  <option value="">{t.batch.voiceDefault}</option>
                   {voices.map((v) => <option key={v.id} value={v.id}>{v.name} · {v.provider}</option>)}
                 </select>
               </Field>
-              <Field label="Publicação">
+              <Field label={t.batch.publishing}>
                 <Chips value={schedule ? "sim" : "nao"} onChange={(v) => setSchedule(v === "sim")}
-                       options={[{ value: "nao", label: "Só gerar" }, { value: "sim", label: "Agendar em sequência" }]} />
+                       options={[{ value: "nao", label: t.batch.onlyGenerate },
+                                 { value: "sim", label: t.batch.scheduleSequence }]} />
               </Field>
             </div>
 
             {schedule ? (
               accounts.length === 0 ? (
-                <p className="dimmer" style={{ margin: 0, fontSize: 12.5 }}>
-                  Nenhuma conta conectada em <b>Contas</b>.
-                </p>
+                <p className="dimmer" style={{ margin: 0, fontSize: 12.5 }}
+                   dangerouslySetInnerHTML={{ __html: t.batch.noAccountsForSchedule }} />
               ) : (
                 <div className="grid" style={{ gap: 10 }}>
                   <div className="two">
-                    <Field label="Conta">
+                    <Field label={t.batch.account}>
                       <select className="select" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                        <option value="">Selecione…</option>
+                        <option value="">{t.publish.select}</option>
                         {accounts.map((a) => (
                           <option key={a.id} value={a.id}>{PLATFORM_LABEL[a.platform] ?? a.platform} · {a.display_name}</option>
                         ))}
                       </select>
                     </Field>
-                    <Field label="Primeiro short em">
+                    <Field label={t.batch.firstAt}>
                       <input className="input" type="datetime-local" value={startAt}
                              onChange={(e) => setStartAt(e.target.value)} />
                     </Field>
                   </div>
                   <div className="two">
-                    <Field label="Intervalo" hint={everyHours >= 24 ? `${everyHours / 24} dia(s)` : `${everyHours}h`}>
+                    <Field label={t.batch.interval}
+                           hint={everyHours >= 24
+                             ? f(t.batch.intervalDays, { n: everyHours / 24 })
+                             : f(t.batch.intervalHours, { n: everyHours })}>
                       <input type="range" min={2} max={72} step={2} value={everyHours}
                              onChange={(e) => setEveryHours(Number(e.target.value))} />
                     </Field>
-                    <Field label="Privacidade">
+                    <Field label={t.batch.privacy}>
                       <select className="select" value={privacy} onChange={(e) => setPrivacy(e.target.value)}>
-                        <option value="public">Público</option>
-                        <option value="unlisted">Não listado</option>
-                        <option value="private">Privado</option>
+                        <option value="public">{t.publish.public}</option>
+                        <option value="unlisted">{t.publish.unlisted}</option>
+                        <option value="private">{t.publish.private}</option>
                       </select>
                     </Field>
                   </div>
                   <p className="dimmer" style={{ margin: 0, fontSize: 11.5, lineHeight: 1.5 }}>
-                    Cada publicação espera o próprio short terminar de renderizar e passar no QA.
+                    {t.batch.scheduleExplain}
                   </p>
                 </div>
               )
             ) : null}
 
             <button className="btn primary" onClick={render} disabled={busy}>
-              {busy ? "Enfileirando…" : `Gerar ${selected.length} short(s)${schedule ? " e agendar" : ""}`}
+              {busy
+                ? t.batch.submitting
+                : f(schedule ? t.batch.submitAndSchedule : t.batch.submit, { n: selected.length })}
             </button>
           </>
         ) : (
-          <div className="empty" style={{ border: 0 }}>nenhum trecho aproveitável encontrado</div>
+          <div className="empty" style={{ border: 0 }}>{t.batch.noClips}</div>
         )}
       </div>
     </section>
