@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
-  api, type Job, type MusicTrack, type ScriptEdit, type ScriptSegment, type Voice,
+  api, type Job, type MusicTrack, type ScriptDraft, type ScriptEdit,
+  type ScriptSegment, type Voice,
 } from "@/lib/api";
 import { Chips, Field } from "@/components/ui";
 import { VoiceBrowser } from "@/components/VoiceBrowser";
 
 const KINDS = ["hook", "corpo", "cta"];
+const AUTOSAVE_MS = 1200;
 
 export function Editor({ job, onApplied, toast }: {
   job: Job;
@@ -31,8 +33,14 @@ export function Editor({ job, onApplied, toast }: {
   const [prompt, setPrompt] = useState("");
   const [refining, setRefining] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  // "limpo" = igual ao servidor | "pendente" = digitando | "salvo" = rascunho no disco
+  const [rascunho, setRascunho] = useState<"limpo" | "pendente" | "salvando" | "salvo">("limpo");
+  const [salvoEm, setSalvoEm] = useState<string | null>(null);
+  const [carregado, setCarregado] = useState(false);
   const musicInput = useRef<HTMLInputElement>(null);
   const voiceAudio = useRef<HTMLAudioElement | null>(null);
+  // marca que o conteúdo em tela é edição do usuário, não o que veio do servidor
+  const editando = useRef(false);
 
   const loadTracks = () => api.music().then(setTracks).catch(() => setTracks([]));
 
@@ -41,34 +49,104 @@ export function Editor({ job, onApplied, toast }: {
     loadTracks();
   }, []);
 
-  // O roteiro pode mudar fora deste componente (refinamento por prompt,
-  // re-renderização). Sem este efeito o editor continuaria mostrando a versão
-  // antiga até a página ser recarregada.
-  const serverScript = job.result?.script.segments;
+  // Rascunho do disco: o que estava sendo digitado quando a tela foi fechada.
   useEffect(() => {
-    if (serverScript) setSegments(serverScript);
-    if (job.result?.title) setTitle(job.result.title);
-  }, [serverScript, job.result?.title]);
+    api.draft(job.id)
+      .then(({ draft }) => {
+        if (!draft) return;
+        setSegments(draft.segments);
+        setTitle(draft.title);
+        setVoiceId(draft.voice_id);
+        setCaptionStyle(draft.caption_style as typeof captionStyle);
+        setCaptionPosition(draft.caption_position as typeof captionPosition);
+        setOffset(draft.caption_offset);
+        setMusic(draft.music);
+        setMusicTrack(draft.music_track);
+        setMusicVolume(draft.music_volume);
+        setSalvoEm(draft.saved_at ?? null);
+        setRascunho("salvo");
+        editando.current = true;   // não deixa o polling sobrescrever
+      })
+      .catch(() => undefined)
+      .finally(() => setCarregado(true));
+  }, [job.id]);
+
+  // O roteiro pode mudar fora deste componente (refinamento por prompt,
+  // re-renderização). Sincronizamos com o servidor, mas NUNCA por cima de
+  // edição em andamento: `serverScript` é um array novo a cada polling, então
+  // comparar por referência apagava o que estava sendo digitado a cada 2,5s.
+  const serverScript = job.result?.script.segments;
+  const serverKey = serverScript ? JSON.stringify(serverScript) : "";
+  const serverTitle = job.result?.title ?? "";
+  useEffect(() => {
+    if (editando.current || !serverKey) return;
+    setSegments(JSON.parse(serverKey));
+    if (serverTitle) setTitle(serverTitle);
+  }, [serverKey, serverTitle]);
+
+  // Autosave: só depois de o rascunho existente ter sido carregado, para não
+  // gravar o estado inicial por cima do que estava salvo.
+  const draftAtual = (): ScriptDraft => ({
+    segments, title, voice_id: voiceId, caption_style: captionStyle,
+    caption_position: captionPosition, caption_offset: offset,
+    music, music_track: musicTrack, music_volume: musicVolume,
+  });
+  const draftKey = JSON.stringify(draftAtual());
+
+  useEffect(() => {
+    if (!carregado || !editando.current || rascunho === "limpo") return;
+    setRascunho("pendente");
+    const timer = setTimeout(() => {
+      setRascunho("salvando");
+      api.saveDraft(job.id, JSON.parse(draftKey))
+        .then((r) => { setSalvoEm(r.saved_at); setRascunho("salvo"); })
+        .catch(() => setRascunho("pendente"));
+    }, AUTOSAVE_MS);
+    return () => clearTimeout(timer);
+  }, [draftKey, carregado, job.id]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fechar a aba com algo ainda não gravado: o navegador pede confirmação.
+  useEffect(() => {
+    const aviso = (e: BeforeUnloadEvent) => {
+      if (rascunho === "pendente" || rascunho === "salvando") e.preventDefault();
+    };
+    window.addEventListener("beforeunload", aviso);
+    return () => window.removeEventListener("beforeunload", aviso);
+  }, [rascunho]);
+
+  /** Toda alteração do usuário passa por aqui: liga o autosave e trava o
+   *  sincronismo com o servidor. */
+  const tocar = () => {
+    editando.current = true;
+    if (rascunho === "limpo") setRascunho("pendente");
+  };
 
   const words = job.result?.words ?? [];
   const totalWords = segments.reduce((sum, s) => sum + s.text.split(/\s+/).filter(Boolean).length, 0);
   // ~2,6 palavras por segundo é o ritmo que o pipeline assume ao escrever roteiro
   const estimate = totalWords / 2.6;
 
-  const updateSegment = (index: number, patch: Partial<ScriptSegment>) =>
+  const updateSegment = (index: number, patch: Partial<ScriptSegment>) => {
+    tocar();
     setSegments((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
+  };
 
-  const addSegment = (index: number) =>
+  const addSegment = (index: number) => {
+    tocar();
     setSegments((prev) => [
       ...prev.slice(0, index + 1),
       { kind: "corpo", text: "", broll_query: "", on_screen: "" },
       ...prev.slice(index + 1),
     ]);
+  };
 
-  const removeSegment = (index: number) =>
+  const removeSegment = (index: number) => {
+    tocar();
     setSegments((prev) => prev.filter((_, i) => i !== index));
+  };
 
-  const move = (index: number, delta: number) =>
+  const move = (index: number, delta: number) => {
+    tocar();
     setSegments((prev) => {
       const next = [...prev];
       const target = index + delta;
@@ -76,6 +154,7 @@ export function Editor({ job, onApplied, toast }: {
       [next[index], next[target]] = [next[target], next[index]];
       return next;
     });
+  };
 
   const apply = async (withScript: boolean) => {
     const clean = segments.filter((s) => s.text.trim());
@@ -99,12 +178,31 @@ export function Editor({ job, onApplied, toast }: {
     setBusy(true);
     try {
       const result = await api.editJob(job.id, edit);
-      toast(`Re-renderizando (${result.applied.length} ajuste(s)).`);
+      // o rascunho virou a versão oficial: o backend já apagou o arquivo
+      editando.current = false;
+      setRascunho("limpo");
+      setSalvoEm(null);
+      toast(`Re-renderizando (${result.applied.length} ajuste(s)). ` +
+            "Pode fechar a tela — continua no servidor.");
       onApplied();
     } catch (error) {
       toast((error as Error).message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const descartarRascunho = async () => {
+    try {
+      await api.discardDraft(job.id);
+      editando.current = false;
+      setRascunho("limpo");
+      setSalvoEm(null);
+      if (serverScript) setSegments(serverScript);
+      if (serverTitle) setTitle(serverTitle);
+      toast("Rascunho descartado — voltou ao roteiro renderizado.");
+    } catch (error) {
+      toast((error as Error).message);
     }
   };
 
@@ -117,10 +215,11 @@ export function Editor({ job, onApplied, toast }: {
     try {
       // render=false: mostra o resultado no editor para você revisar antes
       const result = await api.refineScript(job.id, prompt, false);
+      tocar();
       setSegments(result.script.segments);
       setTitle(result.script.title);
       setPrompt("");
-      toast("Roteiro reescrito. Revise e salve para renderizar.");
+      toast("Roteiro reescrito e guardado como rascunho. Revise e salve para renderizar.");
     } catch (error) {
       toast((error as Error).message);
     } finally {
@@ -167,6 +266,7 @@ export function Editor({ job, onApplied, toast }: {
         <div className="panel-head">
           <span className="label">Roteiro</span>
           <div className="grow" />
+          <RascunhoTag estado={rascunho} salvoEm={salvoEm} />
           <span className="label">
             {totalWords} palavras · ~{estimate.toFixed(0)}s narrados
           </span>
@@ -174,7 +274,7 @@ export function Editor({ job, onApplied, toast }: {
         <div className="panel-body grid" style={{ gap: 12 }}>
           <Field label="Título">
             <input className="input" value={title}
-                   onChange={(e) => setTitle(e.target.value)} />
+                   onChange={(e) => { tocar(); setTitle(e.target.value); }} />
           </Field>
 
           <Field
@@ -272,7 +372,7 @@ export function Editor({ job, onApplied, toast }: {
             <div className="grid" style={{ gap: 8 }}>
               <div className="row" style={{ gap: 8 }}>
                 <select className="select grow" value={voiceId}
-                        onChange={(e) => setVoiceId(e.target.value)}>
+                        onChange={(e) => { tocar(); setVoiceId(e.target.value); }}>
                   <option value="">Padrão do sistema (edge-tts pt-BR)</option>
                   {voices.map((voice) => (
                     <option key={voice.id} value={voice.id}>
@@ -309,6 +409,7 @@ export function Editor({ job, onApplied, toast }: {
             <div className="grid" style={{ gap: 8 }}>
               <select className="select" value={music ? musicTrack : ""}
                       onChange={(e) => {
+                        tocar();
                         setMusicTrack(e.target.value);
                         setMusic(Boolean(e.target.value));
                       }}>
@@ -334,7 +435,7 @@ export function Editor({ job, onApplied, toast }: {
             <Field label="Volume da trilha" hint={musicVolume.toFixed(2)}>
               <input type="range" min={0.02} max={0.4} step={0.01}
                      value={musicVolume}
-                     onChange={(e) => setMusicVolume(Number(e.target.value))} />
+                     onChange={(e) => { tocar(); setMusicVolume(Number(e.target.value)); }} />
             </Field>
           ) : null}
         </div>
@@ -350,7 +451,7 @@ export function Editor({ job, onApplied, toast }: {
           <Field label="Estilo">
             <Chips
               value={captionStyle}
-              onChange={setCaptionStyle}
+              onChange={(v) => { tocar(); setCaptionStyle(v); }}
               options={[
                 { value: "karaoke", label: "Karaokê" },
                 { value: "bloco", label: "Bloco" },
@@ -362,7 +463,7 @@ export function Editor({ job, onApplied, toast }: {
           <Field label="Posição">
             <Chips
               value={captionPosition}
-              onChange={setCaptionPosition}
+              onChange={(v) => { tocar(); setCaptionPosition(v); }}
               options={[
                 { value: "centro", label: "Centro" },
                 { value: "baixo", label: "Base" },
@@ -377,10 +478,11 @@ export function Editor({ job, onApplied, toast }: {
           >
             <div className="grid" style={{ gap: 6 }}>
               <input type="range" min={-1} max={1} step={0.05} value={offset}
-                     onChange={(e) => setOffset(Number(e.target.value))} />
+                     onChange={(e) => { tocar(); setOffset(Number(e.target.value)); }} />
               <div className="row spread">
                 <span className="label">legenda adianta</span>
-                <button className="btn sm ghost" onClick={() => setOffset(0)}>zerar</button>
+                <button className="btn sm ghost"
+                        onClick={() => { tocar(); setOffset(0); }}>zerar</button>
                 <span className="label">legenda atrasa</span>
               </div>
             </div>
@@ -394,20 +496,55 @@ export function Editor({ job, onApplied, toast }: {
         </div>
       </section>
 
-      <div className="row" style={{ gap: 10 }}>
-        <button className="btn primary grow" onClick={() => apply(true)} disabled={busy}>
-          {busy ? "Aplicando…" : "Salvar roteiro e re-renderizar"}
-        </button>
-        <button className="btn" onClick={() => apply(false)} disabled={busy}>
-          Só áudio e legenda
-        </button>
-        <button
-          className="btn ghost"
-          onClick={() => api.resetEdit(job.id).then(() => toast("Roteiro manual descartado."))}
-        >
-          Descartar edição
-        </button>
+      <div className="grid" style={{ gap: 8 }}>
+        <div className="row" style={{ gap: 10 }}>
+          <button className="btn primary grow" onClick={() => apply(true)} disabled={busy}>
+            {busy ? "Aplicando…" : "Salvar roteiro e re-renderizar"}
+          </button>
+          <button className="btn" onClick={() => apply(false)} disabled={busy}>
+            Só áudio e legenda
+          </button>
+          {rascunho !== "limpo" ? (
+            <button className="btn ghost" onClick={descartarRascunho}>
+              Descartar rascunho
+            </button>
+          ) : (
+            <button
+              className="btn ghost"
+              onClick={() => api.resetEdit(job.id).then(() => {
+                editando.current = false;
+                toast("Roteiro manual descartado.");
+              })}
+            >
+              Voltar ao roteiro da IA
+            </button>
+          )}
+        </div>
+        <p className="dimmer" style={{ margin: 0, fontSize: 11.5, lineHeight: 1.5 }}>
+          O que você digita é guardado no servidor a cada poucos segundos: pode fechar
+          a aba e voltar depois. A renderização também roda no servidor — sair da tela
+          não interrompe.
+        </p>
       </div>
     </div>
+  );
+}
+
+/** Estado do rascunho, para o usuário nunca ficar na dúvida se perdeu texto. */
+function RascunhoTag({ estado, salvoEm }: {
+  estado: "limpo" | "pendente" | "salvando" | "salvo";
+  salvoEm: string | null;
+}) {
+  if (estado === "limpo") return null;
+  const mapa = {
+    pendente: { tone: "amber", texto: "alterações não salvas" },
+    salvando: { tone: "amber", texto: "guardando…" },
+    salvo: { tone: "ok", texto: "rascunho guardado" },
+  }[estado];
+  return (
+    <span className="tag" data-tone={mapa.tone}
+          title={salvoEm ? `guardado em ${new Date(salvoEm).toLocaleString("pt-BR")}` : ""}>
+      {mapa.texto}
+    </span>
   );
 }

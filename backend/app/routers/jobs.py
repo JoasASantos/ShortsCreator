@@ -5,7 +5,7 @@ import re
 import shutil
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 
@@ -322,6 +322,8 @@ def edit_job(job_id: str, edit: ScriptEdit):
 
     db.update_job(job_id, input_json=json.dumps(job.model_dump()),
                   error=None, qa_json=None)
+    # o que estava em rascunho acabou de virar a versão oficial
+    (settings.job_dir(job_id) / "draft.json").unlink(missing_ok=True)
     worker.enqueue(job_id)
     return {"job_id": job_id, "status": "queued", "applied": sorted(changes)}
 
@@ -329,9 +331,46 @@ def edit_job(job_id: str, edit: ScriptEdit):
 @router.delete("/{job_id}/edit")
 def reset_edit(job_id: str):
     """Descarta o roteiro editado e volta a gerar pelo LLM."""
-    override = settings.job_dir(job_id) / "script_override.json"
-    override.unlink(missing_ok=True)
+    job_dir = settings.job_dir(job_id)
+    (job_dir / "script_override.json").unlink(missing_ok=True)
+    (job_dir / "draft.json").unlink(missing_ok=True)
     return {"job_id": job_id, "reset": True}
+
+
+# ------------------------------------------------------------------ rascunho
+# O editor guarda o que está sendo digitado aqui, sem renderizar nada. É o que
+# permite fechar a aba (ou trocar de máquina) e voltar de onde parou — antes o
+# texto só existia no estado do React e sumia junto com a tela.
+
+@router.get("/{job_id}/draft")
+def get_draft(job_id: str):
+    if db.get_job(job_id) is None:
+        raise HTTPException(404, "Job não encontrado")
+    path = settings.job_dir(job_id) / "draft.json"
+    if not path.exists():
+        return {"draft": None}
+    try:
+        return {"draft": json.loads(path.read_text(encoding="utf-8"))}
+    except json.JSONDecodeError:
+        path.unlink(missing_ok=True)
+        return {"draft": None}
+
+
+@router.put("/{job_id}/draft")
+def save_draft(job_id: str, draft: dict = Body(...)):
+    if db.get_job(job_id) is None:
+        raise HTTPException(404, "Job não encontrado")
+    draft = {k: v for k, v in draft.items() if k != "saved_at"}
+    draft["saved_at"] = db.now()
+    (settings.job_dir(job_id) / "draft.json").write_text(
+        json.dumps(draft, ensure_ascii=False), encoding="utf-8")
+    return {"saved_at": draft["saved_at"]}
+
+
+@router.delete("/{job_id}/draft")
+def delete_draft(job_id: str):
+    (settings.job_dir(job_id) / "draft.json").unlink(missing_ok=True)
+    return {"job_id": job_id, "discarded": True}
 
 
 class ScriptPrompt(BaseModel):

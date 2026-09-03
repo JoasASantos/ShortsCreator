@@ -174,6 +174,21 @@ export interface ScriptEdit {
   scroll?: string;
 }
 
+/** O que o editor de roteiro guarda sem renderizar, para sobreviver a fechar
+ *  a aba. Vira a versão oficial quando o usuário aplica. */
+export interface ScriptDraft {
+  segments: ScriptSegment[];
+  title: string;
+  voice_id: string;
+  caption_style: string;
+  caption_position: string;
+  caption_offset: number;
+  music: boolean;
+  music_track: string;
+  music_volume: number;
+  saved_at?: string;
+}
+
 export interface TimelineVideoClip {
   id: string;
   source: string;
@@ -444,6 +459,12 @@ export const api = {
     req<{ job_id: string; applied: string[] }>(`/api/jobs/${id}/edit`,
       { method: "POST", body: JSON.stringify(edit) }),
   resetEdit: (id: string) => req(`/api/jobs/${id}/edit`, { method: "DELETE" }),
+
+  draft: (id: string) => req<{ draft: ScriptDraft | null }>(`/api/jobs/${id}/draft`),
+  saveDraft: (id: string, draft: ScriptDraft) =>
+    req<{ saved_at: string }>(`/api/jobs/${id}/draft`,
+      { method: "PUT", body: JSON.stringify(draft) }),
+  discardDraft: (id: string) => req(`/api/jobs/${id}/draft`, { method: "DELETE" }),
 
   refineScript: (id: string, instruction: string, render = true) =>
     req<{ script: { segments: ScriptSegment[]; title: string }; rendering: boolean }>(
