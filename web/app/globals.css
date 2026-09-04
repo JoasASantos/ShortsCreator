@@ -131,7 +131,17 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   color: var(--amber);
 }
 
-.nav { padding: 14px 12px; display: flex; flex-direction: column; gap: 1px; flex: 1; }
+/* flex + min-height:0 so a long menu scrolls inside the rail instead of
+   pushing the health readout off the bottom */
+.nav {
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
 
 .nav a {
   display: flex;
@@ -154,12 +164,53 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   border-left-color: var(--amber);
 }
 
-.nav a span.k {
+.nav .k {
   font-family: var(--font-mono), monospace;
   font-size: 10px;
   color: var(--ink-3);
-  margin-left: auto;
 }
+
+/* ---------- sidebar categories ---------- */
+
+.nav-group { display: flex; flex-direction: column; }
+.nav-group:first-of-type { margin-top: 8px; }
+
+.nav-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  margin-top: 6px;
+  padding: 4px 12px;
+  background: none;
+  border: 0;
+  border-radius: var(--r);
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  transition: color 0.14s;
+}
+
+.nav-group-head:hover { color: var(--ink-2); }
+.nav-group-head:hover .k { color: var(--ink-2); }
+
+/* the category the current route lives in is marked even when collapsed */
+.nav-group-head[data-has-active="true"] { color: var(--amber); }
+.nav-group-head[data-has-active="true"] .k { color: var(--amber); }
+
+.nav-group-head .k { transition: transform 0.16s; }
+.nav-group-head[aria-expanded="true"] .k { transform: rotate(90deg); }
+
+.nav-group-items { display: flex; flex-direction: column; gap: 1px; }
+.nav-group-items[hidden] { display: none; }
+
+/* items sit indented under their category header */
+.nav-group-items a { padding-left: 22px; }
 
 .rail-foot {
   padding: 14px 18px 18px;
@@ -830,9 +881,18 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
     padding-right: max(14px, env(safe-area-inset-right));
   }
 
-  /* touch targets: 44px is the recommended minimum on iOS */
+  /* touch targets: 44px is the recommended minimum on iOS.
+     Chips and small buttons used to be walked back to 38px here for density,
+     which quietly exempted the two most-tapped controls in the app from the
+     rule stated on the line above — chips are how every screen makes its
+     choices. Density is not worth a miss on a phone, so they keep the 44px. */
   .btn, .chip, .select, .input { min-height: 44px; }
-  .btn.sm, .chip { min-height: 38px; }
+  /* categories are opened by thumb inside the drawer */
+  .nav-group-head { min-height: 44px; }
+  .nav a { min-height: 44px; }
+  .btn.sm { min-height: 44px; }
+  /* the language switcher lives at the bottom of the drawer, reached by thumb */
+  .locale-btn { min-height: 44px; }
   .btn { padding: 10px 14px; }
   input, select, textarea { font-size: 16px; }   /* prevents the automatic zoom */
   input[type="range"] { height: 34px; }

@@ -56,11 +56,20 @@ export const ptBR = {
     new: "Novo short",
     batch: "Lote",
     trends: "Tendências",
+    reelsEditor: "Editor de Reels",
+    liveCuts: "Cortes de live",
     schedule: "Agenda",
     performance: "Desempenho",
     voices: "Vozes",
     accounts: "Contas",
     install: "Instalação",
+    // categorias da barra lateral
+    groups: {
+      create: "Criar com IA",
+      myVideo: "Meu vídeo",
+      publish: "Publicar",
+      configure: "Configurar",
+    },
   },
 
   status: {
@@ -343,6 +352,7 @@ export const ptBR = {
     notApplied: "não aplicado",
     rebuild: "Refazer neste frame",
     auto: "Escolher automático",
+    download: "Baixar capa",
     explain:
       "Sobe como thumbnail no YouTube (canal precisa estar verificado) e define o frame de capa no TikTok e no Instagram.",
     done: "Capa refeita (frame em {at}s).",
@@ -460,6 +470,9 @@ export const ptBR = {
     noCaption:
       "Ainda sem legenda. Gere o texto de publicação a partir do roteiro narrado.",
     captionDone: "Legenda de publicação gerada.",
+    copy: "Copiar",
+    copied: "Legenda copiada — título, texto e hashtags.",
+    copyFailed: "Não foi possível copiar. Selecione o texto na tela.",
     noAccounts:
       "Nenhuma conta conectada. Vá em <b>Contas</b> para autorizar YouTube, TikTok, Instagram ou LinkedIn.",
     account: "Conta",
@@ -555,6 +568,123 @@ export const ptBR = {
       hackernews: "Hacker News",
       youtube_popular: "YouTube",
     },
+  },
+
+  // telas de vídeo próprio (em construção)
+  reelsPage: {
+    soon:
+      "Aqui você vai subir um vídeo seu e cortar, legendar e finalizar o reel sem sair da ferramenta.",
+  },
+
+  cutsPage: {
+    soon:
+      "Aqui você vai apontar uma live ou um vídeo longo e a ferramenta separa os melhores trechos em cortes verticais.",
+  },
+
+  liveCuts: {
+    subtitle: "uma live longa → muitos cortes",
+    intro:
+      "Aponte a live salva e a ferramenta separa os melhores trechos em cortes verticais, espalhados por toda a transmissão.",
+    stepSource: "01 · Live de origem",
+    stepCuts: "02 · Cortes encontrados",
+    origin: "De onde vem a live",
+    fromFile: "Arquivo",
+    fromUrl: "Link",
+    exclusive: "Um arquivo ou um link — nunca os dois de uma vez.",
+    drop: "Arraste o arquivo da live aqui ou toque para escolher",
+    dropping: "Solte para enviar",
+    urlLabel: "Link da live salva",
+    urlPlaceholder: "https://www.youtube.com/watch?v=…",
+    urlHint:
+      "VOD do YouTube, Twitch, Kick — qualquer link que o yt-dlp consiga baixar.",
+    howMany: "Quantos cortes",
+    window: "Janela de análise",
+    windowMinutes: "{n} min",
+    windowHint:
+      "A live é lida em blocos desse tamanho e cada bloco entrega a sua parte dos cortes — é isso que espalha os cortes pela live inteira em vez de tirar todos do começo.",
+    needSource: "Envie o arquivo da live ou cole o link.",
+    running: "rodando há {n} min",
+    leave:
+      "Uma live de 6 horas leva vários minutos. Pode fechar esta página e voltar depois: a análise continua no servidor e o plano reaparece aqui.",
+    found: "{n} corte(s) · {sel} selecionado(s)",
+    cutsCount: "{n} corte(s)",
+    selectAll: "Marcar todos",
+    clear: "Desmarcar todos",
+    score: "Nota",
+    previous: "Lives anteriores",
+    noPrevious: "nenhuma live cortada ainda",
+    planSummary: "{count} × {seconds}s · janela de {window} min",
+    fromFileTag: "arquivo",
+    fromUrlTag: "link",
+  },
+
+  reels: {
+    subtitle: "você grava · a ferramenta edita",
+    intro:
+      "Mande o vídeo que você gravou. A fala é transcrita e vira legenda no tempo exato, e depois você sobrepõe imagem ou vídeo, corta e ajusta sem sair daqui.",
+    stepSource: "01 · Sua gravação",
+    stepStyle: "02 · Legenda e marca",
+    stepAssist: "03 · Ajuda da IA",
+    stepMedia: "04 · Mídia sobreposta",
+    origin: "De onde vem a gravação",
+    fromFile: "Arquivo",
+    fromUrl: "Link",
+    exclusive: "Um arquivo ou um link — nunca os dois de uma vez.",
+    drop: "Arraste sua gravação aqui ou toque para escolher",
+    dropping: "Solte para enviar",
+    urlLabel: "Link da gravação",
+    urlPlaceholder: "https://www.youtube.com/watch?v=…",
+    urlHint:
+      "Um reel que você já postou, uma palestra, uma gravação em outro lugar — qualquer link que o yt-dlp baixe.",
+    titleLabel: "Nome deste reel",
+    titlePlaceholder: "Engenharia reversa em 40 segundos",
+    goal: "O que você quer com esse vídeo",
+    goalHint: "é isso que guia as sugestões",
+    goalPlaceholder:
+      "ex.: é para dev, corta o básico · quero mais agressivo na abertura · sugira imagem para a parte de engenharia reversa",
+    keepAudio: "Manter o áudio da gravação",
+    keepAudioHint: "desligado entrega sem som, só com legenda",
+    needSource: "Envie sua gravação ou cole o link.",
+    submit: "Preparar o reel",
+    submitting: "Enfileirando…",
+    transcribing:
+      "Transcrevendo sua fala para gerar a legenda no tempo certo. Pode fechar esta página: continua no servidor.",
+    mine: "Seus reels",
+    noMine: "nenhum reel gravado por você ainda",
+    openEditor: "Abrir na timeline →",
+    notReady: "Espere a transcrição terminar para pedir sugestões.",
+    assistHint: "sugestões ancoradas no que você realmente falou",
+    assistAsk: "Pedir sugestões",
+    assistAsking: "Analisando…",
+    assistEmpty:
+      "Descreva acima o que você quer e peça sugestões: a IA lê a transcrição e devolve abertura, cortes, imagens e legendas.",
+    virality: "Chance de viralizar",
+    viralityRisk: "Maior risco",
+    hooksTitle: "Aberturas mais fortes",
+    cutsTitle: "Trechos para cortar",
+    mediaTitle: "Onde entra imagem ou vídeo",
+    captionsTitle: "Legendas para reescrever",
+    stockQuery: "busca em banco",
+    copyPrompt: "Copiar prompt",
+    copied: "Copiado.",
+    nothingHere: "nada a mudar aqui",
+    mediaFile: "Imagem ou vídeo para sobrepor",
+    mediaDrop: "Arraste a mídia aqui ou toque para escolher",
+    mediaWhen: "Aparece de {start}s a {end}s",
+    mediaSize: "Tamanho",
+    mediaSizeValue: "{n}% da largura",
+    mediaOpacity: "Opacidade",
+    mediaPosition: "Posição",
+    mediaPositionHint: "arraste na prévia",
+    mediaPreview: "Prévia 9:16",
+    mediaAdd: "Colocar sobre o vídeo",
+    mediaAdding: "Colocando…",
+    mediaAdded: "Mídia colocada de {start}s a {end}s.",
+    mediaNeedFile: "Escolha a imagem ou o vídeo primeiro.",
+    mediaList: "{n} mídia(s) sobre o vídeo",
+    mediaNone: "nenhuma mídia sobreposta ainda",
+    renderNeeded:
+      "A mídia entrou na timeline. Renderize de novo na timeline para vê-la no vídeo.",
   },
 
   schedule: {

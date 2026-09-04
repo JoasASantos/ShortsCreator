@@ -99,6 +99,28 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     created_at TEXT NOT NULL
 );
 
+-- A film project. One column per development stage, because each of them is
+-- regenerated, edited and inspected on its own; everything scalar rides in
+-- options_json so the table never grows another column.
+CREATE TABLE IF NOT EXISTS films (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    status TEXT NOT NULL,
+    stage TEXT,
+    premise TEXT NOT NULL,
+    instruction TEXT,
+    options_json TEXT,
+    bible_json TEXT,
+    characters_json TEXT,
+    screenplay_json TEXT,
+    shots_json TEXT,
+    progress_json TEXT,
+    job_id TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS metrics (
     schedule_id TEXT PRIMARY KEY,
     job_id TEXT NOT NULL,
@@ -349,6 +371,50 @@ def list_clip_plans(limit: int = 50) -> list[dict]:
             "SELECT * FROM clip_plans ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------- films ----------
+
+def create_film(premise: str, instruction: str, title: str, options: dict) -> str:
+    film_id = new_id("film")
+    ts = now()
+    with _lock, connect() as conn:
+        conn.execute(
+            "INSERT INTO films (id,title,status,stage,premise,instruction,"
+            "options_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (film_id, title, "developing", None, premise, instruction,
+             json.dumps(options), ts, ts),
+        )
+    return film_id
+
+
+def update_film(film_id: str, **fields: Any) -> None:
+    if not fields:
+        return
+    fields["updated_at"] = now()
+    cols = ", ".join(f"{k}=?" for k in fields)
+    with _lock, connect() as conn:
+        conn.execute(f"UPDATE films SET {cols} WHERE id=?",
+                     (*fields.values(), film_id))
+
+
+def get_film(film_id: str) -> dict | None:
+    with connect() as conn:
+        return _row(conn.execute("SELECT * FROM films WHERE id=?",
+                                 (film_id,)).fetchone())
+
+
+def list_films(limit: int = 50) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM films ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_film(film_id: str) -> None:
+    with _lock, connect() as conn:
+        conn.execute("DELETE FROM films WHERE id=?", (film_id,))
 
 
 # ---------- schedules ----------

@@ -49,7 +49,8 @@ class ClipRenderRequest(BaseModel):
     schedule: ClipSchedule | None = None
 
 
-def _serialize(row: dict) -> dict:
+def serialize_plan(row: dict) -> dict:
+    """Public because the livestream router answers with the same row shape."""
     out = dict(row)
     for key in ("options_json", "clips_json", "jobs_json"):
         raw = out.pop(key, None)
@@ -71,7 +72,7 @@ def create_plan(request: ClipPlanRequest):
 
 @router.get("")
 def list_plans():
-    return [_serialize(row) for row in db.list_clip_plans()]
+    return [serialize_plan(row) for row in db.list_clip_plans()]
 
 
 @router.get("/{plan_id}")
@@ -79,7 +80,7 @@ def get_plan(plan_id: str):
     row = db.get_clip_plan(plan_id)
     if row is None:
         raise HTTPException(404, "Plan not found")
-    return _serialize(row)
+    return serialize_plan(row)
 
 
 @router.delete("/{plan_id}")

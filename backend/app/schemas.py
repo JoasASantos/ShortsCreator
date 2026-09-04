@@ -18,7 +18,10 @@ ScrollStyle = Literal["nenhum", "texto", "pan", "codigo"]
 # narrar_por_cima: uses the whole video/repo at the narration's normal pace.
 # resumo: extracts only the highlight stretches and condenses them into the
 # target duration — this is the "40min episode -> 60s short" mode.
-EditMode = Literal["narrar_por_cima", "resumo"]
+# meu_video: a recording of your own. No script and no TTS — your audio stays,
+# and the captions come from transcribing what you actually said. Handled by
+# pipeline.reels instead of the generation pipeline.
+EditMode = Literal["narrar_por_cima", "resumo", "meu_video"]
 
 # Which angle the script should take on the material. It changes what the
 # SUBJECT is: "describe the scene" differs from "talk about the work, using
@@ -68,6 +71,10 @@ class JobInput(BaseModel):
     background: BackgroundMode = "auto"
     background_query: str = ""
     music: bool = True
+    # Only meaningful for edit_mode="meu_video": that mode has no TTS at all,
+    # so this is the choice between keeping the voice on the recording and
+    # delivering it silent with captions only (for a feed watched muted).
+    keep_audio: bool = True
     music_track: str = ""          # id from /api/music; empty = first in the folder
     music_volume: float = 0.12
     caption_offset: float = 0.0    # fine sync adjustment, in seconds

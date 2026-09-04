@@ -96,7 +96,9 @@ export interface JobInput {
   source_type: SourceType;
   source: string;
   attachments: string[];
-  edit_mode: "narrar_por_cima" | "resumo";
+  // meu_video: a recording of your own — no script and no TTS, the captions
+  // come from transcribing what was actually said.
+  edit_mode: "narrar_por_cima" | "resumo" | "meu_video";
   angle: string;
   instruction: string;
   niche: string;
@@ -111,6 +113,10 @@ export interface JobInput {
     | "imagem_kenburns" | "codigo_scroll" | "ia_video" | "upload";
   background_query: string;
   music: boolean;
+  // Only meaningful in meu_video mode: keep the voice on the recording, or
+  // deliver it silent with captions only. Optional because this type doubles
+  // as the request body, and the other flows have no reason to send it.
+  keep_audio?: boolean;
   music_track: string;
   music_volume: number;
   caption_offset: number;
@@ -233,14 +239,85 @@ export interface TimelineCue {
   end: number;
 }
 
+/** An image or clip laid over the main track — the picture-in-picture.
+ *
+ *  Geometry is in fractions of the frame, not pixels: `x`/`y` are the
+ *  overlay's centre and `width` its share of the frame width, with the height
+ *  following the media's own aspect ratio. That is what lets the editor show a
+ *  9:16 preview at whatever size the browser gives it without knowing the
+ *  output resolution. */
+export interface TimelineMedia {
+  id: string;
+  source: string;
+  start: number;
+  end: number;
+  x: number;
+  y: number;
+  width: number;
+  kind: "image" | "video";
+  opacity: number;
+  in_point: number;
+  mute: boolean;
+}
+
 export interface Timeline {
   duration: number;
   video: TimelineVideoClip[];
   audio: TimelineAudioClip[];
   captions: TimelineCue[];
+  media: TimelineMedia[];
   caption_style: string;
   caption_position: string;
   watermark: string;
+  watermark_position: string;
+  watermark_size: string;
+  watermark_opacity: number;
+}
+
+/** A reel you recorded yourself: exactly one of `attachment_id` or `url` —
+ *  the backend answers 400 when both, or neither, come filled in. */
+export interface ReelInput {
+  attachment_id?: string;
+  url?: string;
+  title?: string;
+  niche?: string;
+  language?: string;
+  caption_style?: string;
+  caption_position?: string;
+  watermark?: string;
+  watermark_position?: string;
+  watermark_size?: string;
+  watermark_opacity?: number;
+  keep_audio?: boolean;
+  instruction?: string;
+}
+
+export interface ReelMediaInput {
+  attachment_id: string;
+  start: number;
+  end: number;
+  x?: number;
+  y?: number;
+  width?: number;
+  opacity?: number;
+  in_point?: number;
+}
+
+/** Suggestions for a recording, anchored to timestamps that exist in its
+ *  transcript — a suggestion the editor cannot place is worse than none, so
+ *  the backend drops those before they get here. */
+export interface ReelAssist {
+  instruction: string;
+  virality: { score: number; why: string; biggest_risk: string };
+  hooks: { text: string; why: string }[];
+  cuts: { start: number; end: number; why: string }[];
+  media: {
+    start: number; end: number; what: string;
+    image_prompt: string; stock_query: string;
+  }[];
+  captions: { start: number; end: number; text: string; why: string }[];
+  title: string;
+  hashtags: string[];
 }
 
 export interface UploadResult {
@@ -308,6 +385,8 @@ export interface ClipInfo {
   titulo: string;
   motivo: string;
   assunto: string;
+  /** Only some analyses rate the stretch; shown when it comes. */
+  score?: number;
 }
 
 export interface ClipPlan {
@@ -316,12 +395,36 @@ export interface ClipPlan {
   status: "queued" | "analisando" | "ready" | "rendered" | "error";
   requested: number;
   target_seconds: number;
-  options: { niche: string; language: string } | null;
+  /** `options_json` is free-form on the backend: a livestream plan carries
+   *  `mode: "livestream"` plus the VOD link and the window it was cut with. */
+  options: {
+    niche: string; language: string;
+    mode?: string; url?: string; window_seconds?: number;
+  } | null;
   clips: ClipInfo[] | null;
   jobs: string[] | null;
   error: string | null;
   created_at: string;
+  updated_at?: string;
 }
+
+/** Livestream plan: exactly one of `attachment_id` or `url` — the backend
+ *  answers 400 when both, or neither, come filled in. */
+export interface LiveCutInput {
+  attachment_id?: string;
+  url?: string;
+  count: number;
+  target_seconds: number;
+  niche: string;
+  language: string;
+  window_minutes: number;
+}
+
+/** Livestream plan limits, the same ones `routers/livecuts.py` enforces. */
+export const LIVECUT_MAX_CUTS = 40;
+export const LIVECUT_MIN_WINDOW_MINUTES = 10;
+export const LIVECUT_MAX_WINDOW_MINUTES = 90;
+export const LIVECUT_MODE = "livestream";
 
 export interface QAIssue {
   check: string;
@@ -470,6 +573,28 @@ export const api = {
                            niche: string; language?: string }) =>
     req<{ plan_id: string }>("/api/clips", { method: "POST", body: JSON.stringify(body) }),
   deleteClipPlan: (id: string) => req(`/api/clips/${id}`, { method: "DELETE" }),
+
+  // Livestream cuts: the plan is the same `clip_plans` row, so listing,
+  // deleting and rendering stay on /api/clips — only creating and following
+  // the windowed analysis have their own route.
+  createLiveCutPlan: (body: LiveCutInput) =>
+    req<{ plan_id: string; status: string }>("/api/livecuts",
+      { method: "POST", body: JSON.stringify(body) }),
+  liveCutPlan: (id: string) => req<ClipPlan>(`/api/livecuts/${id}`),
+
+  // A reel you recorded yourself. It becomes an ordinary job, which is why
+  // following it goes through /api/jobs like every other production — only
+  // creating it, asking for suggestions and dropping media over it are its own.
+  createReel: (body: ReelInput) =>
+    req<{ job_id: string; status: string }>("/api/reels",
+      { method: "POST", body: JSON.stringify(body) }),
+  assistReel: (id: string, instruction: string) =>
+    req<ReelAssist>(`/api/reels/${id}/assist`,
+      { method: "POST", body: JSON.stringify({ instruction }) }),
+  addReelMedia: (id: string, body: ReelMediaInput) =>
+    req<Timeline>(`/api/reels/${id}/media`,
+      { method: "POST", body: JSON.stringify(body) }),
+
   renderClips: (id: string, body: Record<string, unknown>) =>
     req<{ jobs: string[]; schedules: { job_id: string; publish_at: string }[] }>(
       `/api/clips/${id}/render`, { method: "POST", body: JSON.stringify(body) }),

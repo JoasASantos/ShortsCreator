@@ -108,21 +108,51 @@ seguras de notch, alvos de toque de 44 px e uma gaveta de navegação deslizante
 
 ## Instalação
 
-Requer **Python 3.11+**, **Node 20+** e **FFmpeg**.
+Requer **Python 3.11+**, **Node 20+** e **FFmpeg**. Um comando por plataforma
+instala os três, mais as dependências Python e da web, e escreve um `.env` a
+partir do `.env.example`:
 
 ```bash
 git clone https://github.com/JoasASantos/ShortsCreator.git
 cd ShortsCreator
-make setup          # cria o venv, instala backend e frontend, copia o .env
 ```
 
-Preencha o `.env` e suba os dois serviços:
+| Plataforma | Comando |
+|---|---|
+| Linux (apt / dnf / pacman) | `make setup` |
+| macOS (Homebrew) | `make setup` |
+| Windows (PowerShell) | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` e depois `.\scripts\setup.ps1` |
+
+O `make setup` roda o `scripts/setup.sh`; no Windows o equivalente é o
+`scripts/setup.ps1`, que usa winget e cai para o Chocolatey. A forma
+`-Scope Process` da política de execução vale só para aquela janela — não
+existe motivo para afrouxá-la na máquina inteira.
+
+Os dois scripts podem ser rodados de novo: corrija uma coisa e rode outra vez.
+O que eles não conseguiram instalar sai no fim, com o comando para fazer à mão
+(no macOS como root, isso é tudo que passa pelo Homebrew — ele se recusa a
+rodar como root).
+
+Depois preencha o `.env` e suba os dois serviços:
 
 ```bash
 make dev            # API em :8000, interface em :3000
 ```
 
-`make doctor` confere as dependências do sistema.
+### O que está faltando e o que isso custa
+
+```bash
+make doctor
+```
+
+Reporta cada dependência como **obrigatória** ou **opcional**, com a versão
+encontrada, o que cada peça faltando destravaria e o comando exato de
+instalação para o seu sistema. Falta opcional não é falha — ele diz o que cada
+uma custa (sem `faster-whisper`, não dá para legendar a sua própria gravação;
+sem libass no seu FFmpeg, a legenda cai para o overlay em PNG: render mais
+lento, vídeo final igual). O mesmo relatório é servido em
+`GET /api/system/requirements`, e o veredito dele acompanha o
+`GET /api/health`.
 
 ### Modelo de linguagem
 

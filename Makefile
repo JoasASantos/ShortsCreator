@@ -5,24 +5,22 @@ PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
 help:
-	@echo "make setup     — create the venv, install backend and frontend"
+	@echo "make setup     — install everything: venv, backend, frontend, ffmpeg, .env"
 	@echo "make api       — start the API on :8000"
 	@echo "make web       — start the web UI on :3000"
 	@echo "make dev       — start both together"
-	@echo "make doctor    — check the system dependencies"
+	@echo "make doctor    — report what is installed, what is missing and why"
 	@echo "make test      — run the backend test suite"
 	@echo "make test-fast — only the tests that do not need FFmpeg"
 	@echo "make typecheck — check the frontend types"
 	@echo "make i18n      — audit the dictionaries of all 5 languages"
 	@echo "make check     — test + typecheck + i18n"
 
+# Delegates to the script so Linux, macOS and Windows follow the same steps in
+# the same order — the script also installs ffmpeg/yt-dlp, which make cannot do
+# portably, and finishes by running the doctor.
 setup:
-	python3 -m venv $(VENV)
-	$(PIP) install --upgrade pip
-	$(PIP) install -r backend/requirements.txt
-	cd web && npm install
-	@test -f .env || cp .env.example .env
-	@echo "Pronto. Preencha o .env e rode: make dev"
+	sh scripts/setup.sh
 
 api:
 	$(PY) -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload
@@ -33,17 +31,11 @@ web:
 dev:
 	@$(MAKE) api & $(MAKE) web
 
+# One implementation, three front doors: this target, the setup scripts and
+# GET /api/system/requirements all print the same report.
 doctor:
-	@printf "ffmpeg   : "; command -v ffmpeg >/dev/null && ffmpeg -version | head -1 || echo "AUSENTE"
-	@printf "ffprobe  : "; command -v ffprobe >/dev/null && echo ok || echo "AUSENTE"
-	@printf "libass   : "; ffmpeg -hide_banner -filters 2>/dev/null | grep -q " ass " && echo "presente" || echo "ausente (usa fallback PNG)"
-	@printf "python   : "; $(PY) --version 2>/dev/null || echo "venv ausente — rode make setup"
-	@printf "node     : "; node --version 2>/dev/null || echo "AUSENTE"
-	@printf "fontes   : "; ls assets/fonts/*.tt* 2>/dev/null | wc -l | tr -d ' '
-	@printf "trilhas  : "; ls assets/music/*.mp3 2>/dev/null | wc -l | tr -d ' '
-	@printf "claude   : "; command -v claude >/dev/null && claude --version 2>/dev/null || echo "ausente (elo Fable/Opus da cadeia)"
-	@printf "codex    : "; command -v codex >/dev/null && echo ok || echo "ausente (elo GPT-5.6 da cadeia)"
-	@printf "espaco   : "; df -h . | tail -1 | awk '{print $$4" livres"}'
+	@test -x $(PY) || { echo "no venv yet — run: make setup"; exit 1; }
+	@cd backend && ../$(PY) -m app.pipeline.doctor
 
 test:
 	cd backend && ../$(PY) -m pytest

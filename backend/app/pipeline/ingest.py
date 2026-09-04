@@ -212,7 +212,14 @@ def _ingest_videos(urls: list[str], job_dir: Path, log) -> SourceMaterial:
     )
 
 
-def _ingest_video(url: str, job_dir: Path, log) -> SourceMaterial:
+def download_video(url: str, job_dir: Path) -> tuple[Path | None, dict]:
+    """Downloads the video into `job_dir/source.*` and returns it with its info.
+
+    Split out of `_ingest_video` so the livestream flow can get the file
+    without the flat transcription that follows it there: a live needs the
+    TIMED segments (`whisper_segments`), and transcribing six hours twice is
+    hours of CPU for a string nobody reads.
+    """
     out_tpl = str(job_dir / "source.%(ext)s")
     cmd = [
         *ytdlp_command(), "--no-playlist", "--no-warnings",
@@ -246,6 +253,12 @@ def _ingest_video(url: str, job_dir: Path, log) -> SourceMaterial:
     info_file = job_dir / "source.info.json"
     if info_file.exists():
         info = json.loads(info_file.read_text(encoding="utf-8"))
+
+    return video_path, info
+
+
+def _ingest_video(url: str, job_dir: Path, log) -> SourceMaterial:
+    video_path, info = download_video(url, job_dir)
 
     transcript = _read_subtitles(job_dir)
     if not transcript and video_path:
