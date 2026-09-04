@@ -12,9 +12,9 @@ from pathlib import Path
 from .. import db
 from ..config import settings
 from ..schemas import JobInput, ShortScript
-from . import (broll, captions, cover as cover_mod, highlights, ingest, llm, notify,
-               overlays as overlay_mod, qa, reels, render, script as script_mod,
-               timeline as timeline_mod, tts)
+from . import (avatar, broll, captions, cover as cover_mod, highlights, ingest, llm,
+               notify, overlays as overlay_mod, qa, reels, render,
+               script as script_mod, timeline as timeline_mod, tts)
 
 STAGES = [
     ("ingest", 0.08),
@@ -170,6 +170,12 @@ def run_job(job_id: str) -> dict:
         # on its output unchanged.
         if job.edit_mode == reels.MODE:
             return reels.run(job_id, job, job_dir, log, stage)
+
+        # An avatar video is the same idea from the other side: the provider
+        # renders both the picture and the voice, so there is no script stage
+        # and no TTS stage here either — but it writes the same artifacts.
+        if job.edit_mode == avatar.MODE:
+            return avatar.run(job_id, job, job_dir, log, stage)
 
         render.ensure_ffmpeg()
 

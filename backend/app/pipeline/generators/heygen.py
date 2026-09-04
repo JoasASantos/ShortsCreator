@@ -21,25 +21,41 @@ def _headers(creds: dict) -> dict:
     return {"X-Api-Key": creds.get("api_key", ""), "Content-Type": "application/json"}
 
 
+def _listing(payload: dict, key: str) -> list[dict]:
+    """The items out of a listing response, whichever shape it arrives in.
+
+    The v2 endpoints wrap them (`data.avatars`, `data.voices`); the v3 ones
+    that replace them return a flat `data[]`. Reading both means the picker
+    keeps working across that switch instead of quietly going empty — v2 is
+    documented as operational only until 2026-11-01.
+    """
+    data = payload.get("data")
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if isinstance(data, dict):
+        return [item for item in (data.get(key) or []) if isinstance(item, dict)]
+    return []
+
+
 def verify(creds: dict) -> str:
     r = httpx.get(f"{BASE}/v2/avatars", headers=_headers(creds), timeout=TIMEOUT)
     if r.status_code in (401, 403):
         raise RuntimeError("Key rejected by HeyGen")
     r.raise_for_status()
-    avatars = (r.json().get("data") or {}).get("avatars", [])
+    avatars = _listing(r.json(), "avatars")
     return f"HeyGen responding — {len(avatars)} avatars available"
 
 
 def list_avatars(creds: dict) -> list[dict]:
     r = httpx.get(f"{BASE}/v2/avatars", headers=_headers(creds), timeout=TIMEOUT)
     r.raise_for_status()
-    return (r.json().get("data") or {}).get("avatars", [])
+    return _listing(r.json(), "avatars")
 
 
 def list_voices(creds: dict) -> list[dict]:
     r = httpx.get(f"{BASE}/v2/voices", headers=_headers(creds), timeout=TIMEOUT)
     r.raise_for_status()
-    return (r.json().get("data") or {}).get("voices", [])
+    return _listing(r.json(), "voices")
 
 
 def generate_avatar_video(script_text: str, avatar_id: str, voice_id: str,
@@ -87,6 +103,12 @@ def generate_avatar_video(script_text: str, avatar_id: str, voice_id: str,
             log("heygen: video downloaded")
             return out_path
         if status == "failed":
-            raise RuntimeError(f"HeyGen: generation failed — {info.get('error')}")
+            # A failure carries `failure_message`/`failure_code` on the status
+            # payload; `error` was only ever the older name. Reading all three
+            # keeps the reason from rendering as "None", which is the one
+            # outcome nobody can act on.
+            reason = (info.get("failure_message") or info.get("failure_code")
+                      or info.get("error") or "no reason given")
+            raise RuntimeError(f"HeyGen: generation failed — {reason}")
         time.sleep(POLL_INTERVAL)
     raise RuntimeError("HeyGen: timed out waiting for the generation to finish")

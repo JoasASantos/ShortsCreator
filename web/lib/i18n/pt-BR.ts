@@ -58,6 +58,7 @@ export const ptBR = {
     trends: "Tendências",
     reelsEditor: "Editor de Reels",
     liveCuts: "Cortes de live",
+    avatar: "Avatar com minha voz",
     filmStudio: "Estúdio de filmes",
     schedule: "Agenda",
     performance: "Desempenho",
@@ -1062,6 +1063,14 @@ export const ptBR = {
     zoomIn: "Ampliar zoom",
     split: "Cortar no cursor",
     closeGaps: "Fechar lacunas",
+    undo: "Desfazer",
+    redo: "Refazer",
+    shortcuts: "Espaço reproduz · S corta no cursor · Del remove · Ctrl+Z desfaz",
+    audioTitle: "Áudio selecionado",
+    volume: "Volume",
+    muted: "sem som",
+    mute: "Silenciar",
+    unmute: "Voltar o som",
     fillToAudio: "Estender até o áudio",
     gapWarning:
       "O vídeo termina {gap}s antes do áudio — esse trecho fica preto e o QA reprova. Use “{action}” ou encurte a narração.",
@@ -1206,6 +1215,74 @@ export const ptBR = {
       sar: "SAR",
       sample_rate: "sample rate",
     },
+  },
+
+  /* Avatar com a minha voz. Duas metades independentes na mesma tela: clonar a
+   *  sua voz de uma amostra (grátis e local no XTTS, ou hospedada no
+   *  fish.audio) e o apresentador lendo o roteiro (HeyGen). Todo estado vem do
+   *  backend com o motivo dele — esta tela não inventa diagnóstico. */
+  avatarPage: {
+    title: "Avatar com a minha voz",
+    subtitle: "sua voz · seu apresentador",
+    intro:
+      "Duas coisas independentes aqui. Clonar a sua voz de uma amostra funciona sem chave nenhuma, no XTTS rodando na sua própria máquina. O apresentador que lê o roteiro é gerado pelo HeyGen e precisa da chave da conta.",
+    stateTitle: "O que dá para fazer agora",
+    stateHint: "cada linha traz o motivo que o servidor deu, e o próximo passo",
+    failed: "Não foi possível ler o estado do avatar: {message}",
+
+    voiceStep: "01 · A sua voz",
+    voiceIntro:
+      "Mande uma amostra falando no seu ritmo normal. No XTTS a amostra fica aqui e vira a voz: nada sai desta máquina. No fish.audio ela treina um modelo privado na conta deles.",
+    voiceName: "Nome desta voz",
+    voiceNamePlaceholder: "Minha voz",
+    pathLabel: "Onde clonar",
+    pathHint: "automático começa pela opção grátis",
+    pathAuto: "A que estiver disponível",
+    pathXtts: "XTTS local (grátis)",
+    pathFish: "fish.audio (pago)",
+    sampleLabel: "Amostra da sua voz",
+    sampleHint: "mínimo {min}s · ideal {ideal}s",
+    sampleRules:
+      "Fale de uma vez, no ritmo normal, sem música atrás. Aceita áudio ou vídeo — de um vídeo o áudio é extraído aqui. Amostra com menos de {min}s é recusada, porque abaixo disso não há timbre suficiente para modelar.",
+    drop: "Arraste um áudio ou vídeo seu aqui ou toque para escolher",
+    cloneAction: "Registrar a minha voz",
+    cloning: "Clonando…",
+    clonedToast: "Voz registrada por {provider}.",
+    needName: "Dê um nome para esta voz.",
+    needSample: "Escolha a amostra da sua voz primeiro.",
+    myVoices: "Vozes suas já registradas",
+    noVoices: "nenhuma voz sua registrada até agora",
+    clonedWith: "clonada por {provider}",
+    sampleSeconds: "{n}s de amostra",
+    listenSample: "Ouvir a amostra",
+    listenVoice: "Ouvir a voz",
+
+    videoStep: "02 · O vídeo com avatar",
+    videoIntro:
+      "O avatar lê o roteiro na voz que você escolher e o clipe volta como um short comum: abre na timeline, passa pelo QA e segue para publicação como qualquer outro.",
+    loadCatalog: "Carregar avatares da conta",
+    loadingCatalog: "Carregando da conta…",
+    pickAvatar: "Quem apresenta",
+    pickVoice: "Em qual voz ele fala",
+    catalogEmpty: "nenhum avatar nesta conta",
+    voicesEmpty: "nenhuma voz nesta conta",
+    scriptLabel: "Roteiro que o avatar vai ler",
+    scriptPlaceholder:
+      "Ninguém avisou que isso ia vazar. Em quarenta segundos eu te mostro como aconteceu.",
+    scriptCount: "{n} de {max} caracteres",
+    titleLabel: "Nome deste vídeo",
+    titlePlaceholder: "Vazamento explicado em 40 segundos",
+    generate: "Gerar o vídeo com avatar",
+    generating: "Enfileirando…",
+    queuedToast: "Vídeo na fila.",
+    queuedHint:
+      "O render roda no HeyGen e leva alguns minutos. Pode fechar esta página: o short aparece aqui e no painel quando terminar.",
+    needScript: "Escreva o roteiro que o avatar vai ler.",
+    needAvatar: "Escolha quem apresenta.",
+    needVoice: "Escolha a voz do avatar.",
+    mine: "Seus vídeos com avatar",
+    noMine: "nenhum vídeo com avatar até agora",
+    openJob: "Abrir o short →",
   },
 };
 

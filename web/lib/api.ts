@@ -98,7 +98,9 @@ export interface JobInput {
   attachments: string[];
   // meu_video: a recording of your own — no script and no TTS, the captions
   // come from transcribing what was actually said.
-  edit_mode: "narrar_por_cima" | "resumo" | "meu_video";
+  // avatar: a talking presenter reads the script — the provider renders both
+  // the picture and the voice, so there is no TTS stage either.
+  edit_mode: "narrar_por_cima" | "resumo" | "meu_video" | "avatar";
   angle: string;
   instruction: string;
   niche: string;
@@ -130,6 +132,11 @@ export interface JobInput {
   variants: number;
   qa_autofix: boolean;
   qa_max_attempts: number;
+  // Only meaningful in avatar mode: the provider's own ids for the presenter
+  // and the voice it speaks in. Optional because this type doubles as the
+  // request body and no other flow has a reason to send them.
+  avatar_id?: string;
+  avatar_voice_id?: string;
 }
 
 /** Where the channel handle sits, how big and how visible. Values are the
@@ -707,6 +714,83 @@ export interface GeneratorsReport {
   selection: Record<GeneratorCapability, GeneratorCandidate[]>;
 }
 
+/* ---------------------------------------- your own avatar, your own voice */
+
+/** One path of the avatar feature, in the same shape the generator registry
+ *  uses: a state, the backend's own reason for it, and what it unlocks.
+ *  `kind` says which half it belongs to — the talking presenter, or cloning
+ *  your voice from a sample. */
+export interface AvatarProvider {
+  id: string;
+  label: string;
+  kind: "avatar_video" | "voice_clone";
+  hosting: "hosted" | "local";
+  cost: "paid" | "free";
+  speed: string;
+  state: GeneratorState;
+  reason: string;
+  setup: string;
+  docs: string;
+  connector: string;
+  /** Local servers only — the URL that was probed. */
+  base_url: string;
+  unlocks: string[];
+}
+
+export interface AvatarReport {
+  avatar: AvatarProvider;
+  voice_clone: AvatarProvider[];
+  providers: AvatarProvider[];
+  /** The numbers the screen has to state before someone records a sample or
+   *  writes a script, rather than after being refused. */
+  limits: {
+    min_sample_seconds: number;
+    recommended_sample_seconds: number;
+    max_sample_seconds: number;
+    min_script_chars: number;
+    max_script_chars: number;
+  };
+}
+
+export interface AvatarChoice {
+  id: string;
+  name: string;
+  gender: string;
+  preview_image: string;
+  preview_video: string;
+}
+
+export interface AvatarVoiceChoice {
+  id: string;
+  name: string;
+  language: string;
+  gender: string;
+  preview_audio: string;
+}
+
+/** A voice row plus the two things only the cloning answer knows: which path
+ *  ran, and what the sample turned out to be. */
+export interface ClonedVoice extends Voice {
+  cloned_with: string;
+  note: string;
+  sample_seconds: number;
+  sample_dbfs: number;
+}
+
+export interface AvatarVideoInput {
+  script: string;
+  avatar_id: string;
+  voice_id: string;
+  title?: string;
+  language?: string;
+  caption_style?: string;
+  caption_position?: string;
+  watermark?: string;
+  watermark_position?: WatermarkPosition;
+  watermark_size?: WatermarkSize;
+  watermark_opacity?: number;
+}
+
 export interface Health {
   status: string;
   ffmpeg: boolean;
@@ -922,4 +1006,25 @@ export const api = {
   schedules: () => req<Schedule[]>("/api/publish/schedules"),
   deleteSchedule: (id: string) => req(`/api/publish/schedules/${id}`, { method: "DELETE" }),
   runSchedule: (id: string) => req(`/api/publish/schedules/${id}/run`, { method: "POST" }),
+
+  // Your own avatar with your own voice. probe=true is what makes the local
+  // XTTS server's state truthful; it costs one round trip.
+  avatarCapabilities: (probe = true) =>
+    req<AvatarReport>(`/api/avatar?probe=${probe}`),
+  // Both answer 400 with the instruction when HeyGen is not configured — the
+  // catalog belongs to the account, so there is nothing to show without it.
+  avatarChoices: () => req<AvatarChoice[]>("/api/avatar/avatars"),
+  avatarVoiceChoices: () => req<AvatarVoiceChoice[]>("/api/avatar/voices"),
+  // An avatar video becomes an ordinary job, so following it goes through
+  // /api/jobs like every other production.
+  createAvatarVideo: (body: AvatarVideoInput) =>
+    req<{ job_id: string; status: string }>("/api/avatar/videos",
+      { method: "POST", body: JSON.stringify(body) }),
+  // Multipart: the sample goes up with the name. Audio or video — the audio
+  // is extracted from a video server-side.
+  cloneVoice: (form: FormData) =>
+    req<ClonedVoice>("/api/voices/clone", { method: "POST", body: form }),
+  // The stored sample itself, playable even when nothing is configured —
+  // unlike /preview, which has to synthesize.
+  voiceSampleUrl: (voiceId: string) => `/api/voices/${voiceId}/sample`,
 };

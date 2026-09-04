@@ -8,9 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import db, worker
 from .config import settings
 from .pipeline import doctor
-from .routers import (clips, connectors, films, generators, jobs, livecuts,
-                      metrics, music, outputs, publish, reels, trends, uploads,
-                      voices)
+from .routers import (avatar, clips, connectors, films, generators, jobs,
+                      livecuts, metrics, music, outputs, publish, reels, trends,
+                      uploads, voices)
 
 app = FastAPI(title="ShortsCreator API", version="1.0.0",
               description="Automated generation of 9:16 vertical Shorts with QA.")
@@ -29,6 +29,7 @@ app.include_router(uploads.router)
 app.include_router(clips.router)
 app.include_router(livecuts.router)
 app.include_router(reels.router)
+app.include_router(avatar.router)
 app.include_router(films.router)
 app.include_router(music.router)
 app.include_router(publish.router)

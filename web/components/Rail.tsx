@@ -68,6 +68,7 @@ export function Rail({ open = false }: { open?: boolean }) {
       items: [
         { href: "/reels", label: t.nav.reelsEditor },
         { href: "/cortes", label: t.nav.liveCuts },
+        { href: "/avatar", label: t.nav.avatar },
       ],
     },
     {
