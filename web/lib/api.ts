@@ -303,6 +303,136 @@ export interface ReelMediaInput {
   in_point?: number;
 }
 
+// ------------------------------------------------------------------- films
+
+/** The four stages a film is developed through, in order. Each one is written
+ *  against the ones before it, so rewriting an early stage drops the later
+ *  ones — the API says which in `invalidated`. */
+export const FILM_STAGES = ["bible", "characters", "screenplay", "shots"] as const;
+export type FilmStage = (typeof FILM_STAGES)[number];
+
+/** Limits `routers/films.py` enforces. */
+export const FILM_MIN_SCENES = 1;
+export const FILM_MAX_SCENES = 24;
+export const FILM_MIN_SHOT_SECONDS = 3;
+export const FILM_MAX_SHOT_SECONDS = 12;
+
+export interface FilmInput {
+  premise: string;
+  instruction?: string;
+  title?: string;
+  language?: string;
+  niche?: string;
+  aspect?: string;
+  scenes?: number;
+  shot_seconds?: number;
+  voice_id?: string | null;
+  caption_style?: string;
+  caption_position?: string;
+  watermark?: string;
+}
+
+export interface FilmBible {
+  title: string;
+  logline: string;
+  theme: string;
+  tone: string;
+  /** Written in English on purpose: it is fed to the video model. */
+  look: string;
+  setting: string;
+  acts: { act: number; name: string; summary: string; turning_point: string }[];
+}
+
+export interface FilmCharacter {
+  name: string;
+  role: string;
+  personality: string;
+  /** Pasted verbatim into every shot prompt featuring this character — that
+   *  literal reuse is the only thing keeping a face the same between shots. */
+  visual: string;
+  voice: string;
+}
+
+export interface FilmScene {
+  scene: number;
+  act: number;
+  location: string;
+  time_of_day: string;
+  beat: string;
+  characters: string[];
+  narration: string;
+  dialogue: { character: string; line: string }[];
+  seconds: number;
+}
+
+export interface FilmShot {
+  scene: number;
+  shot: number;
+  action: string;
+  camera: string;
+  characters: string[];
+  seconds: number;
+  key?: string;
+  prompt?: string;
+}
+
+export interface FilmEstimate {
+  shots: number;
+  seconds: number;
+  scenes: number;
+  narration_lines: number;
+  shots_to_generate: number;
+  seconds_to_generate: number;
+  reused_shots: number;
+  /** `reason` is the backend's own explanation of what to do about an
+   *  unconfigured provider — shown verbatim rather than reworded. */
+  provider: {
+    id: string;
+    name: string;
+    model: string;
+    cost: string;
+    configured: boolean;
+    reason?: string;
+  };
+}
+
+export interface Film {
+  id: string;
+  premise: string;
+  instruction: string;
+  title: string | null;
+  status: string;
+  error: string | null;
+  job_id?: string | null;
+  created_at: string;
+  updated_at?: string;
+  options: Record<string, unknown> | null;
+  bible: FilmBible | null;
+  characters: { characters: FilmCharacter[] } | null;
+  screenplay: { scenes: FilmScene[] } | null;
+  shots: { shots: FilmShot[] } | null;
+  progress?: unknown;
+  estimate?: FilmEstimate;
+}
+
+export interface StageResult {
+  film_id: string;
+  stage: FilmStage;
+  invalidated: FilmStage[];
+  bible?: FilmBible;
+  characters?: { characters: FilmCharacter[] };
+  screenplay?: { scenes: FilmScene[] };
+  shots?: { shots: FilmShot[] };
+}
+
+export interface FilmGenerateResult {
+  film_id: string;
+  queued: boolean;
+  status?: string;
+  estimate: FilmEstimate;
+  detail?: string;
+}
+
 /** Suggestions for a recording, anchored to timestamps that exist in its
  *  transcript — a suggestion the editor cannot place is worse than none, so
  *  the backend drops those before they get here. */
@@ -349,10 +479,17 @@ export interface JobResult {
   video: string;
   thumbnail: string;
   captions_srt: string;
-  script: { segments: { kind: string; text: string; on_screen: string }[] };
+  // Absent for a recording of your own: nothing wrote a script for it, and
+  // the words below are the transcript of what was actually said. This being
+  // non-optional is what let the job page crash on the first reel.
+  script?: { segments: { kind: string; text: string; on_screen: string }[] };
   words: { word: string; start: number; end: number }[];
   source_kind?: string;
   edit_mode?: string;
+  /** Only on a recording of your own — the language whisper detected. */
+  transcript_language?: string;
+  /** Only on a recording of your own — the last suggestions asked for. */
+  assist?: ReelAssist;
   qa_attempts?: QAAttempt[];
   caption?: PostCaption;
   cover?: string | null;
@@ -497,6 +634,79 @@ export interface ChainStep {
   ready: boolean;
 }
 
+/** One line of the requirements doctor. `level` mirrors `required` and is what
+ *  the install screen groups by — a missing optional item is not a failure. */
+export interface Requirement {
+  id: string;
+  label: string;
+  required: boolean;
+  found: boolean;
+  version: string;
+  unlocks: string;
+  install: string;
+  /** What is lost without it, or how the pipeline copes. Only worth showing
+   *  when the item is missing. */
+  note: string;
+  level: "required" | "optional";
+}
+
+export interface RequirementsReport {
+  ok: boolean;
+  platform: { os: string; machine: string; package_manager: string };
+  checks: Requirement[];
+  missing_required: string[];
+  missing_optional: string[];
+  min_free_gb: number;
+}
+
+export type GeneratorCapability =
+  | "text_to_video" | "image_to_video" | "text_to_image" | "image_to_image";
+
+/** `unreachable` only ever happens to a local server: a key that exists proves
+ *  nothing about a server that is not running. `incapable` is not a problem —
+ *  it only means this provider does not do that one capability. */
+export type GeneratorState =
+  | "ready" | "not_configured" | "unreachable" | "incapable";
+
+export interface Generator {
+  id: string;
+  label: string;
+  capabilities: GeneratorCapability[];
+  hosting: "hosted" | "local";
+  cost: "paid" | "free";
+  speed: string;
+  state: GeneratorState;
+  /** The backend's own sentence about why it is in this state. */
+  reason: string;
+  setup: string;
+  docs: string;
+  connector: string;
+  /** Local servers only — the URL that was probed. */
+  base_url: string;
+  models: { id: string; label: string }[];
+  default_model: string;
+  unlocks: string[];
+}
+
+/** A provider weighed for one capability, with the reason it was kept or
+ *  skipped. The first eligible entry is the one that runs. */
+export interface GeneratorCandidate {
+  provider: string;
+  label: string;
+  state: GeneratorState;
+  eligible: boolean;
+  reason: string;
+  hosting: string;
+  cost: string;
+  speed: string;
+  model: string;
+}
+
+export interface GeneratorsReport {
+  providers: Generator[];
+  selection: Record<GeneratorCapability, GeneratorCandidate[]>;
+}
+
 export interface Health {
   status: string;
   ffmpeg: boolean;
@@ -534,6 +744,18 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => req<Health>("/api/health"),
   config: () => req<{ niches: string[]; min_seconds: number; max_seconds: number }>("/api/config"),
+
+  // The doctor probes binaries on every call, so this is asked for when the
+  // install screen opens and on demand — never on a timer.
+  requirements: () => req<RequirementsReport>("/api/system/requirements"),
+
+  // probe=true is what makes a local server's state truthful; it costs one
+  // round trip per server.
+  generators: (probe = true) =>
+    req<GeneratorsReport>(`/api/generators?probe=${probe}`),
+  testGenerator: (id: string) =>
+    req<{ ok: boolean; provider: string; message: string }>("/api/generators/test",
+      { method: "POST", body: JSON.stringify({ provider: id }) }),
 
   jobs: () => req<Job[]>("/api/jobs"),
   job: (id: string) => req<Job>(`/api/jobs/${id}`),
@@ -594,6 +816,26 @@ export const api = {
   addReelMedia: (id: string, body: ReelMediaInput) =>
     req<Timeline>(`/api/reels/${id}/media`,
       { method: "POST", body: JSON.stringify(body) }),
+
+  // Films. Creating one already develops the story bible, so the POST is the
+  // slow call here; every later stage is asked for on its own.
+  createFilm: (body: FilmInput) =>
+    req<Film>("/api/films", { method: "POST", body: JSON.stringify(body) }),
+  films: () => req<Film[]>("/api/films"),
+  film: (id: string) => req<Film>(`/api/films/${id}`),
+  deleteFilm: (id: string) => req(`/api/films/${id}`, { method: "DELETE" }),
+  developStage: (id: string, stage: FilmStage, instruction = "") =>
+    req<StageResult>(`/api/films/${id}/stage/${stage}`,
+      { method: "POST", body: JSON.stringify({ instruction }) }),
+  saveFilmStage: (id: string, stage: FilmStage, doc: unknown) =>
+    req<StageResult>(`/api/films/${id}/${stage}`,
+      { method: "PUT", body: JSON.stringify(doc) }),
+  // confirm=false answers with the estimate and starts nothing — a run is
+  // minutes of paid generation, so the size of it is shown first.
+  generateFilm: (id: string, confirm: boolean, placeholderOk = false) =>
+    req<FilmGenerateResult>(`/api/films/${id}/generate`,
+      { method: "POST",
+        body: JSON.stringify({ confirm, placeholder_ok: placeholderOk }) }),
 
   renderClips: (id: string, body: Record<string, unknown>) =>
     req<{ jobs: string[]; schedules: { job_id: string; publish_at: string }[] }>(

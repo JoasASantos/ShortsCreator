@@ -304,12 +304,14 @@ function ReelStatus({ job }: { job: Job }) {
               <Link className="btn sm" href={`/job/${job.id}`}>
                 {t.reels.openEditor}
               </Link>
-              <a className="btn sm ghost" download
-                 href={`/api/jobs/${job.id}/file/short.mp4`}>
+              {/* `download=1` is the server-side attachment; the HTML
+                  attribute alone is ignored across origins. */}
+              <a className="btn sm ghost"
+                 href={`/api/jobs/${job.id}/file/short.mp4?download=1`}>
                 {t.job.downloadMp4}
               </a>
               <a className="btn sm ghost"
-                 href={`/api/jobs/${job.id}/file/captions.srt`}>
+                 href={`/api/jobs/${job.id}/file/captions.srt?download=1`}>
                 {t.job.downloadSrt}
               </a>
             </div>

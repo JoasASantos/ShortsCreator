@@ -27,8 +27,10 @@ export function Editor({ job, onApplied, toast }: {
   toast: (message: string) => void;
 }) {
   const { t, f, dateTime } = useI18n();
+  // A recording of your own has no script at all — nothing wrote one. The
+  // optional chain has to reach `script` itself, not just `result`.
   const [segments, setSegments] = useState<ScriptSegment[]>(
-    job.result?.script.segments ?? []);
+    job.result?.script?.segments ?? []);
   const [title, setTitle] = useState(job.result?.title ?? "");
   const [voices, setVoices] = useState<Voice[]>([]);
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
@@ -107,7 +109,7 @@ export function Editor({ job, onApplied, toast }: {
   // re-rendering). We sync with the server, but NEVER on top of an edit in
   // progress: `serverScript` is a brand-new array on every poll, so comparing
   // by reference wiped out whatever was being typed every 2.5s.
-  const serverScript = job.result?.script.segments;
+  const serverScript = job.result?.script?.segments;
   const serverKey = serverScript ? JSON.stringify(serverScript) : "";
   const serverTitle = job.result?.title ?? "";
   useEffect(() => {
