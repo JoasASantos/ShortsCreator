@@ -30,25 +30,49 @@ class Narration:
     words: list[dict]     # [{"word": str, "start": float, "end": float}]
 
 
+class VoiceUnavailable(RuntimeError):
+    """A paid voice provider refused the request for a reason retrying will
+    not fix: no credit, an invalid key, a quota that is spent. Distinct from a
+    transient network error, because it decides whether falling back is the
+    right move."""
+
+
 def synthesize(text: str, out_path: Path, voice: dict | None = None,
                log=lambda m: None) -> Narration:
     voice = voice or {}
     provider = voice.get("provider") or settings.tts_provider
-
-    if provider == "edge":
-        narration = _edge(text, out_path, voice, log)
-    elif provider == "elevenlabs":
-        narration = _elevenlabs(text, out_path, voice, log)
-    elif provider == "xtts":
-        narration = _xtts(text, out_path, voice, log)
-    elif provider == "fishaudio":
-        narration = _fishaudio(text, out_path, voice, log)
-    else:
-        raise RuntimeError(f"Unknown TTS_PROVIDER: {provider}")
+    narration = _synthesize_with(provider, text, out_path, voice, log)
 
     if not narration.words:
         narration.words = estimate_words(text, narration.duration)
     return narration
+
+
+def _synthesize_with(provider: str, text: str, out_path: Path, voice: dict,
+                     log) -> Narration:
+    """Runs the chosen provider, falling back to edge-tts when a paid one is
+    out of credit.
+
+    A short should not be lost because a voice account ran dry — the narration
+    still gets made, in the system voice, and the log says why it changed. The
+    fallback is deliberate for `VoiceUnavailable` only: a network blip is worth
+    surfacing rather than silently swapping the voice of the video.
+    """
+    try:
+        if provider == "edge":
+            return _edge(text, out_path, voice, log)
+        if provider == "elevenlabs":
+            return _elevenlabs(text, out_path, voice, log)
+        if provider == "xtts":
+            return _xtts(text, out_path, voice, log)
+        if provider == "fishaudio":
+            return _fishaudio(text, out_path, voice, log)
+        raise RuntimeError(f"Unknown TTS_PROVIDER: {provider}")
+    except VoiceUnavailable as exc:
+        if provider == "edge":
+            raise
+        log(f"{exc} Falling back to the free edge-tts voice.", "warn")
+        return _edge(text, out_path, {}, log)
 
 
 def trim_leading_silence(narration: Narration, out_path: Path,
@@ -360,10 +384,32 @@ def _fish_request(text: str, dest: Path, reference_id: str, model: str,
         json=body,
         timeout=300,
     )
+    if resp.status_code in (401, 402, 403, 429):
+        raise VoiceUnavailable(_fish_reason(resp))
     if resp.status_code >= 400:
         raise RuntimeError(
             f"fish.audio returned {resp.status_code}: {resp.text[:300]}")
     dest.write_bytes(resp.content)
+
+
+def _fish_reason(resp: httpx.Response) -> str:
+    """Plain reading of a refusal from fish.audio.
+
+    402 is the one that confuses people: API credit is billed separately from
+    the platform credit shown on the website, so an account that looks funded
+    still gets refused here.
+    """
+    if resp.status_code == 402:
+        return ("fish.audio has no API credit left. It is billed separately "
+                "from the platform credit shown on the site — top it up at "
+                "fish.audio/app/developers, or switch the voice to edge-tts "
+                "(free) under Voices.")
+    if resp.status_code in (401, 403):
+        return ("fish.audio rejected the API key. Check FISHAUDIO_API_KEY, or "
+                "the key saved under Accounts.")
+    if resp.status_code == 429:
+        return "fish.audio rate limit reached."
+    return f"fish.audio refused the request ({resp.status_code})."
 
 
 def list_fish_voices(query: str = "", language: str = "pt",
