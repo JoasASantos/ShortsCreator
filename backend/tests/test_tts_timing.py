@@ -6,6 +6,9 @@ conversion of sentence-level markers and the leading-silence trim.
 """
 from __future__ import annotations
 
+import httpx
+import pytest
+
 from app.pipeline import tts
 
 from conftest import needs_ffmpeg
@@ -93,3 +96,68 @@ def test_split_sentences_respects_the_character_limit():
     assert all(len(p) <= 100 for p in parts)
     # no text lost along the way
     assert "".join(parts).replace(" ", "") == text.replace(" ", "")
+
+
+# --------------------------------------------- a paid voice running dry
+
+def _refusal(status: int) -> httpx.Response:
+    return httpx.Response(status, json={"status": status, "message": "nope"},
+                          request=httpx.Request("POST", "https://api.fish.audio/v1/tts"))
+
+
+def test_no_api_credit_explains_that_it_is_billed_separately():
+    """402 is the confusing one: fish.audio bills API credit apart from the
+    platform credit shown on the site, so a funded-looking account still gets
+    refused. The message has to say that, or the user hunts the wrong balance."""
+    reason = tts._fish_reason(_refusal(402))          # noqa: SLF001
+    assert "API credit" in reason
+    assert "separately" in reason
+    assert "edge-tts" in reason                        # the free way out
+
+
+def test_a_rejected_key_and_a_rate_limit_read_differently():
+    assert "API key" in tts._fish_reason(_refusal(401))      # noqa: SLF001
+    assert "rate limit" in tts._fish_reason(_refusal(429))   # noqa: SLF001
+
+
+@needs_ffmpeg
+def test_a_voice_without_credit_falls_back_instead_of_losing_the_short(tmp_path, monkeypatch):
+    """A short must not be lost because a voice account ran dry: the narration
+    still gets made in the system voice, and the log says why it changed."""
+    def refuse(*a, **k):
+        raise tts.VoiceUnavailable("no credit")
+
+    monkeypatch.setattr(tts, "_fish_request", refuse)
+    warnings = []
+    out = tmp_path / "narration.mp3"
+
+    narration = tts.synthesize(
+        "Uma frase curta para narrar.", out,
+        {"provider": "fishaudio", "provider_voice_id": "x"},
+        log=lambda m, level="info": warnings.append((level, m)))
+
+    assert out.exists() and narration.duration > 0
+    assert narration.words, "the fallback still has to produce word timings"
+    assert any(level == "warn" for level, _ in warnings)
+
+
+def test_a_network_error_is_not_swallowed_by_the_fallback(tmp_path, monkeypatch):
+    """Only a refusal falls back. A transient failure should surface — quietly
+    swapping the voice of the video would be worse than failing."""
+    def blow_up(*a, **k):
+        raise httpx.ConnectError("network down")
+
+    monkeypatch.setattr(tts, "_fish_request", blow_up)
+    with pytest.raises(httpx.ConnectError):
+        tts.synthesize("frase", tmp_path / "n.mp3", {"provider": "fishaudio"})
+
+
+def test_edge_itself_never_falls_back_to_edge(tmp_path, monkeypatch):
+    """Guards against an infinite bounce if the free provider is the one
+    refusing."""
+    def refuse(*a, **k):
+        raise tts.VoiceUnavailable("edge refused")
+
+    monkeypatch.setattr(tts, "_edge", refuse)
+    with pytest.raises(tts.VoiceUnavailable):
+        tts.synthesize("frase", tmp_path / "n.mp3", {"provider": "edge"})
