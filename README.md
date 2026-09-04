@@ -6,7 +6,7 @@ narration, synced karaoke captions, automatic format auditing, scheduled
 publishing and performance feedback that loops back into the scriptwriter.
 
 ![output](https://img.shields.io/badge/output-1080%C3%971920%20%C2%B7%209%3A16-ffc400)
-![tests](https://img.shields.io/badge/tests-128%20passing-35d67f)
+![tests](https://img.shields.io/badge/tests-353%20passing-35d67f)
 ![i18n](https://img.shields.io/badge/i18n-PT%20%C2%B7%20EN%20%C2%B7%20ES%20%C2%B7%20RU%20%C2%B7%20ZH-35d6e8)
 
 **🇧🇷 [Leia em português](README-PT-BR.md)**
@@ -107,21 +107,50 @@ safe areas, 44 px touch targets and a slide-in navigation drawer.
 
 ## Install
 
-Requires **Python 3.11+**, **Node 20+** and **FFmpeg**.
+Requires **Python 3.11+**, **Node 20+** and **FFmpeg**. One command per
+platform installs all three, plus the Python and web dependencies, and writes
+a `.env` from `.env.example`:
 
 ```bash
 git clone https://github.com/JoasASantos/ShortsCreator.git
 cd ShortsCreator
-make setup          # creates the venv, installs backend and frontend, copies .env
 ```
 
-Fill in `.env` and start both services:
+| Platform | Command |
+|---|---|
+| Linux (apt / dnf / pacman) | `make setup` |
+| macOS (Homebrew) | `make setup` |
+| Windows (PowerShell) | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` then `.\scripts\setup.ps1` |
+
+`make setup` runs `scripts/setup.sh`; on Windows the equivalent is
+`scripts/setup.ps1`, which uses winget and falls back to Chocolatey. The
+`-Scope Process` form of the execution policy lasts only for that window —
+there is no reason to loosen it machine-wide.
+
+Both scripts are re-runnable: fix one thing, run again. Anything they could
+not install is printed at the end with the command to do it by hand (on macOS
+as root, that is everything Homebrew touches — Homebrew refuses to run as
+root).
+
+Then fill in `.env` and start both services:
 
 ```bash
 make dev            # API on :8000, interface on :3000
 ```
 
-`make doctor` checks the system dependencies.
+### What is missing and why it matters
+
+```bash
+make doctor
+```
+
+Reports every dependency as **required** or **optional**, with the version
+found, what each missing piece would unlock and the exact install command for
+your OS. Optional gaps are not failures — it tells you what each one costs
+(no `faster-whisper`, no captions on your own recordings; no libass in your
+FFmpeg build, and captions fall back to PNG overlays: slower render, same
+finished video). The same report is served at `GET /api/system/requirements`,
+and its verdict rides along in `GET /api/health`.
 
 ### Language model
 

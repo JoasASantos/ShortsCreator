@@ -499,6 +499,15 @@ function CoverPanel({ jobId, job, toast, onChanged }: {
             <button className="btn sm ghost" disabled={busy} onClick={() => rebuild(true)}>
               {t.cover.auto}
             </button>
+            {/* The cover is only useful outside the app — as the thumbnail you
+                upload by hand. Without this it was generated and then trapped
+                in the panel. `?v=` keeps a rebuilt cover from being served
+                from the browser cache. */}
+            <a className="btn sm ghost"
+               href={`/api/jobs/${jobId}/file/cover.jpg?v=${job.updated_at}`}
+               download={`cover-${jobId}.jpg`}>
+              {t.cover.download}
+            </a>
           </div>
           <p className="dimmer" style={{ margin: 0, fontSize: 11.5, lineHeight: 1.5 }}>
             {t.cover.explain}
@@ -608,6 +617,8 @@ function PublishBox({ jobId, job, accounts, toast, onCaption }: {
       : caption.youtube_descricao);
   }, [caption, platform]);
 
+  const hashtags = caption?.hashtags ?? job.result?.hashtags ?? [];
+
   const generate = async () => {
     setGenerating(true);
     try {
@@ -617,6 +628,22 @@ function PublishBox({ jobId, job, accounts, toast, onCaption }: {
     } catch (error) {
       toast((error as Error).message);
     } finally { setGenerating(false); }
+  };
+
+  const copy = async () => {
+    // What gets pasted into the app is title + text + hashtags, in that order —
+    // the same shape the publishers assemble.
+    const parts = [platform === "tiktok" || platform === "instagram" ? "" : title,
+                   body, hashtags.join(" ")];
+    try {
+      await navigator.clipboard.writeText(
+        parts.filter((p) => p.trim()).join("\n\n"));
+      toast(t.publish.copied);
+    } catch {
+      // no clipboard permission (or a non-secure origin): the text is on
+      // screen and selectable, so say that instead of failing silently
+      toast(t.publish.copyFailed);
+    }
   };
 
   const send = async () => {
@@ -630,7 +657,7 @@ function PublishBox({ jobId, job, accounts, toast, onCaption }: {
         platform: account.platform,
         title,
         description: body,
-        tags: caption?.hashtags ?? job.result?.hashtags ?? [],
+        tags: hashtags,
         privacy,
         publish_at: mode === "agendar" ? new Date(when).toISOString() : null,
       });
@@ -663,15 +690,37 @@ function PublishBox({ jobId, job, accounts, toast, onCaption }: {
 
         <div className="row spread wrap">
           <span className="label">{t.publish.captionLabel}</span>
+          <div className="grow" />
+          <button className="btn sm ghost" onClick={copy}>{t.publish.copy}</button>
           <button className="btn sm ghost" onClick={generate} disabled={generating}>
             {generating ? t.common.generating
                         : caption ? t.common.regenerate : t.common.generate}
           </button>
         </div>
 
-        {caption ? (
+        {/* The text is editable and copyable with no account connected: for
+            anyone posting by hand, this panel *is* the deliverable. It used to
+            live inside the account branch, so a caption was generated and then
+            only its hashtags were visible. */}
+        {platform !== "tiktok" && platform !== "instagram" ? (
+          <Field label={t.publish.videoTitle} hint={`${title.length}/100`}>
+            <input className="input" value={title} maxLength={100}
+                   onChange={(e) => setTitle(e.target.value)} />
+          </Field>
+        ) : null}
+
+        <Field
+          label={platform === "tiktok" || platform === "instagram"
+            ? t.publish.caption : t.publish.description}
+          hint={f(t.publish.chars, { n: body.length })}
+        >
+          <textarea className="textarea" style={{ minHeight: 96 }} value={body}
+                    onChange={(e) => setBody(e.target.value)} />
+        </Field>
+
+        {hashtags.length ? (
           <div className="chips">
-            {caption.hashtags.map((tag) => (
+            {hashtags.map((tag) => (
               <span className="tag" key={tag}>{tag}</span>
             ))}
           </div>
@@ -698,22 +747,6 @@ function PublishBox({ jobId, job, accounts, toast, onCaption }: {
                   </option>
                 ))}
               </select>
-            </Field>
-
-            {platform !== "tiktok" && platform !== "instagram" ? (
-              <Field label={t.publish.videoTitle} hint={`${title.length}/100`}>
-                <input className="input" value={title} maxLength={100}
-                       onChange={(e) => setTitle(e.target.value)} />
-              </Field>
-            ) : null}
-
-            <Field
-              label={platform === "tiktok" || platform === "instagram"
-                ? t.publish.caption : t.publish.description}
-              hint={f(t.publish.chars, { n: body.length })}
-            >
-              <textarea className="textarea" style={{ minHeight: 96 }} value={body}
-                        onChange={(e) => setBody(e.target.value)} />
             </Field>
 
             <Field label={t.publish.when}>

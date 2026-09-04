@@ -24,7 +24,8 @@ def render_timeline(job_dir: Path, timeline: Timeline, out: Path,
         raise RuntimeError("The timeline is empty.")
 
     log(f"Compiling timeline: {len(timeline.video)} video clip(s), "
-        f"{len(timeline.audio)} audio, {len(timeline.captions)} subtitle(s)")
+        f"{len(timeline.audio)} audio, {len(timeline.captions)} subtitle(s), "
+        f"{len(timeline.media)} media overlay(s)")
 
     background = _build_video_track(job_dir, timeline, log)
     overlays = _build_caption_overlays(job_dir, timeline, log)
@@ -102,8 +103,10 @@ def _build_caption_overlays(job_dir: Path, timeline: Timeline, log) -> list:
     items = overlay_mod.render_captions(
         words, overlay_dir,
         style=timeline.caption_style, position=timeline.caption_position)
-    mark = overlay_mod.render_watermark(timeline.watermark, overlay_dir,
-                                        timeline.duration)
+    mark = overlay_mod.render_watermark(
+        timeline.watermark, overlay_dir, timeline.duration,
+        position=timeline.watermark_position, size=timeline.watermark_size,
+        opacity=timeline.watermark_opacity)
     if mark:
         items = [mark] + items
     log(f"{len(items)} subtitle overlay(s)")
@@ -125,12 +128,52 @@ def _mux(job_dir: Path, timeline: Timeline, background: Path,
                 "-i", clip.source]
         audio_inputs.append(clip)
 
-    image_start = 1 + len(audio_inputs)
+    # Media overlays come before the caption PNGs so captions always end up on
+    # top — a picture-in-picture covering the subtitle would be a regression.
+    media_inputs = [m for m in timeline.media if (job_dir / m.source).exists()]
+    media_start = 1 + len(audio_inputs)
+    for item in media_inputs:
+        if item.kind == "video":
+            cmd += ["-ss", f"{item.in_point:.3f}", "-t", f"{item.duration:.3f}",
+                    "-i", item.source]
+        else:
+            # a still has no duration of its own; loop it for as long as it shows
+            cmd += ["-loop", "1", "-t", f"{item.duration:.3f}", "-i", item.source]
+
+    image_start = media_start + len(media_inputs)
     for overlay in overlays:
         cmd += ["-i", os.path.relpath(overlay.path, job_dir)]
 
     steps: list[str] = []
     current = "0:v"
+
+    for index, item in enumerate(media_inputs):
+        src = f"{media_start + index}:v"
+        scaled, label = f"pip{index}", f"mv{index}"
+        target_w = max(int(round(item.width * W)) // 2 * 2, 2)
+        # Only the width is set: -2 keeps the source's aspect ratio, so nothing
+        # gets stretched no matter what the user drops in.
+        chain = f"[{src}]scale={target_w}:-2"
+        if item.opacity < 1.0:
+            # colorchannelmixer needs an alpha channel to write into
+            chain += f",format=rgba,colorchannelmixer=aa={item.opacity:.3f}"
+        # The cut input's frames start at its own zero, while `enable` below is
+        # gated on the *timeline* clock. Without this pad the input has already
+        # run out by the time its window opens and nothing is drawn — the
+        # overlay silently never appears. tpad pushes it to its slot; the black
+        # it pads with is never drawn, because `enable` is false there.
+        if item.start > 0:
+            chain += f",tpad=start_duration={item.start:.3f}"
+        steps.append(f"{chain}[{scaled}]")
+        # x/y are the overlay's centre as a fraction of the frame; ffmpeg wants
+        # the top-left corner, and only knows the scaled size at filter time
+        steps.append(
+            f"[{current}][{scaled}]overlay="
+            f"x='{item.x:.4f}*W-w/2':y='{item.y:.4f}*H-h/2'"
+            f":enable='between(t\\,{item.start:.3f}\\,{item.end:.3f})'"
+            f":eof_action=pass[{label}]")
+        current = label
+
     for index, overlay in enumerate(overlays):
         label = f"ov{index}"
         steps.append(

@@ -111,9 +111,28 @@ class Settings:
         # localhost link never is.
         self.public_web_url = os.getenv("PUBLIC_WEB_URL", "http://localhost:3000")
         self.whisper_model = os.getenv("WHISPER_MODEL", "base")
+        # Captioning a recording of your own is held to a higher standard than
+        # locating a moment in a two-hour video: the words end up burned into
+        # the frame, so a wrong one is worse than no caption at all. `base`
+        # measurably mishears ("lendo o cabeçalho" came back as "além do"), so
+        # this path pays for a bigger model. Override if the machine is slow.
+        self.reels_whisper_model = os.getenv("REELS_WHISPER_MODEL", "small")
         self.max_short_seconds = int(os.getenv("MAX_SHORT_SECONDS", "90"))
         self.min_short_seconds = int(os.getenv("MIN_SHORT_SECONDS", "15"))
+        # AI media generation. Empty VIDEOGEN_PROVIDER/VIDEOGEN_MODEL means
+        # "let generators/registry.py choose"; naming one forces it and the
+        # reason shows up in the job log either way.
         self.videogen_provider = os.getenv("VIDEOGEN_PROVIDER", "")
+        self.videogen_model = os.getenv("VIDEOGEN_MODEL", "")
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
+        self.comfyui_url = os.getenv("COMFYUI_URL", "http://127.0.0.1:8188")
+        self.comfyui_workflow = os.getenv(
+            "COMFYUI_WORKFLOW", str(self.data_dir / "comfyui" / "workflow.json"))
+        self.a1111_url = os.getenv("A1111_URL", "http://127.0.0.1:7860")
+        # Puts the free local servers ahead of the paid APIs when both can do
+        # the job.
+        self.generator_prefer_local = os.getenv(
+            "GENERATOR_PREFER_LOCAL", "").lower() in ("1", "true", "yes")
         self.max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "300"))
         self.github_max_files = int(os.getenv("GITHUB_MAX_FILES", "12"))
         self.github_max_file_chars = int(os.getenv("GITHUB_MAX_FILE_CHARS", "6000"))

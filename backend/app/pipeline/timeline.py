@@ -73,14 +73,49 @@ class CaptionCue:
 
 
 @dataclass
+class MediaOverlay:
+    """An image or video laid over the main track — the picture-in-picture.
+
+    This is what lets someone editing their own recorded reel drop a
+    screenshot, a diagram or a stock clip on top of themselves while they talk
+    about it, instead of cutting away to it.
+
+    Geometry is stored as fractions of the frame, not pixels: the editor shows
+    a 9:16 preview at whatever size the browser gives it, and a fraction
+    survives that without the UI having to know the output resolution.
+    `width` is the fraction of the frame width; the height follows from the
+    media's own aspect ratio so nothing gets stretched.
+    """
+    id: str
+    source: str
+    start: float
+    end: float
+    x: float = 0.5             # centre of the overlay, 0..1 across the frame
+    y: float = 0.3             # centre of the overlay, 0..1 down the frame
+    width: float = 0.6         # fraction of the frame width
+    kind: str = "image"        # image | video
+    opacity: float = 1.0
+    in_point: float = 0.0      # for video sources: where to start in the file
+    mute: bool = True
+
+    @property
+    def duration(self) -> float:
+        return max(self.end - self.start, 0.0)
+
+
+@dataclass
 class Timeline:
     duration: float
     video: list[VideoClip] = field(default_factory=list)
     audio: list[AudioClip] = field(default_factory=list)
     captions: list[CaptionCue] = field(default_factory=list)
+    media: list[MediaOverlay] = field(default_factory=list)
     caption_style: str = "karaoke"
     caption_position: str = "centro"
     watermark: str = ""
+    watermark_position: str = "baixo_centro"
+    watermark_size: str = "medio"
+    watermark_opacity: float = 0.6
 
     def to_dict(self) -> dict:
         return {
@@ -88,9 +123,13 @@ class Timeline:
             "video": [asdict(c) for c in self.video],
             "audio": [asdict(c) for c in self.audio],
             "captions": [asdict(c) for c in self.captions],
+            "media": [asdict(c) for c in self.media],
             "caption_style": self.caption_style,
             "caption_position": self.caption_position,
             "watermark": self.watermark,
+            "watermark_position": self.watermark_position,
+            "watermark_size": self.watermark_size,
+            "watermark_opacity": self.watermark_opacity,
         }
 
     @classmethod
@@ -100,9 +139,13 @@ class Timeline:
             video=[VideoClip(**c) for c in data.get("video", [])],
             audio=[AudioClip(**c) for c in data.get("audio", [])],
             captions=[CaptionCue(**c) for c in data.get("captions", [])],
+            media=[MediaOverlay(**c) for c in data.get("media", [])],
             caption_style=data.get("caption_style", "karaoke"),
             caption_position=data.get("caption_position", "centro"),
             watermark=data.get("watermark", ""),
+            watermark_position=data.get("watermark_position", "baixo_centro"),
+            watermark_size=data.get("watermark_size", "medio"),
+            watermark_opacity=float(data.get("watermark_opacity", 0.6)),
         )
 
     def normalize(self) -> "Timeline":
@@ -114,7 +157,11 @@ class Timeline:
         self.video.sort(key=lambda c: c.start)
         self.audio.sort(key=lambda c: c.start)
         self.captions.sort(key=lambda c: c.start)
+        self.media.sort(key=lambda c: c.start)
 
+        # Media overlays never define the length — they sit *on top* of the
+        # video. An overlay dragged past the end would otherwise stretch the
+        # short into black frames.
         ends = ([c.end for c in self.video] + [c.end for c in self.audio]
                 + [c.end for c in self.captions])
         self.duration = round(max(ends), 3) if ends else 0.0
@@ -123,6 +170,16 @@ class Timeline:
         for cue in self.captions:
             cue.end = min(cue.end, self.duration)
         self.captions = [c for c in self.captions if c.end > c.start and c.text.strip()]
+
+        for item in self.media:
+            item.end = min(item.end, self.duration)
+            # keep the overlay's centre inside the frame; a fraction outside
+            # 0..1 means it was dragged off-screen and would vanish
+            item.x = min(max(item.x, 0.0), 1.0)
+            item.y = min(max(item.y, 0.0), 1.0)
+            item.width = min(max(item.width, 0.05), 1.0)
+            item.opacity = min(max(item.opacity, 0.05), 1.0)
+        self.media = [m for m in self.media if m.end > m.start]
         return self
 
 

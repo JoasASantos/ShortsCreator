@@ -7,8 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import db, worker
 from .config import settings
-from .routers import (clips, connectors, jobs, metrics, music, outputs, publish,
-                      trends, uploads, voices)
+from .pipeline import doctor
+from .routers import (clips, connectors, films, generators, jobs, livecuts,
+                      metrics, music, outputs, publish, reels, trends, uploads,
+                      voices)
 
 app = FastAPI(title="ShortsCreator API", version="1.0.0",
               description="Automated generation of 9:16 vertical Shorts with QA.")
@@ -25,9 +27,13 @@ app.include_router(jobs.router)
 app.include_router(voices.router)
 app.include_router(uploads.router)
 app.include_router(clips.router)
+app.include_router(livecuts.router)
+app.include_router(reels.router)
+app.include_router(films.router)
 app.include_router(music.router)
 app.include_router(publish.router)
 app.include_router(connectors.router)
+app.include_router(generators.router)
 app.include_router(outputs.router)
 app.include_router(metrics.router)
 app.include_router(trends.router)
@@ -39,22 +45,10 @@ def startup() -> None:
     worker.start()
 
 
-def _provider_ready(provider: str) -> bool:
-    """CLI providers depend on the logged-in binary, not on an API key."""
-    if provider == "claude_cli":
-        return bool(shutil.which(settings.claude_cli_bin))
-    if provider == "codex_cli":
-        return bool(shutil.which(settings.codex_cli_bin))
-    if provider == "ollama":
-        return True
-    return bool(settings.anthropic_api_key or settings.openai_api_key)
-
-
-def _llm_ready() -> bool:
-    if settings.llm_provider == "chain":
-        # a single usable link in the chain is enough
-        return any(_provider_ready(p) for p, _ in settings.llm_chain)
-    return _provider_ready(settings.llm_provider)
+# The doctor owns this logic: it reports the same thing under the `llm` check,
+# and two copies would eventually disagree about what "ready" means.
+_provider_ready = doctor.provider_ready
+_llm_ready = doctor.llm_ready
 
 
 def _llm_auth_mode() -> str:
@@ -107,7 +101,18 @@ def health() -> dict:
         "broll_ready": bool(settings.pexels_api_key or settings.pixabay_api_key),
         "queue": worker.queue_size(),
         "format": f"{settings.width}x{settings.height} @ {settings.fps}fps (9:16)",
+        # Only the verdict here — this route is polled every few seconds, and
+        # the per-check detail (versions, install commands) lives at
+        # /api/system/requirements.
+        "requirements": doctor.summary(),
     }
+
+
+@app.get("/api/system/requirements")
+def requirements() -> dict:
+    """The full doctor report: what is installed, what is missing, what each
+    missing piece would unlock and the command to install it on this OS."""
+    return doctor.check()
 
 
 @app.get("/api/config")

@@ -13,7 +13,7 @@ from .. import db
 from ..config import settings
 from ..schemas import JobInput, ShortScript
 from . import (broll, captions, cover as cover_mod, highlights, ingest, llm, notify,
-               overlays as overlay_mod, qa, render, script as script_mod,
+               overlays as overlay_mod, qa, reels, render, script as script_mod,
                timeline as timeline_mod, tts)
 
 STAGES = [
@@ -163,6 +163,14 @@ def run_job(job_id: str) -> dict:
         log(f"Stage: {name}")
 
     try:
+        # A recording of your own has neither a script to write nor a voice to
+        # synthesize: the audio and the words are already in the file. It is a
+        # different pipeline, not a variation of this one — but it writes the
+        # same artifacts, so the editor, QA, the cover and publishing all work
+        # on its output unchanged.
+        if job.edit_mode == reels.MODE:
+            return reels.run(job_id, job, job_dir, log, stage)
+
         render.ensure_ffmpeg()
 
         # 1. Ingestion — happens only once, even across QA retries

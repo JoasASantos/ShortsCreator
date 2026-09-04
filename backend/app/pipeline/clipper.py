@@ -34,6 +34,11 @@ Regras:
 Responda APENAS com JSON válido no formato:
 {"clipes": [{"inicio": float, "fim": float, "titulo": str, "motivo": str, "assunto": str}]}"""
 
+# How much transcript fits in one prompt. A 20min–2h video fits whole; a
+# livestream does not, which is why `livecuts` slices it into windows instead
+# of letting the tail be silently cut off here.
+TRANSCRIPT_CHAR_LIMIT = 40000
+
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -74,7 +79,7 @@ Duração alvo de cada clipe: cerca de {target_seconds} segundos (aceitável de
 
 TRANSCRIÇÃO (com marcações de tempo quando disponíveis):
 ---
-{transcript[:40000]}
+{transcript[:TRANSCRIPT_CHAR_LIMIT]}
 ---
 
 Selecione os melhores momentos."""
@@ -88,7 +93,7 @@ Selecione os melhores momentos."""
         end = min(float(clip.get("fim", 0)), total_duration)
         if end - start < settings.min_short_seconds * 0.5:
             continue  # too short to become a short
-        if any(start < v["fim"] and end > v["inicio"] for v in valid):
+        if overlaps(start, end, valid):
             continue  # overlaps a clip already accepted
         valid.append({
             "inicio": round(start, 2),
@@ -101,6 +106,17 @@ Selecione os melhores momentos."""
     valid.sort(key=lambda c: c["inicio"])
     log(f"{len(valid)} usable clip(s) out of {len(clips)} suggested")
     return valid[:count]
+
+
+def overlaps(start: float, end: float, accepted: list[dict]) -> bool:
+    """True when the stretch [start, end) intersects an already accepted clip.
+
+    It lives on its own because one call to `pick_clips` only ever sees the
+    candidates of a single prompt. The livestream flow makes several calls, one
+    per window, and two neighbouring windows can pick the very same moment at
+    the boundary they share — the same rule has to be applied to the whole set.
+    """
+    return any(start < clip["fim"] and end > clip["inicio"] for clip in accepted)
 
 
 def transcript_with_timestamps(segments) -> str:

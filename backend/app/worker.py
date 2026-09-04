@@ -1,6 +1,7 @@
 """Threaded worker: job queue + publication scheduler + metrics collection."""
 from __future__ import annotations
 
+import json
 import queue
 import threading
 import time
@@ -13,6 +14,7 @@ from .pipeline import orchestrator
 
 _queue: "queue.Queue[str]" = queue.Queue()
 _clip_queue: "queue.Queue[str]" = queue.Queue()
+_film_queue: "queue.Queue[str]" = queue.Queue()
 _started = False
 _lock = threading.Lock()
 
@@ -25,6 +27,11 @@ def enqueue(job_id: str) -> None:
 def enqueue_clip_plan(plan_id: str) -> None:
     db.update_clip_plan(plan_id, status="queued")
     _clip_queue.put(plan_id)
+
+
+def enqueue_film(film_id: str) -> None:
+    db.update_film(film_id, status="queued", error=None)
+    _film_queue.put(film_id)
 
 
 def _worker_loop() -> None:
@@ -41,16 +48,44 @@ def _worker_loop() -> None:
 def _clip_loop() -> None:
     """Separate queue: analyzing a long video takes minutes and must not
     block the rendering of shorts already in the queue."""
-    from .pipeline import clipper_jobs
-
     while True:
         plan_id = _clip_queue.get()
         try:
-            clipper_jobs.analyze_plan(plan_id)
+            _analyze_plan(plan_id)
         except Exception as exc:  # noqa: BLE001
             db.update_clip_plan(plan_id, status="error", error=str(exc))
         finally:
             _clip_queue.task_done()
+
+
+def _film_loop() -> None:
+    """Third queue: generating a film is many minutes of paid AI video, and it
+    must not sit in front of the shorts already waiting to render."""
+    while True:
+        film_id = _film_queue.get()
+        try:
+            from .pipeline import story
+
+            story.generate(film_id)
+        except Exception as exc:  # noqa: BLE001
+            db.update_film(film_id, status="error", error=str(exc))
+        finally:
+            _film_queue.task_done()
+
+
+def _analyze_plan(plan_id: str) -> None:
+    """A livestream plan shares this queue and the `clip_plans` table with the
+    long-video clipper, but needs the windowed analysis — a live is hours long
+    and its transcript does not fit in a single prompt. `options_json.mode` is
+    what tells the two apart."""
+    from .pipeline import clipper_jobs, livecuts
+
+    row = db.get_clip_plan(plan_id) or {}
+    options = json.loads(row.get("options_json") or "{}")
+    if options.get("mode") == livecuts.MODE:
+        livecuts.analyze_plan(plan_id)
+    else:
+        clipper_jobs.analyze_plan(plan_id)
 
 
 def _scheduler_loop() -> None:
@@ -76,8 +111,6 @@ def _scheduler_loop() -> None:
                     result = dispatch(schedule)
                     db.update_schedule(schedule["id"], status="published",
                                        result_json=result)
-                    import json
-
                     notify.published(schedule["job_id"], label,
                                      json.loads(result).get("url", ""))
                 except Exception as exc:  # noqa: BLE001
@@ -112,6 +145,7 @@ def start() -> None:
     for _ in range(2):
         threading.Thread(target=_worker_loop, daemon=True).start()
     threading.Thread(target=_clip_loop, daemon=True).start()
+    threading.Thread(target=_film_loop, daemon=True).start()
     threading.Thread(target=_scheduler_loop, daemon=True).start()
     threading.Thread(target=_metrics_loop, daemon=True).start()
 
@@ -132,6 +166,11 @@ def start() -> None:
     for plan in db.list_clip_plans(limit=50):
         if plan["status"] in ("queued", "analisando"):
             _clip_queue.put(plan["id"])
+    # A film interrupted mid-run resumes from its per-shot ledger: whatever was
+    # already generated is on disk and is not paid for a second time.
+    for film in db.list_films(limit=50):
+        if film["status"] in ("queued", "generating"):
+            _film_queue.put(film["id"])
 
 
 def queue_size() -> int:

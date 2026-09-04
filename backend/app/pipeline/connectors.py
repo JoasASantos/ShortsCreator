@@ -35,6 +35,9 @@ class Field:
     env: str = ""          # equivalent environment variable (fallback)
     secret: bool = True
     hint: str = ""
+    # A local generator's URL already has a working default, so leaving it
+    # blank is a valid configuration — unlike an API key.
+    required: bool = True
 
 
 @dataclass
@@ -73,6 +76,26 @@ def _check_heygen(creds: dict) -> str:
     from .generators import heygen
 
     return heygen.verify(creds)
+
+
+def _check_gemini(creds: dict) -> str:
+    from .generators import nanobanana
+
+    return nanobanana.verify(creds)
+
+
+def _check_comfyui(creds: dict) -> str:
+    """A local generator's test is reachability: a URL that is merely written
+    down proves nothing about a server that is not running."""
+    from .generators import comfyui
+
+    return comfyui.probe(creds.get("base_url") or settings.comfyui_url)
+
+
+def _check_a1111(creds: dict) -> str:
+    from .generators import a1111
+
+    return a1111.probe(creds.get("base_url") or settings.a1111_url)
 
 
 def _check_elevenlabs(creds: dict) -> str:
@@ -185,12 +208,53 @@ CATALOG: list[Connector] = [
         id="higgsfield", name="Higgsfield", category="video", auth="api_key",
         detail="Generates the short's background with AI (Sora 2, Veo 3.1, "
                "Kling 2.5, Seedance, Hailuo) already in 9:16. Powers the "
-               "'ia_video' background mode.",
+               "'ia_video' background mode; pick the model by name with "
+               "VIDEOGEN_MODEL (seedance-pro, sora-2, kling-2.5-pro...).",
         requirement="Key pair created at cloud.higgsfield.ai",
         docs="https://docs.higgsfield.ai/docs",
         fields=[Field("key_id", "API key id", "HIGGSFIELD_KEY_ID", secret=False),
                 Field("key_secret", "API key secret", "HIGGSFIELD_KEY_SECRET")],
         check=_check_higgsfield,
+    ),
+    # The three below share the 'video' category with Higgsfield because that
+    # is the category the Accounts screen knows for generated imagery; two of
+    # them make stills rather than motion, which their detail spells out.
+    Connector(
+        id="gemini", name="Nano Banana Pro (Gemini)", category="video",
+        auth="api_key",
+        detail="Google's image model (gemini-3-pro-image-preview). Generates "
+               "and edits stills for covers and Ken Burns backgrounds, in "
+               "native 9:16.",
+        requirement="GEMINI_API_KEY — free key at aistudio.google.com",
+        docs="https://ai.google.dev/gemini-api/docs/image-generation",
+        fields=[Field("api_key", "API key", "GEMINI_API_KEY")],
+        check=_check_gemini,
+    ),
+    Connector(
+        id="comfyui", name="ComfyUI (local)", category="video", auth="api_key",
+        detail="Runs on your own GPU: no key, no bill. What it can make is "
+               "whatever the exported workflow makes — a video workflow (WAN, "
+               "LTXV, AnimateDiff) powers the 'ia_video' background, an image "
+               "workflow makes stills.",
+        requirement="ComfyUI running, plus a workflow exported with "
+                    "'Save (API format)' at COMFYUI_WORKFLOW",
+        docs="https://docs.comfy.org/development/comfyui-server/comms_routes",
+        fields=[Field("base_url", "Server URL", "COMFYUI_URL", secret=False,
+                      required=False,
+                      hint="empty = http://127.0.0.1:8188")],
+        check=_check_comfyui,
+    ),
+    Connector(
+        id="a1111", name="Stable Diffusion WebUI (local)", category="video",
+        auth="api_key",
+        detail="The other local, free option — Automatic1111's txt2img on your "
+               "own GPU. Stills only. The WebUI has to be started with --api.",
+        requirement="./webui.sh --api running (A1111_URL if it is elsewhere)",
+        docs="https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/API",
+        fields=[Field("base_url", "Server URL", "A1111_URL", secret=False,
+                      required=False,
+                      hint="empty = http://127.0.0.1:7860")],
+        check=_check_a1111,
     ),
     Connector(
         id="heygen", name="HeyGen", category="avatar", auth="api_key",
@@ -365,7 +429,7 @@ def is_configured(connector_id: str) -> bool:
     if connector.auth == "oauth" and not connector.fields:
         return bool(_oauth_ready(connector_id))
     creds = credentials(connector_id)
-    return all(f.key in creds for f in connector.fields)
+    return all(f.key in creds for f in connector.fields if f.required)
 
 
 def _oauth_ready(connector_id: str) -> bool:
@@ -387,7 +451,8 @@ def describe(connector_id: str) -> dict:
         "accounts": len(accounts),
         "fields": [
             {"key": f.key, "label": f.label, "secret": f.secret, "env": f.env,
-             "hint": f.hint, "filled": bool(credentials(c.id).get(f.key))}
+             "hint": f.hint, "required": f.required,
+             "filled": bool(credentials(c.id).get(f.key))}
             for f in c.fields
         ],
     }
@@ -462,7 +527,8 @@ def test(connector_id: str) -> str:
     if connector.check is None:
         raise RuntimeError(f"{connector.name} has no automated test yet")
     creds = credentials(connector_id)
-    missing = [f.label for f in connector.fields if not creds.get(f.key)]
+    missing = [f.label for f in connector.fields
+               if f.required and not creds.get(f.key)]
     if missing:
         raise RuntimeError(f"Missing: {', '.join(missing)}")
     return connector.check(creds)
