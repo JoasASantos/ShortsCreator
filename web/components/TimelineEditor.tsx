@@ -2,18 +2,23 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, type Timeline, type TimelineCue, type TimelineVideoClip } from "@/lib/api";
+import {
+  api, type Timeline, type TimelineCue, type TimelineMedia,
+  type TimelineVideoClip,
+} from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { Field } from "@/components/ui";
 
 type Selection =
   | { track: "video"; id: string }
   | { track: "audio"; id: string }
   | { track: "caption"; id: string }
+  | { track: "media"; id: string }
   | null;
 
 type Drag = {
   mode: "move" | "trim-start" | "trim-end";
-  track: "video" | "audio" | "caption";
+  track: "video" | "audio" | "caption" | "media";
   id: string;
   originX: number;
   origStart: number;
@@ -78,6 +83,29 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
           return next;
         }
 
+        if (drag.track === "media") {
+          const item = next.media.find((m) => m.id === drag.id);
+          if (!item) return next;
+          if (drag.mode === "move") {
+            const len = drag.origEnd - drag.origStart;
+            item.start = Math.max(0, drag.origStart + delta);
+            item.end = item.start + len;
+          } else if (drag.mode === "trim-start") {
+            // A video overlay trimmed from the left has to advance its in
+            // point inside the source too, or the same frames just start
+            // later. A still has no in point to advance.
+            const shift = Math.min(Math.max(delta, -drag.origStart),
+                                   drag.origEnd - drag.origStart - MIN_LEN);
+            item.start = Math.max(0, drag.origStart + shift);
+            if (item.kind === "video") {
+              item.in_point = Math.max(0, drag.origIn + shift);
+            }
+          } else {
+            item.end = Math.max(drag.origEnd + delta, item.start + MIN_LEN);
+          }
+          return next;
+        }
+
         const list = drag.track === "video" ? next.video : next.audio;
         const clip = list.find((c) => c.id === drag.id);
         if (!clip) return next;
@@ -117,7 +145,7 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
       mode, track, id, originX: event.clientX,
       origStart: start, origIn: inPoint, origOut: outPoint, origEnd: end,
     };
-    setSelection({ track: track === "caption" ? "caption" : track, id } as Selection);
+    setSelection({ track, id } as Selection);
   };
 
   const mutate = useCallback((fn: (draft: Timeline) => void) => {
@@ -130,6 +158,22 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
     setDirty(true);
   }, []);
 
+  /** Geometry of one overlay, in fractions of the frame — the same units the
+   *  renderer stores, so what the preview shows is what gets composited. */
+  const setMedia = (id: string, patch: Partial<TimelineMedia>) =>
+    mutate((draft) => {
+      const item = draft.media.find((m) => m.id === id);
+      if (item) Object.assign(item, patch);
+    });
+
+  const moveMediaTo = (event: React.PointerEvent, id: string) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    setMedia(id, {
+      x: Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1),
+      y: Math.min(Math.max((event.clientY - box.top) / box.height, 0), 1),
+    });
+  };
+
   const removeSelected = () => {
     if (!selection) return;
     mutate((draft) => {
@@ -137,6 +181,8 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
         draft.video = draft.video.filter((c) => c.id !== selection.id);
       else if (selection.track === "audio")
         draft.audio = draft.audio.filter((c) => c.id !== selection.id);
+      else if (selection.track === "media")
+        draft.media = draft.media.filter((m) => m.id !== selection.id);
       else
         draft.captions = draft.captions.filter((c) => c.id !== selection.id);
     });
@@ -255,6 +301,9 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
   const selectedCue = selection?.track === "caption"
     ? timeline.captions.find((c) => c.id === selection.id) : undefined;
 
+  const selectedMedia = selection?.track === "media"
+    ? (timeline.media ?? []).find((m) => m.id === selection.id) : undefined;
+
   return (
     <div className="grid" style={{ gap: 12 }}>
       <section className="panel">
@@ -281,7 +330,10 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
             />
           </div>
           <div className="grid grow" style={{ gap: 10 }}>
-            <div className="row" style={{ gap: 8 }}>
+            {/* Wraps: next to the 168px monitor this column is ~184px on a
+                phone, and two buttons plus the timecode do not fit on one
+                line there — they used to push the page sideways instead. */}
+            <div className="row wrap" style={{ gap: 8 }}>
               <button className="btn sm" onClick={togglePlay}>
                 {playing ? t.timeline.pause : t.timeline.play}
               </button>
@@ -395,6 +447,32 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
                 })}
               </div>
 
+              {/* Media laid over the video — the picture-in-picture. It sits
+                  between the video and the captions because that is the order
+                  it is composited in: over the footage, under the words. */}
+              <TrackLabel text={t.timeline.trackMedia} />
+              <div className="tl-lane">
+                {(timeline.media ?? []).map((item) => (
+                  <div
+                    key={item.id}
+                    className="tl-clip media"
+                    data-on={selection?.track === "media" && selection.id === item.id}
+                    style={{ left: item.start * pxPerSec,
+                             width: Math.max((item.end - item.start) * pxPerSec, 8) }}
+                    onPointerDown={(e) => startDrag(e, "move", "media", item.id,
+                      item.start, item.in_point, 0, item.end)}
+                  >
+                    <i className="tl-handle left" onPointerDown={(e) =>
+                      startDrag(e, "trim-start", "media", item.id,
+                        item.start, item.in_point, 0, item.end)} />
+                    <span>{item.source.replace(/\.[^.]+$/, "")}</span>
+                    <i className="tl-handle right" onPointerDown={(e) =>
+                      startDrag(e, "trim-end", "media", item.id,
+                        item.start, item.in_point, 0, item.end)} />
+                  </div>
+                ))}
+              </div>
+
               <TrackLabel text={t.timeline.trackCaption} />
               <div className="tl-lane">
                 {timeline.captions.map((cue) => (
@@ -441,6 +519,73 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
                 if (cue) cue.text = e.target.value;
               })}
             />
+          </div>
+        </section>
+      ) : null}
+
+      {selectedMedia ? (
+        <section className="panel">
+          <div className="panel-head">
+            <span className="label">{t.timeline.mediaTitle}</span>
+            <div className="grow" />
+            <span className="mono dimmer" style={{ fontSize: 11 }}>
+              {selectedMedia.start.toFixed(2)}s → {selectedMedia.end.toFixed(2)}s
+            </span>
+          </div>
+          <div className="panel-body two">
+            <div className="grid" style={{ gap: 10 }}>
+              <Field label={t.timeline.mediaSize}
+                     hint={f(t.timeline.mediaSizeValue,
+                             { n: Math.round(selectedMedia.width * 100) })}>
+                <input type="range" min={0.05} max={1} step={0.01}
+                       value={selectedMedia.width}
+                       onChange={(e) => setMedia(selectedMedia.id,
+                         { width: Number(e.target.value) })} />
+              </Field>
+              <Field label={t.timeline.mediaOpacity}
+                     hint={`${Math.round(selectedMedia.opacity * 100)}%`}>
+                <input type="range" min={0.05} max={1} step={0.05}
+                       value={selectedMedia.opacity}
+                       onChange={(e) => setMedia(selectedMedia.id,
+                         { opacity: Number(e.target.value) })} />
+              </Field>
+            </div>
+            {/* Dragging on a 9:16 preview beats typing coordinates, and the
+                fractions it produces are exactly what the renderer stores. */}
+            <Field label={t.timeline.mediaPosition} hint={t.timeline.mediaPositionHint}>
+              <div
+                onPointerDown={(e) => {
+                  (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+                  moveMediaTo(e, selectedMedia.id);
+                }}
+                onPointerMove={(e) => {
+                  if (e.buttons) moveMediaTo(e, selectedMedia.id);
+                }}
+                style={{
+                  position: "relative", width: "100%", maxWidth: 132,
+                  aspectRatio: "9/16", borderRadius: "var(--r)",
+                  border: "1px solid var(--line)", overflow: "hidden",
+                  background: "#000", cursor: "crosshair", touchAction: "none",
+                }}
+              >
+                <img alt="" src={`/api/jobs/${jobId}/file/thumb.jpg`}
+                     style={{ width: "100%", height: "100%", objectFit: "cover",
+                              opacity: 0.5, pointerEvents: "none" }} />
+                <div style={{
+                  position: "absolute",
+                  left: `${selectedMedia.x * 100}%`,
+                  top: `${selectedMedia.y * 100}%`,
+                  width: `${selectedMedia.width * 100}%`,
+                  // A square stand-in: the real height follows the media's own
+                  // aspect ratio, which only FFmpeg knows at scale time.
+                  aspectRatio: "1/1",
+                  transform: "translate(-50%, -50%)",
+                  border: "1px solid var(--amber)",
+                  background: `rgba(255,176,0,${0.18 * selectedMedia.opacity})`,
+                  pointerEvents: "none",
+                }} />
+              </div>
+            </Field>
           </div>
         </section>
       ) : null}

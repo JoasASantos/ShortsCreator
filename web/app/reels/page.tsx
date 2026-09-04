@@ -11,6 +11,7 @@ import { readDefaultWatermark, saveDefaultWatermark } from "@/lib/watermark";
 import {
   EMPTY_SOURCE, hasSource, SourcePicker, sourceBody, type SourceValue,
 } from "@/components/SourcePicker";
+import { TimelineEditor } from "@/components/TimelineEditor";
 import { Chips, Field, StatusTag, Topbar, useToast } from "@/components/ui";
 
 const NICHE_KEYS = [
@@ -51,6 +52,7 @@ export default function ReelsEditor() {
 
   const [reels, setReels] = useState<Job[]>([]);
   const [active, setActive] = useState("");
+  const [tab, setTab] = useState<"preview" | "timeline">("preview");
 
   // the poll below closes over the first render, so the id it follows travels
   // in a ref instead of in the closure
@@ -103,6 +105,9 @@ export default function ReelsEditor() {
   };
 
   const current = reels.find((r) => r.id === active) ?? reels[0];
+  // The cutting room only opens on a finished reel: before that there is no
+  // timeline on disk to edit.
+  const editing = tab === "timeline" && current?.status === "done";
 
   return (
     <>
@@ -111,6 +116,29 @@ export default function ReelsEditor() {
       </Topbar>
 
       <div className="content grid" style={{ gap: 18 }}>
+        {/* The cutting room takes the whole width. A timeline squeezed into the
+            380px sidebar column is unusable — you cannot see where a cut lands
+            in a 40-second clip through a 380px window. */}
+        {editing ? (
+          <>
+            <div className="row spread wrap" style={{ gap: 8 }}>
+              <div className="steps" style={{ maxWidth: 320 }}>
+                <div data-on={false} style={{ cursor: "pointer" }}
+                     onClick={() => setTab("preview")}>{t.job.tabPreview}</div>
+                <div data-on style={{ cursor: "pointer" }}>{t.job.tabTimeline}</div>
+              </div>
+              <span className="label">
+                {current?.title || t.dashboard.untitled}
+              </span>
+            </div>
+            <TimelineEditor
+              jobId={current!.id}
+              version={current!.updated_at}
+              toast={toast}
+              onRendered={() => { setTab("preview"); pull(); }}
+            />
+          </>
+        ) : (
         <div className="side">
           <div className="grid" style={{ gap: 14 }}>
             <section className="panel">
@@ -212,16 +240,21 @@ export default function ReelsEditor() {
           <div className="grid" style={{ gap: 14 }}>
             {current ? (
               <>
-                <ReelStatus job={current} />
+                {/* The cutting room lives here rather than behind a link: the
+                    point of this screen is that editing your own recording
+                    never leaves it. */}
+                <ReelStatus job={current} onEdit={() => setTab("timeline")} />
                 <AssistPanel job={current} goal={goal} toast={toast}
                              onDone={pull} />
-                <MediaPanel job={current} toast={toast} />
+                <MediaPanel job={current} toast={toast}
+                            onPlaced={() => setTab("timeline")} />
               </>
             ) : (
               <div className="empty">{t.reels.noMine}</div>
             )}
           </div>
         </div>
+        )}
       </div>
       {node}
     </>
@@ -261,7 +294,7 @@ function ReelList({ reels, active, onPick }: {
   );
 }
 
-function ReelStatus({ job }: { job: Job }) {
+function ReelStatus({ job, onEdit }: { job: Job; onEdit: () => void }) {
   const { t, f } = useI18n();
   const working = isWorking(job.status);
 
@@ -301,8 +334,11 @@ function ReelStatus({ job }: { job: Job }) {
                        background: "#000" }}
             />
             <div className="row wrap" style={{ gap: 6 }}>
-              <Link className="btn sm" href={`/job/${job.id}`}>
+              <button className="btn sm" onClick={onEdit}>
                 {t.reels.openEditor}
+              </button>
+              <Link className="btn sm ghost" href={`/job/${job.id}`}>
+                {t.reels.fullPage}
               </Link>
               {/* `download=1` is the server-side attachment; the HTML
                   attribute alone is ignored across origins. */}
@@ -523,7 +559,9 @@ function Suggestions({ title, empty, items }: {
  *  Position and size are set on a 9:16 preview rather than in pixels, because
  *  that is what the API stores: fractions of the frame. Dragging on the
  *  preview and the number that reaches the backend are then the same thing. */
-function MediaPanel({ job, toast }: { job: Job; toast: (m: string) => void }) {
+function MediaPanel({ job, toast, onPlaced }: {
+  job: Job; toast: (m: string) => void; onPlaced: () => void;
+}) {
   const { t, f } = useI18n();
   const [upload, setUpload] = useState<UploadResult | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -586,6 +624,10 @@ function MediaPanel({ job, toast }: { job: Job; toast: (m: string) => void }) {
       setTimeline(fresh);
       setUpload(null);
       toast(f(t.reels.mediaAdded, { start: start.toFixed(1), end: end.toFixed(1) }));
+      // Placed media has to be rendered to show up in the video, and the
+      // timeline is where that happens — so go there instead of leaving the
+      // user to find the button.
+      onPlaced();
     } catch (e) {
       toast((e as Error).message);
     } finally { setBusy(false); }

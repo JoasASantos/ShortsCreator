@@ -1091,6 +1091,10 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
   border-color: #2b5c4d; }
 .tl-clip.caption { background: linear-gradient(180deg, #2c2410, #1e1a0b);
   border-color: #5c4a1c; }
+/* Media laid over the video: violet, so a picture-in-picture is never mistaken
+   for a cut on the main track. */
+.tl-clip.media { background: linear-gradient(180deg, #241a33, #180f24);
+  border-color: #493469; }
 
 /* trim handles on the clip edges */
 .tl-handle {
