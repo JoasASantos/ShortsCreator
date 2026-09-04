@@ -57,6 +57,7 @@ export function Rail({ open = false }: { open?: boolean }) {
       label: t.nav.groups.create,
       items: [
         { href: "/novo", label: t.nav.new },
+        { href: "/filmes", label: t.nav.filmStudio },
         { href: "/lote", label: t.nav.batch },
         { href: "/tendencias", label: t.nav.trends },
       ],
@@ -67,6 +68,7 @@ export function Rail({ open = false }: { open?: boolean }) {
       items: [
         { href: "/reels", label: t.nav.reelsEditor },
         { href: "/cortes", label: t.nav.liveCuts },
+        { href: "/avatar", label: t.nav.avatar },
       ],
     },
     {
@@ -83,6 +85,7 @@ export function Rail({ open = false }: { open?: boolean }) {
       items: [
         { href: "/vozes", label: t.nav.voices },
         { href: "/contas", label: t.nav.accounts },
+        { href: "/geradores", label: t.nav.generators },
         { href: "/docs", label: t.nav.install },
       ],
     },

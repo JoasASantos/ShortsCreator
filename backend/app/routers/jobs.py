@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from .. import db, worker
 from ..config import settings
 from ..pipeline import llm, orchestrator
-from ..schemas import JobInput, ScriptEdit, ShortScript
+from ..schemas import JobInput, ScriptEdit, ScriptSegment, ShortScript
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -112,7 +112,22 @@ def delete_job(job_id: str):
 
 
 @router.get("/{job_id}/file/{filename}")
-def get_file(job_id: str, filename: str):
+def get_file(job_id: str, filename: str,
+             download: bool = Query(False,
+                                    description="Serve as a download instead "
+                                                "of inline")):
+    """Serve one of the job's files.
+
+    Shown inline by default, because the same URLs feed the `<img>` and
+    `<video>` on the job screen and an attachment is wrong for something being
+    displayed. `download=1` switches it to an attachment.
+
+    Either way the response carries a filename. Serving the bare URL with no
+    name at all means a browser that decides to save it invents one, and the
+    file lands in the downloads folder as an extensionless uuid — which is
+    exactly what happened when this route only named the file for explicit
+    downloads.
+    """
     if filename in ALLOWED_FILES:
         media = ALLOWED_FILES[filename]
     elif _HOOK_FILE.match(filename):
@@ -122,7 +137,11 @@ def get_file(job_id: str, filename: str):
     path: Path = settings.jobs_dir / job_id / filename
     if not path.exists():
         raise HTTPException(404, "File not generated yet")
-    return FileResponse(path, media_type=media, filename=f"{job_id}_{filename}")
+
+    stem, _, ext = filename.rpartition(".")
+    return FileResponse(
+        path, media_type=media, filename=f"{stem}-{job_id}.{ext}",
+        content_disposition_type="attachment" if download else "inline")
 
 
 # ------------------------------------------------------------------- A/B hooks
@@ -498,6 +517,26 @@ class CaptionRequest(BaseModel):
     instruction: str = ""
 
 
+def _script_from_transcript(row: dict, job: JobInput) -> ShortScript | None:
+    """Stand in for the script using what the person actually said.
+
+    The post-text builder reads a `ShortScript`; a recording of your own has
+    timed words instead. Wrapping those as one segment gives the builder the
+    same thing it always gets — the words that are spoken in the video.
+    """
+    result = json.loads(row["result_json"] or "{}")
+    spoken = " ".join(w.get("word", "") for w in result.get("words") or []).strip()
+    if not spoken:
+        return None
+    return ShortScript(
+        title=row.get("title") or "",
+        description="",
+        hashtags=[],
+        segments=[ScriptSegment(kind="corpo", text=spoken)],
+        estimated_seconds=int(result.get("duration") or job.duration),
+    )
+
+
 @router.post("/{job_id}/caption")
 def build_caption(job_id: str, request: CaptionRequest | None = None):
     """Generates the post text (title, description, hashtags) from the script."""
@@ -509,14 +548,24 @@ def build_caption(job_id: str, request: CaptionRequest | None = None):
     if not row["result_json"]:
         raise HTTPException(400, "The short has not been generated yet.")
 
+    job = JobInput(**json.loads(row["input_json"]))
     job_dir = settings.job_dir(job_id)
     override = job_dir / "script_override.json"
     source = override if override.exists() else job_dir / "script.json"
-    if not source.exists():
-        raise HTTPException(400, "This job has no script.")
 
-    job = JobInput(**json.loads(row["input_json"]))
-    script = ShortScript(**json.loads(source.read_text(encoding="utf-8")))
+    if source.exists():
+        script = ShortScript(**json.loads(source.read_text(encoding="utf-8")))
+    else:
+        # A recording of your own never had a script written for it, but it
+        # does have the transcript of what was said — which is the same thing
+        # for this purpose. Refusing here would mean the one kind of video the
+        # user has to publish by hand is the one with no caption to paste.
+        script = _script_from_transcript(row, job)
+        if script is None:
+            raise HTTPException(
+                400, "This job has neither a script nor a transcript to write "
+                     "the post text from.")
+
     llm.current_job.set(job_id)
 
     try:

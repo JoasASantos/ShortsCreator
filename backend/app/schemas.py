@@ -21,7 +21,10 @@ ScrollStyle = Literal["nenhum", "texto", "pan", "codigo"]
 # meu_video: a recording of your own. No script and no TTS — your audio stays,
 # and the captions come from transcribing what you actually said. Handled by
 # pipeline.reels instead of the generation pipeline.
-EditMode = Literal["narrar_por_cima", "resumo", "meu_video"]
+# avatar: a talking presenter reads your script. The provider renders the
+# picture AND the voice, so there is no TTS stage either; handled by
+# pipeline.avatar, which writes the same artifacts as everything else.
+EditMode = Literal["narrar_por_cima", "resumo", "meu_video", "avatar"]
 
 # Which angle the script should take on the material. It changes what the
 # SUBJECT is: "describe the scene" differs from "talk about the work, using
@@ -90,6 +93,11 @@ class JobInput(BaseModel):
     variants: int = 1
     qa_autofix: bool = True
     qa_max_attempts: int = 3
+    # Only meaningful for edit_mode="avatar": which presenter reads the script
+    # and in which of the provider's voices. They are the provider's own ids,
+    # not a row in the local `voices` table — that is what `voice_id` above is.
+    avatar_id: str = ""
+    avatar_voice_id: str = ""
 
 
 class ScriptSegment(BaseModel):

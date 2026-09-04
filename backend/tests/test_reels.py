@@ -335,6 +335,43 @@ def test_assist_stores_what_it_found_on_the_job(client, monkeypatch):
     assert stored["instruction"] == "mais agressivo"
 
 
+def test_the_post_caption_falls_back_to_the_transcript(client, monkeypatch):
+    """A recording of your own never had a script written for it. Refusing
+    here would mean the one kind of video the user has to publish by hand is
+    the one with no caption to paste."""
+    from app import db
+    from app.pipeline import script as script_mod
+
+    seen: dict = {}
+
+    def fake(script, job, instruction=""):
+        seen["text"] = " ".join(s.text for s in script.segments)
+        return {"youtube_titulo": "t", "youtube_descricao": "d",
+                "tiktok_legenda": "tk", "instagram_legenda": "ig",
+                "hashtags": ["#x"]}
+
+    monkeypatch.setattr(script_mod, "build_post_caption", fake)
+
+    job_id = db.create_job({"source_type": "video", "edit_mode": reels.MODE}, "reel")
+    db.update_job(job_id, result_json=json.dumps(
+        {"duration": 30.0, "words": _reel().words}))
+
+    answer = client.post(f"/api/jobs/{job_id}/caption", json={})
+    assert answer.status_code == 200
+    assert "engenharia reversa" in seen["text"]
+
+
+def test_a_job_with_neither_script_nor_transcript_says_so(client):
+    from app import db
+
+    job_id = db.create_job({"source_type": "video", "edit_mode": reels.MODE}, "reel")
+    db.update_job(job_id, result_json=json.dumps({"duration": 30.0, "words": []}))
+
+    answer = client.post(f"/api/jobs/{job_id}/caption", json={})
+    assert answer.status_code == 400
+    assert "neither a script nor a transcript" in answer.json()["detail"]
+
+
 def test_media_over_the_video_needs_a_real_upload(client):
     from app import db
 

@@ -659,9 +659,17 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
   font-family: var(--font-mono), monospace;
   font-size: 11.5px;
   line-height: 1.75;
+  /* A pipeline failure puts a Python traceback in here — file paths with no
+     break opportunity in them. Without this the log's min-content grew past
+     its column, stretched the panel and pushed the whole page sideways: the
+     rail scrolled out of view and the right column ran off the screen. A log
+     must never be able to set the page's width. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.log div { display: flex; gap: 10px; }
+.log div { display: flex; gap: 10px; min-width: 0; }
+.log div > span { min-width: 0; }
 .log time { color: var(--ink-3); flex-shrink: 0; }
 .log span[data-lv="error"] { color: var(--err); }
 .log span[data-lv="fatal"] { color: var(--err); }
@@ -695,6 +703,30 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 .steps > div[data-on="true"]::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: 0;
   height: 2px; background: var(--amber);
+}
+
+/* A chain, not a row of tabs: a finished step reads as finished, an
+   unreachable one reads as unreachable, and the arrow says which way the
+   flow runs. Used by the film studio, where the steps are genuinely
+   sequential — each one is written against the one before it. */
+.steps > div[data-done="true"] { color: var(--ok); }
+.steps > div[data-done="true"]::before {
+  content: "✓ "; color: var(--ok);
+}
+.steps > div[data-locked="true"] { opacity: 0.45; cursor: not-allowed; }
+.steps.chain > div + div { padding-left: 22px; }
+.steps.chain > div + div::before {
+  content: "›";
+  position: absolute;
+  left: 8px;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1;
+}
+/* The tick replaces the chevron on a finished step, so the two never stack. */
+.steps.chain > div + div[data-done="true"]::before {
+  content: "✓";
+  color: var(--ok);
 }
 
 /* ---------- table ---------- */
@@ -738,6 +770,13 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .side { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
+/* The 380px track is fixed, but a grid item still refuses to go below its own
+   min-content — so one unbreakable string anywhere in the right column used to
+   stretch it and take the whole page's width with it. Content that is genuinely
+   wide scrolls inside its own container (.table-wrap); nothing here gets to
+   widen the page. */
+.side > * { min-width: 0; }
+.panel { min-width: 0; }
 
 /* ============================================================
    RESPONSIVE
@@ -901,7 +940,15 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
   .metric b { font-size: 22px !important; }
 
   .steps { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .steps > div { white-space: nowrap; }
+  /* In the film studio the steps are how you move through the flow, so they
+     are tap targets and get the same 44px as everything else. Elsewhere they
+     are only a progress readout, but a taller row costs nothing there. */
+  .steps > div {
+    white-space: nowrap;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
 
   /* wide tables start scrolling instead of blowing out the page */
   .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -1044,6 +1091,10 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
   border-color: #2b5c4d; }
 .tl-clip.caption { background: linear-gradient(180deg, #2c2410, #1e1a0b);
   border-color: #5c4a1c; }
+/* Media laid over the video: violet, so a picture-in-picture is never mistaken
+   for a cut on the main track. */
+.tl-clip.media { background: linear-gradient(180deg, #241a33, #180f24);
+  border-color: #493469; }
 
 /* trim handles on the clip edges */
 .tl-handle {

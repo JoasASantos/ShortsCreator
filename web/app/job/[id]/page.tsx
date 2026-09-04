@@ -58,6 +58,13 @@ export default function JobPage({ params }: { params: Promise<{ id: string }> })
 
   const live = job.status === "running" || job.status === "queued";
 
+  // A generated short carries a script; a recording of your own carries the
+  // transcript of what was said and no script at all. Everything below reads
+  // whichever one this job has.
+  const segments = job.result?.script?.segments ?? null;
+  const transcript = (job.result?.words ?? [])
+    .map((word) => word.word).join(" ").trim();
+
   return (
     <>
       <Topbar title={job.title || t.job.untitled}>
@@ -119,8 +126,13 @@ export default function JobPage({ params }: { params: Promise<{ id: string }> })
               <div className="steps">
                 <div data-on={tab === "preview"} onClick={() => setTab("preview")}
                      style={{ cursor: "pointer" }}>{t.job.tabPreview}</div>
-                <div data-on={tab === "editor"} onClick={() => setTab("editor")}
-                     style={{ cursor: "pointer" }}>{t.job.tabEditor}</div>
+                {/* No script means nothing for the script editor to edit —
+                    and applying its empty state would be destructive. The
+                    timeline is the right editor for a recording anyway. */}
+                {segments ? (
+                  <div data-on={tab === "editor"} onClick={() => setTab("editor")}
+                       style={{ cursor: "pointer" }}>{t.job.tabEditor}</div>
+                ) : null}
                 <div data-on={tab === "timeline"} onClick={() => setTab("timeline")}
                      style={{ cursor: "pointer" }}>{t.job.tabTimeline}</div>
               </div>
@@ -160,9 +172,11 @@ export default function JobPage({ params }: { params: Promise<{ id: string }> })
                   poster={`/api/jobs/${id}/file/thumb.jpg?v=${job.updated_at}`}
                 />
                 <div className="row wrap" style={{ gap: 10 }}>
-                  <button className="btn grow" onClick={() => setTab("editor")}>
-                    {t.job.editScript}
-                  </button>
+                  {segments ? (
+                    <button className="btn grow" onClick={() => setTab("editor")}>
+                      {t.job.editScript}
+                    </button>
+                  ) : null}
                   <button className="btn grow" onClick={() => setTab("timeline")}>
                     {t.job.editTimeline}
                   </button>
@@ -176,7 +190,12 @@ export default function JobPage({ params }: { params: Promise<{ id: string }> })
               </div>
             )}
 
-            {job.result && tab === "preview" && !live ? (
+            {/* Hook variants rewrite the script's opening and re-synthesize
+                it. A recording of your own has neither, and the endpoint
+                answers 400 — a control that can only fail is worse than no
+                control. Alternative openings for a reel come from the
+                suggestions on the reels screen instead. */}
+            {job.result && segments && tab === "preview" && !live ? (
               <HooksPanel jobId={id} job={job} toast={toast}
                           onChanged={() => api.job(id).then(setJob).catch(() => undefined)} />
             ) : null}
@@ -221,17 +240,25 @@ export default function JobPage({ params }: { params: Promise<{ id: string }> })
             {job.result && tab === "preview" ? (
               <section className="panel">
                 <div className="panel-head">
-                  <span className="label">{t.job.scriptTitle}</span>
+                  {/* A recording of your own never had a script written for it:
+                      the words are what the person actually said, so this panel
+                      shows the transcript instead. Its job is the same either
+                      way — what is being said in this video. */}
+                  <span className="label">
+                    {segments ? t.job.scriptTitle : t.job.transcriptTitle}
+                  </span>
                   <div className="grow" />
-                  <a className="btn sm ghost" href={`/api/jobs/${id}/file/captions.srt`}>
+                  <a className="btn sm ghost"
+                     href={`/api/jobs/${id}/file/captions.srt?download=1`}>
                     {t.job.downloadSrt}
                   </a>
-                  <a className="btn sm ghost" href={`/api/jobs/${id}/file/short.mp4`} download>
+                  <a className="btn sm ghost"
+                     href={`/api/jobs/${id}/file/short.mp4?download=1`}>
                     {t.job.downloadMp4}
                   </a>
                 </div>
                 <div className="panel-body grid" style={{ gap: 10 }}>
-                  {job.result.script.segments.map((segment, index) => (
+                  {segments ? segments.map((segment, index) => (
                     <div className="row" style={{ gap: 12, alignItems: "start" }} key={index}>
                       <span className="tag" data-tone={segment.kind === "hook" ? "amber" : ""}>
                         {(t.segmentKinds as Record<string, string>)[segment.kind]
@@ -241,7 +268,13 @@ export default function JobPage({ params }: { params: Promise<{ id: string }> })
                         {segment.text}
                       </p>
                     </div>
-                  ))}
+                  )) : transcript ? (
+                    <p style={{ margin: 0, lineHeight: 1.7 }}>{transcript}</p>
+                  ) : (
+                    <span className="dimmer" style={{ fontSize: 12.5 }}>
+                      {t.job.noTranscript}
+                    </span>
+                  )}
                 </div>
               </section>
             ) : null}
@@ -501,11 +534,13 @@ function CoverPanel({ jobId, job, toast, onChanged }: {
             </button>
             {/* The cover is only useful outside the app — as the thumbnail you
                 upload by hand. Without this it was generated and then trapped
-                in the panel. `?v=` keeps a rebuilt cover from being served
-                from the browser cache. */}
+                in the panel. `download=1` is what makes the server name the
+                file `cover-<job>.jpg`; the HTML `download` attribute alone is
+                ignored once the request crosses to the API's origin, which is
+                how it ended up saved as an extensionless id. `?v=` keeps a
+                rebuilt cover from coming out of the browser cache. */}
             <a className="btn sm ghost"
-               href={`/api/jobs/${jobId}/file/cover.jpg?v=${job.updated_at}`}
-               download={`cover-${jobId}.jpg`}>
+               href={`/api/jobs/${jobId}/file/cover.jpg?download=1&v=${job.updated_at}`}>
               {t.cover.download}
             </a>
           </div>

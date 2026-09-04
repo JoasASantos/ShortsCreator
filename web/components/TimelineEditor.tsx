@@ -2,18 +2,23 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, type Timeline, type TimelineCue, type TimelineVideoClip } from "@/lib/api";
+import {
+  api, type Timeline, type TimelineCue, type TimelineMedia,
+  type TimelineVideoClip,
+} from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { Field } from "@/components/ui";
 
 type Selection =
   | { track: "video"; id: string }
   | { track: "audio"; id: string }
   | { track: "caption"; id: string }
+  | { track: "media"; id: string }
   | null;
 
 type Drag = {
   mode: "move" | "trim-start" | "trim-end";
-  track: "video" | "audio" | "caption";
+  track: "video" | "audio" | "caption" | "media";
   id: string;
   originX: number;
   origStart: number;
@@ -23,6 +28,10 @@ type Drag = {
 };
 
 const MIN_LEN = 0.2;
+
+/** How far back undo reaches. An editing session is long and a timeline is not
+ *  a small object; nobody walks back a hundred steps. */
+const HISTORY_LIMIT = 60;
 
 export function TimelineEditor({ jobId, version, onRendered, toast }: {
   jobId: string;
@@ -39,7 +48,15 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
   const [playing, setPlaying] = useState(false);
+  // Undo lives in refs: the stacks are only read inside callbacks, and putting
+  // whole timelines in state would re-render the editor on every snapshot.
+  // The depths are state, because the buttons have to enable and disable.
+  const undoRef = useRef<Timeline[]>([]);
+  const redoRef = useRef<Timeline[]>([]);
+  const [historyDepth, setHistoryDepth] = useState(0);
+  const [redoDepth, setRedoDepth] = useState(0);
   const dragRef = useRef<Drag | null>(null);
+  const pendingSnapshot = useRef(false);
   const laneRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   // while the video plays, it drives the playhead; when the playhead is
@@ -51,6 +68,49 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
     api.timeline(jobId).then(setTimeline).catch((e) => setError(String(e.message)));
   }, [jobId]);
 
+  /** Snapshot the current timeline before a change, so it can be undone.
+   *  Editing without an undo is editing carefully instead of editing. */
+  const pushHistory = useCallback(() => {
+    setTimeline((prev) => {
+      if (prev) {
+        undoRef.current.push(structuredClone(prev));
+        // A bounded stack: an editing session is long and a timeline is not
+        // small, and nobody walks back a hundred steps.
+        if (undoRef.current.length > HISTORY_LIMIT) undoRef.current.shift();
+        redoRef.current = [];
+        setHistoryDepth(undoRef.current.length);
+        setRedoDepth(0);
+      }
+      return prev;
+    });
+  }, []);
+
+  const undo = useCallback(() => {
+    setTimeline((prev) => {
+      const previous = undoRef.current.pop();
+      if (!previous || !prev) return prev;
+      redoRef.current.push(structuredClone(prev));
+      setHistoryDepth(undoRef.current.length);
+      setRedoDepth(redoRef.current.length);
+      setDirty(true);
+      return previous;
+    });
+    setSelection(null);
+  }, []);
+
+  const redo = useCallback(() => {
+    setTimeline((prev) => {
+      const next = redoRef.current.pop();
+      if (!next || !prev) return prev;
+      undoRef.current.push(structuredClone(prev));
+      setHistoryDepth(undoRef.current.length);
+      setRedoDepth(redoRef.current.length);
+      setDirty(true);
+      return next;
+    });
+    setSelection(null);
+  }, []);
+
   // dragging and trimming listen on the window: the pointer usually leaves
   // the lane mid-gesture and we would lose the movement if we only listened
   // on the lane itself
@@ -59,6 +119,12 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
       const drag = dragRef.current;
       if (!drag || !timeline) return;
       const delta = (event.clientX - drag.originX) / pxPerSec;
+      // The gesture turned out to be a real drag: bank the state it started
+      // from, once.
+      if (pendingSnapshot.current) {
+        pendingSnapshot.current = false;
+        pushHistory();
+      }
 
       setTimeline((prev) => {
         if (!prev) return prev;
@@ -74,6 +140,29 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
             cue.start = Math.min(Math.max(0, drag.origStart + delta), cue.end - MIN_LEN);
           } else {
             cue.end = Math.max(drag.origEnd + delta, cue.start + MIN_LEN);
+          }
+          return next;
+        }
+
+        if (drag.track === "media") {
+          const item = next.media.find((m) => m.id === drag.id);
+          if (!item) return next;
+          if (drag.mode === "move") {
+            const len = drag.origEnd - drag.origStart;
+            item.start = Math.max(0, drag.origStart + delta);
+            item.end = item.start + len;
+          } else if (drag.mode === "trim-start") {
+            // A video overlay trimmed from the left has to advance its in
+            // point inside the source too, or the same frames just start
+            // later. A still has no in point to advance.
+            const shift = Math.min(Math.max(delta, -drag.origStart),
+                                   drag.origEnd - drag.origStart - MIN_LEN);
+            item.start = Math.max(0, drag.origStart + shift);
+            if (item.kind === "video") {
+              item.in_point = Math.max(0, drag.origIn + shift);
+            }
+          } else {
+            item.end = Math.max(drag.origEnd + delta, item.start + MIN_LEN);
           }
           return next;
         }
@@ -98,14 +187,17 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
       setDirty(true);
     };
 
-    const onUp = () => { dragRef.current = null; };
+    const onUp = () => {
+      dragRef.current = null;
+      pendingSnapshot.current = false;
+    };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [pxPerSec, timeline]);
+  }, [pxPerSec, timeline, pushHistory]);
 
   const startDrag = (
     event: React.PointerEvent, mode: Drag["mode"],
@@ -113,14 +205,20 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
     start: number, inPoint: number, outPoint: number, end: number,
   ) => {
     event.stopPropagation();
+    // A click on a clip is also the start of a drag, so the snapshot is held
+    // aside and only enters the undo stack once the pointer actually moves.
+    // Pushing it here instead would fill the history with states identical to
+    // the current one, and Ctrl+Z would undo clicks rather than edits.
+    pendingSnapshot.current = true;
     dragRef.current = {
       mode, track, id, originX: event.clientX,
       origStart: start, origIn: inPoint, origOut: outPoint, origEnd: end,
     };
-    setSelection({ track: track === "caption" ? "caption" : track, id } as Selection);
+    setSelection({ track, id } as Selection);
   };
 
   const mutate = useCallback((fn: (draft: Timeline) => void) => {
+    pushHistory();
     setTimeline((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
@@ -128,7 +226,23 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
       return next;
     });
     setDirty(true);
-  }, []);
+  }, [pushHistory]);
+
+  /** Geometry of one overlay, in fractions of the frame — the same units the
+   *  renderer stores, so what the preview shows is what gets composited. */
+  const setMedia = (id: string, patch: Partial<TimelineMedia>) =>
+    mutate((draft) => {
+      const item = draft.media.find((m) => m.id === id);
+      if (item) Object.assign(item, patch);
+    });
+
+  const moveMediaTo = (event: React.PointerEvent, id: string) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    setMedia(id, {
+      x: Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1),
+      y: Math.min(Math.max((event.clientY - box.top) / box.height, 0), 1),
+    });
+  };
 
   const removeSelected = () => {
     if (!selection) return;
@@ -137,6 +251,8 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
         draft.video = draft.video.filter((c) => c.id !== selection.id);
       else if (selection.track === "audio")
         draft.audio = draft.audio.filter((c) => c.id !== selection.id);
+      else if (selection.track === "media")
+        draft.media = draft.media.filter((m) => m.id !== selection.id);
       else
         draft.captions = draft.captions.filter((c) => c.id !== selection.id);
     });
@@ -167,6 +283,13 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
       draft.video.splice(draft.video.indexOf(target) + 1, 0, right);
     });
   };
+
+  // The keyboard handler is bound once and must not go stale: these refs let
+  // it reach the current closures without re-binding on every edit.
+  const splitRef = useRef(splitSelected);
+  const removeRef = useRef(removeSelected);
+  splitRef.current = splitSelected;
+  removeRef.current = removeSelected;
 
   const closeGaps = () => mutate((draft) => {
     let cursor = 0;
@@ -215,6 +338,42 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
     } finally { setBusy(false); }
   };
 
+  // The shortcuts every cutting tool has. They are what makes trimming feel
+  // like editing instead of like filling a form — but they must never fire
+  // while someone is typing a caption, so a focused field opts out.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing = target && (target.tagName === "INPUT"
+        || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (typing) return;
+
+      const meta = event.metaKey || event.ctrlKey;
+      if (meta && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redo(); else undo();
+        return;
+      }
+      if (meta) return;
+
+      if (event.key === " ") {
+        event.preventDefault();
+        const video = videoRef.current;
+        if (!video) return;
+        if (video.paused) { video.play(); setPlaying(true); }
+        else { video.pause(); setPlaying(false); }
+      } else if (event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        splitRef.current();
+      } else if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        removeRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
+
   if (error) return (
     <div className="empty">{f(t.timeline.unavailable, { message: error })}</div>
   );
@@ -255,6 +414,12 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
   const selectedCue = selection?.track === "caption"
     ? timeline.captions.find((c) => c.id === selection.id) : undefined;
 
+  const selectedMedia = selection?.track === "media"
+    ? (timeline.media ?? []).find((m) => m.id === selection.id) : undefined;
+
+  const selectedAudio = selection?.track === "audio"
+    ? timeline.audio.find((a) => a.id === selection.id) : undefined;
+
   return (
     <div className="grid" style={{ gap: 12 }}>
       <section className="panel">
@@ -281,7 +446,10 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
             />
           </div>
           <div className="grid grow" style={{ gap: 10 }}>
-            <div className="row" style={{ gap: 8 }}>
+            {/* Wraps: next to the 168px monitor this column is ~184px on a
+                phone, and two buttons plus the timecode do not fit on one
+                line there — they used to push the page sideways instead. */}
+            <div className="row wrap" style={{ gap: 8 }}>
               <button className="btn sm" onClick={togglePlay}>
                 {playing ? t.timeline.pause : t.timeline.play}
               </button>
@@ -324,12 +492,24 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
         <div className="panel-body grid" style={{ gap: 10 }}>
           <div className="row wrap" style={{ gap: 6 }}>
             <button className="btn sm" onClick={splitSelected}
+                    title={`${t.timeline.split} (S)`}
                     disabled={selection?.track !== "video"}>{t.timeline.split}</button>
             <button className="btn sm danger" onClick={removeSelected}
+                    title={`${t.common.remove} (Del)`}
                     disabled={!selection}>{t.common.remove}</button>
+            <button className="btn sm ghost" onClick={undo}
+                    title={`${t.timeline.undo} (Ctrl+Z)`}
+                    disabled={historyDepth === 0}>{t.timeline.undo}</button>
+            <button className="btn sm ghost" onClick={redo}
+                    title={`${t.timeline.redo} (Ctrl+Shift+Z)`}
+                    disabled={redoDepth === 0}>{t.timeline.redo}</button>
             <button className="btn sm ghost" onClick={closeGaps}>{t.timeline.closeGaps}</button>
             <button className="btn sm ghost" onClick={fillToAudio}>{t.timeline.fillToAudio}</button>
           </div>
+
+          <span className="dimmer" style={{ fontSize: 11, lineHeight: 1.6 }}>
+            {t.timeline.shortcuts}
+          </span>
 
           {gap > 0.5 ? (
             <div className="issue" data-sev="aviso">
@@ -361,6 +541,9 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
                       onPointerDown={(e) => startDrag(e, "move", "video", clip.id,
                         clip.start, clip.in_point, clip.out_point, clip.start + length)}
                     >
+                      <Filmstrip src={`/api/jobs/${jobId}/file/short.mp4?v=${version}`}
+                                 from={clip.in_point} to={clip.out_point}
+                                 width={length * pxPerSec} />
                       <i className="tl-handle left" onPointerDown={(e) =>
                         startDrag(e, "trim-start", "video", clip.id,
                           clip.start, clip.in_point, clip.out_point, clip.start + length)} />
@@ -393,6 +576,32 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Media laid over the video — the picture-in-picture. It sits
+                  between the video and the captions because that is the order
+                  it is composited in: over the footage, under the words. */}
+              <TrackLabel text={t.timeline.trackMedia} />
+              <div className="tl-lane">
+                {(timeline.media ?? []).map((item) => (
+                  <div
+                    key={item.id}
+                    className="tl-clip media"
+                    data-on={selection?.track === "media" && selection.id === item.id}
+                    style={{ left: item.start * pxPerSec,
+                             width: Math.max((item.end - item.start) * pxPerSec, 8) }}
+                    onPointerDown={(e) => startDrag(e, "move", "media", item.id,
+                      item.start, item.in_point, 0, item.end)}
+                  >
+                    <i className="tl-handle left" onPointerDown={(e) =>
+                      startDrag(e, "trim-start", "media", item.id,
+                        item.start, item.in_point, 0, item.end)} />
+                    <span>{item.source.replace(/\.[^.]+$/, "")}</span>
+                    <i className="tl-handle right" onPointerDown={(e) =>
+                      startDrag(e, "trim-end", "media", item.id,
+                        item.start, item.in_point, 0, item.end)} />
+                  </div>
+                ))}
               </div>
 
               <TrackLabel text={t.timeline.trackCaption} />
@@ -445,6 +654,112 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
         </section>
       ) : null}
 
+      {/* Balancing a music bed against a voice is the most common audio edit
+          there is, and `gain` was already in the model and already applied by
+          the renderer — it just had nothing to set it. */}
+      {selectedAudio ? (
+        <section className="panel">
+          <div className="panel-head">
+            <span className="label">{t.timeline.audioTitle}</span>
+            <div className="grow" />
+            <span className="mono dimmer" style={{ fontSize: 11 }}>
+              {selectedAudio.role}
+            </span>
+          </div>
+          <div className="panel-body">
+            <Field label={t.timeline.volume}
+                   hint={selectedAudio.gain === 0 ? t.timeline.muted
+                         : `${Math.round(selectedAudio.gain * 100)}%`}>
+              <div className="row" style={{ gap: 8 }}>
+                <input type="range" min={0} max={2} step={0.05}
+                       className="grow"
+                       value={selectedAudio.gain}
+                       onChange={(e) => mutate((draft) => {
+                         const clip = draft.audio.find(
+                           (a) => a.id === selectedAudio.id);
+                         if (clip) clip.gain = Number(e.target.value);
+                       })} />
+                <button className="btn sm ghost" onClick={() => mutate((draft) => {
+                  const clip = draft.audio.find((a) => a.id === selectedAudio.id);
+                  // Mute is a toggle back to full, not to whatever it was —
+                  // remembering a previous gain nobody can see is a surprise.
+                  if (clip) clip.gain = clip.gain === 0 ? 1 : 0;
+                })}>
+                  {selectedAudio.gain === 0 ? t.timeline.unmute : t.timeline.mute}
+                </button>
+              </div>
+            </Field>
+          </div>
+        </section>
+      ) : null}
+
+      {selectedMedia ? (
+        <section className="panel">
+          <div className="panel-head">
+            <span className="label">{t.timeline.mediaTitle}</span>
+            <div className="grow" />
+            <span className="mono dimmer" style={{ fontSize: 11 }}>
+              {selectedMedia.start.toFixed(2)}s → {selectedMedia.end.toFixed(2)}s
+            </span>
+          </div>
+          <div className="panel-body two">
+            <div className="grid" style={{ gap: 10 }}>
+              <Field label={t.timeline.mediaSize}
+                     hint={f(t.timeline.mediaSizeValue,
+                             { n: Math.round(selectedMedia.width * 100) })}>
+                <input type="range" min={0.05} max={1} step={0.01}
+                       value={selectedMedia.width}
+                       onChange={(e) => setMedia(selectedMedia.id,
+                         { width: Number(e.target.value) })} />
+              </Field>
+              <Field label={t.timeline.mediaOpacity}
+                     hint={`${Math.round(selectedMedia.opacity * 100)}%`}>
+                <input type="range" min={0.05} max={1} step={0.05}
+                       value={selectedMedia.opacity}
+                       onChange={(e) => setMedia(selectedMedia.id,
+                         { opacity: Number(e.target.value) })} />
+              </Field>
+            </div>
+            {/* Dragging on a 9:16 preview beats typing coordinates, and the
+                fractions it produces are exactly what the renderer stores. */}
+            <Field label={t.timeline.mediaPosition} hint={t.timeline.mediaPositionHint}>
+              <div
+                onPointerDown={(e) => {
+                  (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+                  moveMediaTo(e, selectedMedia.id);
+                }}
+                onPointerMove={(e) => {
+                  if (e.buttons) moveMediaTo(e, selectedMedia.id);
+                }}
+                style={{
+                  position: "relative", width: "100%", maxWidth: 132,
+                  aspectRatio: "9/16", borderRadius: "var(--r)",
+                  border: "1px solid var(--line)", overflow: "hidden",
+                  background: "#000", cursor: "crosshair", touchAction: "none",
+                }}
+              >
+                <img alt="" src={`/api/jobs/${jobId}/file/thumb.jpg`}
+                     style={{ width: "100%", height: "100%", objectFit: "cover",
+                              opacity: 0.5, pointerEvents: "none" }} />
+                <div style={{
+                  position: "absolute",
+                  left: `${selectedMedia.x * 100}%`,
+                  top: `${selectedMedia.y * 100}%`,
+                  width: `${selectedMedia.width * 100}%`,
+                  // A square stand-in: the real height follows the media's own
+                  // aspect ratio, which only FFmpeg knows at scale time.
+                  aspectRatio: "1/1",
+                  transform: "translate(-50%, -50%)",
+                  border: "1px solid var(--amber)",
+                  background: `rgba(255,176,0,${0.18 * selectedMedia.opacity})`,
+                  pointerEvents: "none",
+                }} />
+              </div>
+            </Field>
+          </div>
+        </section>
+      ) : null}
+
       <div className="row wrap" style={{ gap: 10 }}>
         <button className="btn primary grow" onClick={render} disabled={busy}>
           {busy ? t.timeline.rendering : t.timeline.render}
@@ -457,6 +772,75 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
           {t.timeline.reload}
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Frames along the video track, so you can see where a cut lands instead of
+ *  scrubbing to find out.
+ *
+ *  Drawn in the browser from the rendered MP4 rather than asked of the server:
+ *  the file is already being streamed for the monitor, and an endpoint that
+ *  shells out to FFmpeg per thumbnail would turn scrubbing into a queue of
+ *  subprocesses. Failure here is cosmetic — the strip simply stays empty. */
+function Filmstrip({ src, from, to, width }: {
+  src: string; from: number; to: number; width: number;
+}) {
+  const [frames, setFrames] = useState<string[]>([]);
+
+  useEffect(() => {
+    const span = to - from;
+    if (span <= 0 || width < 40) { setFrames([]); return; }
+    // One frame per ~64px: enough to read the cut, few enough to decode fast.
+    const count = Math.max(1, Math.min(Math.round(width / 64), 12));
+
+    let cancelled = false;
+    const video = document.createElement("video");
+    video.src = src;
+    video.muted = true;
+    video.crossOrigin = "anonymous";
+    const canvas = document.createElement("canvas");
+    const shots: string[] = [];
+
+    const grab = (index: number) => {
+      if (cancelled || index >= count) {
+        if (!cancelled) setFrames(shots);
+        return;
+      }
+      video.currentTime = from + (span * (index + 0.5)) / count;
+      video.onseeked = () => {
+        if (cancelled) return;
+        canvas.width = 48;
+        canvas.height = 85;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        try {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          shots.push(canvas.toDataURL("image/jpeg", 0.5));
+        } catch {
+          // a tainted canvas or a codec the browser will not decode
+          cancelled = true;
+          return;
+        }
+        grab(index + 1);
+      };
+    };
+
+    video.onloadeddata = () => grab(0);
+    video.onerror = () => setFrames([]);
+    return () => { cancelled = true; video.src = ""; };
+  }, [src, from, to, width]);
+
+  if (!frames.length) return null;
+  return (
+    <div aria-hidden style={{
+      position: "absolute", inset: 0, display: "flex", overflow: "hidden",
+      borderRadius: 3, opacity: 0.55, pointerEvents: "none",
+    }}>
+      {frames.map((frame, index) => (
+        <img key={index} src={frame} alt=""
+             style={{ height: "100%", flex: 1, minWidth: 0, objectFit: "cover" }} />
+      ))}
     </div>
   );
 }

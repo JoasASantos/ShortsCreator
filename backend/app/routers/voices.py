@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from .. import db
@@ -127,6 +129,71 @@ async def create_voice(
                        "fish_model": fish_model, "speed": speed},
     )
     return db.get_voice(voice_id)
+
+
+@router.post("/clone")
+async def clone_voice(
+    name: str = Form(...),
+    provider: str = Form(""),
+    language: str = Form("pt"),
+    sample: UploadFile = File(...),
+):
+    """Registers YOUR voice from a sample you provide.
+
+    `provider` empty means "whichever can": local XTTS first, because it is
+    free and the audio never leaves the machine. The answer names the path
+    that actually ran, so nobody has to guess whether they were charged.
+
+    A video is accepted as the sample too — the audio is extracted from it —
+    since a clip of yourself talking to camera is the recording most people
+    already have.
+    """
+    from ..pipeline import voice_clone
+
+    filename = sample.filename or "sample"
+    incoming = settings.voices_dir / f"{db.new_id('upload')}_{Path(filename).name}"
+    incoming.write_bytes(await sample.read())
+
+    notes: list[str] = []
+    try:
+        return voice_clone.register(
+            name, incoming, provider=provider, language=language,
+            log=lambda message, level="info": notes.append(message))
+    except voice_clone.SampleRejected as exc:
+        raise HTTPException(400, str(exc))
+    except voice_clone.CloneUnavailable as exc:
+        # 400 with the instruction, not 500: no cloning path being available
+        # is a normal state and the text says what to do about it.
+        raise HTTPException(400, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc))
+    finally:
+        # The prepared WAV is what the voice keeps; the raw upload is not
+        # needed once it has been converted, and a rejected one is not needed
+        # at all.
+        incoming.unlink(missing_ok=True)
+
+
+@router.get("/{voice_id}/sample")
+def voice_sample(voice_id: str):
+    """The reference audio a cloned voice was built from.
+
+    Separate from /preview on purpose: previewing an XTTS voice means
+    synthesizing, which needs the local server up. Playing back what was
+    uploaded works either way, so the screen can always prove the sample
+    arrived.
+    """
+    from fastapi.responses import FileResponse
+
+    from ..pipeline import voice_clone
+
+    voice = db.get_voice(voice_id)
+    if voice is None:
+        raise HTTPException(404, "Voice not found")
+    path = voice_clone.reference_audio(voice)
+    if path is None:
+        raise HTTPException(404, "This voice has no stored audio sample.")
+    return FileResponse(path, media_type="audio/wav")
 
 
 @router.post("/{voice_id}/preview")
