@@ -234,3 +234,27 @@ def test_the_hook_caption_and_refine_prompts_also_follow_the_language(monkeypatc
 
     assert len(seen) == 3
     assert all("русский" in system for system in seen)
+
+
+# ------------------------------------------------------- several links
+
+def test_split_urls_accepts_one_link_per_line_or_comma_separated():
+    """Pasting a handful of links is how a montage gets made — the highlights
+    then spread across all of them instead of leaning on one source."""
+    from app.pipeline.ingest import split_urls
+
+    assert split_urls("https://youtu.be/a") == ["https://youtu.be/a"]
+    assert split_urls("https://youtu.be/a\nhttps://youtu.be/b") == [
+        "https://youtu.be/a", "https://youtu.be/b"]
+    assert split_urls("https://youtu.be/a, https://youtu.be/b , https://youtu.be/c") == [
+        "https://youtu.be/a", "https://youtu.be/b", "https://youtu.be/c"]
+
+
+def test_split_urls_ignores_anything_that_is_not_a_link():
+    from app.pipeline.ingest import split_urls
+
+    assert split_urls("just a topic") == []
+    assert split_urls("") == []
+    assert split_urls("   ") == []
+    # a topic sitting next to a link must not turn into a bogus source
+    assert split_urls("watch this https://youtu.be/a") == ["https://youtu.be/a"]

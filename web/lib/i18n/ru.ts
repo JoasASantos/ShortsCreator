@@ -115,6 +115,7 @@ export const ru: Dictionary = {
     input: "Вход",
     yourScript: "Ваш сценарий",
     linkOrFile: "ссылка или файл",
+    severalLinks: "ссылок: {n} — получится нарезка",
     images: "Изображения",
     videoFile: "Видеофайл",
     imagesHint: "по одному на озвученный фрагмент, по порядку",
@@ -198,7 +199,7 @@ export const ru: Dictionary = {
     roteiroHint: "Ваш финальный текст, озвучен без участия ИИ.",
     placeholders: {
       url: "https://example.com/статья-о-сбое-crowdstrike",
-      video: "https://youtube.com/watch?v=… или загрузите файл ниже",
+      video: "https://youtube.com/watch?v=… · несколько ссылок, по одной в строке, дадут нарезку",
       github: "https://github.com/pallets/flask",
       tema: "Как работала атака на цепочку поставок SolarWinds",
       texto: "Вставьте сюда сырой текст для Short…",
@@ -668,6 +669,11 @@ export const ru: Dictionary = {
       detail:
         "Второй банк b-roll. Подключается как резерв, когда у Pexels нет результатов по запросу фрагмента.",
       requirement: "PIXABAY_API_KEY",
+    },
+    coverr: {
+      detail:
+        "Третий банк B-roll: в основном кинематографичные зацикленные кадры — выручает, когда два других отдают только буквальный сток.",
+      requirement: "COVERR_API_KEY (бесплатный ключ на coverr.co)",
     },
     instagram: {
       detail:

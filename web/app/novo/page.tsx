@@ -153,6 +153,10 @@ export default function NovoShort() {
   const set = <K extends keyof JobInput>(key: K, value: JobInput[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
+  // several links pasted at once become a montage; the hint says how many
+  // the backend will actually pick up
+  const linkCount = (form.source.match(/https?:\/\/\S+/g) ?? []).length;
+
   const acceptsFiles = form.source_type === "imagem" || form.source_type === "video";
   const isLongForm = form.source_type === "video";
   const hasVideoUpload = isLongForm && uploads.length > 0;
@@ -242,11 +246,20 @@ export default function NovoShort() {
                   <Field
                     label={form.source_type === "roteiro"
                       ? t.newJob.yourScript : t.newJob.input}
-                    hint={form.source_type === "video" ? t.newJob.linkOrFile : undefined}
+                    hint={form.source_type === "video"
+                      ? (linkCount > 1
+                        ? f(t.newJob.severalLinks, { n: linkCount })
+                        : t.newJob.linkOrFile)
+                      : undefined}
                   >
-                    {form.source_type === "texto" || form.source_type === "roteiro" ? (
+                    {/* video takes a textarea too: several links, one per
+                        line, become a montage across all of them */}
+                    {form.source_type === "texto" || form.source_type === "roteiro"
+                      || form.source_type === "video" ? (
                       <textarea
                         className="textarea"
+                        style={form.source_type === "video"
+                          ? { minHeight: 64 } : undefined}
                         placeholder={t.sources.placeholders[form.source_type]}
                         value={form.source}
                         onChange={(e) => set("source", e.target.value)}

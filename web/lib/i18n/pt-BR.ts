@@ -121,6 +121,7 @@ export const ptBR = {
     input: "Entrada",
     yourScript: "Seu roteiro",
     linkOrFile: "link ou arquivo",
+    severalLinks: "{n} links — vira uma montagem",
     images: "Imagens",
     videoFile: "Arquivo de vídeo",
     imagesHint: "uma por trecho narrado, em ordem",
@@ -204,7 +205,7 @@ export const ptBR = {
     roteiroHint: "Seu texto final, narrado sem passar por IA.",
     placeholders: {
       url: "https://exemplo.com/artigo-sobre-a-falha-do-crowdstrike",
-      video: "https://youtube.com/watch?v=… ou envie o arquivo abaixo",
+      video: "https://youtube.com/watch?v=… · vários links, um por linha, viram uma montagem",
       github: "https://github.com/pallets/flask",
       tema: "Como o ataque de cadeia de suprimentos da SolarWinds funcionou",
       texto: "Cole aqui o texto bruto que deve virar short…",
@@ -684,6 +685,11 @@ export const ptBR = {
       detail:
         "Segundo banco de b-roll. Entra como reserva quando a Pexels não tem resultado para a consulta do segmento.",
       requirement: "PIXABAY_API_KEY",
+    },
+    coverr: {
+      detail:
+        "Terceiro banco de b-roll, com material mais cinematográfico e em loop — cobre bem quando os outros dois só devolvem imagem de banco literal.",
+      requirement: "COVERR_API_KEY (chave gratuita em coverr.co)",
     },
     instagram: {
       detail:

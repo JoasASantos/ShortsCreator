@@ -87,6 +87,12 @@ class Settings:
         # B-roll
         self.pexels_api_key = os.getenv("PEXELS_API_KEY", "")
         self.pixabay_api_key = os.getenv("PIXABAY_API_KEY", "")
+        self.coverr_api_key = os.getenv("COVERR_API_KEY", "")
+        # Stock clips are tens of MB each and a short uses several. They are
+        # deleted after the render by default; keeping them only pays off
+        # while iterating on the same short.
+        self.broll_keep_cache = os.getenv("BROLL_KEEP_CACHE", "").lower() in (
+            "1", "true", "yes")
 
         # Publish
         self.youtube_client_secrets = os.getenv(

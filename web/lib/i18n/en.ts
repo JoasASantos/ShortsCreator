@@ -115,6 +115,7 @@ export const en: Dictionary = {
     input: "Input",
     yourScript: "Your script",
     linkOrFile: "link or file",
+    severalLinks: "{n} links — becomes a montage",
     images: "Images",
     videoFile: "Video file",
     imagesHint: "one per narrated segment, in order",
@@ -198,7 +199,7 @@ export const en: Dictionary = {
     roteiroHint: "Your final text, narrated without going through AI.",
     placeholders: {
       url: "https://example.com/article-about-the-crowdstrike-outage",
-      video: "https://youtube.com/watch?v=… or upload the file below",
+      video: "https://youtube.com/watch?v=… · several links, one per line, become a montage",
       github: "https://github.com/pallets/flask",
       tema: "How the SolarWinds supply chain attack worked",
       texto: "Paste the raw text that should become a short…",
@@ -669,6 +670,11 @@ export const en: Dictionary = {
       detail:
         "Second b-roll bank. Steps in as a fallback when Pexels has no result for the segment's query.",
       requirement: "PIXABAY_API_KEY",
+    },
+    coverr: {
+      detail:
+        "Third b-roll bank, mostly cinematic loopable footage — good filler when the other two return literal stock imagery.",
+      requirement: "COVERR_API_KEY (free key at coverr.co)",
     },
     instagram: {
       detail:

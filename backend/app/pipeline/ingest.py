@@ -87,7 +87,10 @@ def ingest(job: JobInput, job_dir: Path, log=lambda m: None) -> SourceMaterial:
         if job.attachments:
             log(f"Using {len(job.attachments)} uploaded video(s)")
             return _ingest_local_videos(job.attachments, job_dir, log)
-        log(f"Downloading video from {source}")
+        urls = split_urls(source)
+        if len(urls) > 1:
+            log(f"Downloading {len(urls)} videos")
+            return _ingest_videos(urls, job_dir, log)
         return _ingest_video(source, job_dir, log)
 
     if source_type == "texto" or (source_type == "tema" and len(source) > 400):
@@ -100,11 +103,25 @@ def ingest(job: JobInput, job_dir: Path, log=lambda m: None) -> SourceMaterial:
         return SourceMaterial(kind="tema", title=source, text=source)
 
     if is_video_url(source):
-        log(f"Downloading video from {source}")
+        urls = split_urls(source)
+        if len(urls) > 1:
+            log(f"Downloading {len(urls)} videos")
+            return _ingest_videos(urls, job_dir, log)
         return _ingest_video(source, job_dir, log)
 
     log(f"Extracting article from {source}")
     return _ingest_article(source)
+
+
+def split_urls(value: str) -> list[str]:
+    """Several links in one field, one per line or comma separated.
+
+    Pasting a handful of links is how a montage gets made — the pipeline then
+    spreads the highlights across all of them instead of leaning on a single
+    source. A field with only one link is unaffected.
+    """
+    parts = re.split(r"[\s,]+", (value or "").strip())
+    return [p for p in parts if is_url(p)]
 
 
 def _first_line(text: str) -> str:
@@ -150,6 +167,50 @@ def _ingest_article(url: str) -> SourceMaterial:
 
 
 # ---------------------------- video (link) ----------------------------
+
+def _ingest_videos(urls: list[str], job_dir: Path, log) -> SourceMaterial:
+    """Several links at once. Each is downloaded into its own sub-directory so
+    the `source.*` names cannot collide, and the results are merged into one
+    material: the highlight picker then spreads scenes across every source.
+
+    A link that fails to download is reported and skipped — losing one video
+    out of five should not lose the whole job.
+    """
+    paths: list[Path] = []
+    titles: list[str] = []
+    transcripts: list[str] = []
+    total_duration = 0.0
+
+    for index, url in enumerate(urls):
+        part_dir = job_dir / f"src_{index:02d}"
+        part_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            material = _ingest_video(url, part_dir, log)
+        except Exception as exc:  # noqa: BLE001 — one bad link is not the job
+            log(f"Video {index + 1}/{len(urls)} failed and was skipped: {exc}", "warn")
+            continue
+        if material.video_path:
+            paths.append(material.video_path)
+            titles.append(material.title or url)
+            if material.transcript:
+                transcripts.append(material.transcript)
+            total_duration += float(material.metadata.get("duration") or 0)
+            log(f"Video {index + 1}/{len(urls)}: {material.title or url}")
+
+    if not paths:
+        raise RuntimeError("None of the links could be downloaded.")
+
+    return SourceMaterial(
+        kind="video",
+        title=titles[0] if titles else "",
+        text="\n\n".join(f"[{t}]" for t in titles),
+        url=urls[0],
+        video_path=paths[0],
+        video_paths=paths,
+        transcript="\n\n".join(transcripts),
+        metadata={"duration": total_duration or None, "sources": len(paths)},
+    )
+
 
 def _ingest_video(url: str, job_dir: Path, log) -> SourceMaterial:
     out_tpl = str(job_dir / "source.%(ext)s")
