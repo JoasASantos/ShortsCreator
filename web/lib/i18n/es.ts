@@ -115,6 +115,7 @@ export const es: Dictionary = {
     input: "Entrada",
     yourScript: "Tu guion",
     linkOrFile: "enlace o archivo",
+    severalLinks: "{n} enlaces — se vuelve un montaje",
     images: "Imágenes",
     videoFile: "Archivo de vídeo",
     imagesHint: "una por fragmento narrado, en orden",
@@ -198,7 +199,7 @@ export const es: Dictionary = {
     roteiroHint: "Tu texto final, narrado sin pasar por IA.",
     placeholders: {
       url: "https://ejemplo.com/articulo-sobre-la-caida-de-crowdstrike",
-      video: "https://youtube.com/watch?v=… o sube el archivo abajo",
+      video: "https://youtube.com/watch?v=… · varios enlaces, uno por línea, se vuelven un montaje",
       github: "https://github.com/pallets/flask",
       tema: "Cómo funcionó el ataque a la cadena de suministro de SolarWinds",
       texto: "Pega aquí el texto en bruto que debe convertirse en short…",
@@ -670,6 +671,11 @@ export const es: Dictionary = {
       detail:
         "Segundo banco de b-roll. Entra como reserva cuando Pexels no tiene resultados para la consulta del segmento.",
       requirement: "PIXABAY_API_KEY",
+    },
+    coverr: {
+      detail:
+        "Tercer banco de b-roll, con material más cinematográfico y en bucle — cubre bien cuando los otros dos solo devuelven imagen de banco literal.",
+      requirement: "COVERR_API_KEY (clave gratuita en coverr.co)",
     },
     instagram: {
       detail:

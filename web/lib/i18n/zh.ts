@@ -114,6 +114,7 @@ export const zh: Dictionary = {
     input: "输入",
     yourScript: "你的脚本",
     linkOrFile: "链接或文件",
+    severalLinks: "{n} 个链接 — 会剪成合集",
     images: "图片",
     videoFile: "视频文件",
     imagesHint: "每段解说一张，按顺序",
@@ -197,7 +198,7 @@ export const zh: Dictionary = {
     roteiroHint: "你的最终文本，不经 AI 直接配音。",
     placeholders: {
       url: "https://example.com/关于-crowdstrike-故障的文章",
-      video: "https://youtube.com/watch?v=… 或在下方上传文件",
+      video: "https://youtube.com/watch?v=… · 多个链接每行一个，会剪成一支合集",
       github: "https://github.com/pallets/flask",
       tema: "SolarWinds 供应链攻击是如何实现的",
       texto: "在此粘贴要做成短视频的原始文本…",
@@ -661,6 +662,11 @@ export const zh: Dictionary = {
       detail:
         "第二个 b-roll 素材库。Pexels 对该片段的查询没有结果时作为备选。",
       requirement: "PIXABAY_API_KEY",
+    },
+    coverr: {
+      detail:
+        "第三个 B-roll 素材库，以电影感的循环镜头为主 — 当另外两个只给出直白的素材图时，用它来补足。",
+      requirement: "COVERR_API_KEY（在 coverr.co 免费申请）",
     },
     instagram: {
       detail:

@@ -316,6 +316,10 @@ def run_job(job_id: str) -> dict:
         published_copy = settings.outputs_dir / f"{job_id}.mp4"
         shutil.copy(final, published_copy)
 
+        # The stock footage did its job in the render above. Keeping it would
+        # grow the disk by tens of MB per short, without bound.
+        broll.cleanup(job_dir, log)
+
         # Cover and animated preview are cosmetic: a failure here does not fail
         # the job.
         cover_at = None
@@ -407,7 +411,7 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
             mode = "imagem_kenburns"
         elif material.kind == "video" and material.video_path:
             mode = "video_fonte"
-        elif settings.pexels_api_key or settings.pixabay_api_key:
+        elif broll.providers_ready():
             mode = "broll"
         else:
             mode = "gradiente"
@@ -448,9 +452,19 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
     elif mode == "broll":
         queries = [job.background_query] if job.background_query else \
             [s.broll_query for s in short.segments if s.broll_query]
-        log(f"Background: B-roll for {queries[:4]}")
-        clips = broll.fetch_for_queries(queries[:5], log)
+
+        # A single clip stretched over a whole short reads as a static image.
+        # Aim for roughly one scene every 6 seconds, pulling extra clips per
+        # query when the script has fewer segments than the length calls for.
+        wanted = max(2, min(int(duration // 6) + 1, 8))
+        per_query = max(1, -(-wanted // max(len(queries[:5]), 1)))
+        log(f"Background: B-roll from {', '.join(broll.providers_ready())} "
+            f"for {queries[:4]} (~{wanted} scenes)")
+
+        clips = broll.fetch_for_queries(queries[:5], log, job_dir=job_dir,
+                                        per_query=per_query)
         if clips:
+            log(f"{len(clips)} stock clip(s) downloaded")
             render.background_from_clips(clips, duration, out, job_dir)
         else:
             log("No B-roll found; falling back to a gradient", "warn")

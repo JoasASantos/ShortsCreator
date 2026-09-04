@@ -115,6 +115,15 @@ def _check_pixabay(creds: dict) -> str:
     return "Pixabay responding — video b-roll enabled"
 
 
+def _check_coverr(creds: dict) -> str:
+    r = _get("https://api.coverr.co/videos",
+             {}, {"api_key": creds.get("api_key", ""), "page_size": 1})
+    if r.status_code in (401, 403):
+        raise RuntimeError("Key rejected by Coverr")
+    r.raise_for_status()
+    return "Coverr responding — cinematic b-roll available"
+
+
 def _check_tiktok_app(creds: dict) -> str:
     if not creds.get("client_key") or not creds.get("client_secret"):
         raise RuntimeError("Missing client_key/client_secret")
@@ -228,6 +237,15 @@ CATALOG: list[Connector] = [
         docs="https://pixabay.com/api/docs/",
         fields=[Field("api_key", "API key", "PIXABAY_API_KEY")],
         check=_check_pixabay,
+    ),
+    Connector(
+        id="coverr", name="Coverr", category="broll", auth="api_key",
+        detail="Third b-roll bank, mostly cinematic loopable footage — good "
+               "filler when the other two return literal stock imagery.",
+        requirement="COVERR_API_KEY (free key at coverr.co)",
+        docs="https://api.coverr.co/docs",
+        fields=[Field("api_key", "API key", "COVERR_API_KEY")],
+        check=_check_coverr,
     ),
     Connector(
         id="instagram", name="Instagram Reels", category="publicacao",
