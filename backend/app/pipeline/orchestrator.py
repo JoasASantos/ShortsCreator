@@ -476,9 +476,11 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
             log(f"Background: {len(material.video_paths)} videos in sequence, 9:16")
             render.background_from_clips(material.video_paths, duration, out, job_dir)
         else:
-            log("Background: source video cropped to 9:16")
+            log(f"Background: source video framed to 9:16 ({job.background_fill})")
             render.background_from_video(material.video_path, duration, out,
-                                         scroll=job.scroll)
+                                         scroll=job.scroll,
+                                         fill=job.background_fill,
+                                         log=lambda m: log(m))
 
     elif mode == "broll":
         queries = [job.background_query] if job.background_query else \

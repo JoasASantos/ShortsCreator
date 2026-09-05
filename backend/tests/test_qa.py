@@ -149,12 +149,17 @@ def test_suggest_fix_for_loudness_lowers_the_music_track():
     assert stage == "render"
 
 
-def test_suggest_fix_for_black_bars_swaps_the_background():
+def test_suggest_fix_for_black_bars_reframes_before_dropping_the_footage():
+    """This used to swap straight to a gradient, which passes the audit by
+    throwing away the video the user asked for. Reframing to cover the frame
+    cannot leave a bar and keeps the footage; the gradient is what is left
+    when even that fails. The escalation is covered in test_framing.py."""
     job = JobInput(source_type="video", source="x", background="video_fonte")
     fix = qa.suggest_fix(_report("barras_pretas"), job)
     assert fix is not None
     _, updated, stage = fix
-    assert updated.background == "gradiente"
+    assert updated.background_fill == "preencher"
+    assert updated.background == "video_fonte"
     assert stage == "fundo"
 
 

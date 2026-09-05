@@ -5,6 +5,7 @@ Pipeline: background (1080x1920) -> ASS subtitles -> audio mix -> H.264 faststar
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -26,6 +27,69 @@ FIT_919 = (
     f"scale={W}:{H}:force_original_aspect_ratio=decrease[fg];"
     f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,fps={FPS},format=yuv420p"
 )
+
+# Zooms the footage until it covers 9:16 and cuts the sides. Nothing is left
+# over to fill, so no bars are possible — at the cost of whatever falls outside
+# the frame. This is the treatment for footage that is very wide, where the
+# blurred fit leaves more blur than picture.
+FILL_919 = (
+    f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+    f"setsar=1,fps={FPS},format=yuv420p"
+)
+
+
+def content_crop(source: Path, seconds: float = 12.0) -> str:
+    """The `crop=` filter that strips a source's own baked-in black bars.
+
+    A cinema trailer is 2.39:1 delivered inside a 16:9 file: the bars are part
+    of the picture, not of the container. Fitting that into 9:16 carries them
+    along, and the result is correctly flagged as letterboxed — the bars really
+    are there. Every downstream framing choice is wrong until they are gone, so
+    this runs first and adapts to whatever the source turns out to be:
+    letterboxed cinema, pillarboxed 4:3, or already-clean footage.
+
+    Returns "" when there is nothing to strip, which is the common case and
+    must cost nothing.
+    """
+    probe = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-t", f"{seconds:.1f}",
+         "-i", str(source), "-vf", "cropdetect=limit=24:round=2:reset=0",
+         "-f", "null", "-"],
+        capture_output=True, text=True)
+    matches = re.findall(r"crop=(\d+):(\d+):(\d+):(\d+)", probe.stderr)
+    if not matches:
+        return ""
+
+    # The last reading is cropdetect's accumulated verdict over the sample.
+    width, height, x, y = (int(v) for v in matches[-1])
+    size = _dimensions(source)
+    if size is None or width <= 0 or height <= 0:
+        return ""
+    full_w, full_h = size
+
+    # Ignore a crop that shaves only a few pixels: that is compression noise at
+    # the edge, and cropping on it would make the frame drift between renders.
+    trimmed = (full_w - width) + (full_h - height)
+    if trimmed < 0.04 * (full_w + full_h):
+        return ""
+    # A reading that would throw away most of the picture is cropdetect losing
+    # its footing on a dark or fading shot, not a bar.
+    if width * height < 0.25 * full_w * full_h:
+        return ""
+    return f"crop={width}:{height}:{x}:{y},"
+
+
+def _dimensions(video: Path) -> tuple[int, int] | None:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height",
+         "-of", "csv=s=x:p=0", str(video)],
+        capture_output=True, text=True)
+    try:
+        width, height = out.stdout.strip().split("x")
+        return int(width), int(height)
+    except ValueError:
+        return None
 
 
 def _run(cmd: list[str], cwd: Path | None = None) -> None:
@@ -58,12 +122,32 @@ def background_gradient(duration: float, niche: str, out: Path,
 
 
 def background_from_video(source: Path, duration: float, out: Path,
-                          scroll: str = "nenhum", start: float = 0.0) -> Path:
-    vf = FIT_919
+                          scroll: str = "nenhum", start: float = 0.0,
+                          fill: str = "desfoque", log=lambda m: None) -> Path:
+    """Frame a source video as a 9:16 background.
+
+    `fill` decides what happens to the space a landscape frame does not cover:
+    "desfoque" keeps the whole picture over a blurred copy of itself, and
+    "preencher" zooms until the frame is covered and cuts the sides. The
+    source's own baked-in bars are stripped first either way — carrying them
+    into the composition is what makes a correctly framed short look
+    letterboxed.
+    """
+    debar = content_crop(source)
+    if debar:
+        log(f"Source has baked-in bars; cropping to {debar.rstrip(',')[5:]}")
+
     if scroll == "pan":
-        vf = (f"scale={W}:{int(H*1.2)}:force_original_aspect_ratio=increase,"
+        vf = (f"{debar}scale={W}:{int(H*1.2)}:force_original_aspect_ratio=increase,"
               f"crop={W}:{H}:0:'(ih-{H})*t/{duration:.2f}',setsar=1,"
               f"fps={FPS},format=yuv420p")
+    elif fill == "preencher":
+        vf = debar + FILL_919
+    else:
+        # FIT_919 opens with split, which takes no input prefix — the crop has
+        # to run before the graph forks, not inside one of its branches.
+        vf = debar + FIT_919
+
     _run(["ffmpeg", "-y", "-ss", f"{start:.2f}", "-i", str(source),
           "-t", f"{duration:.2f}", "-an", "-vf", vf, "-r", str(FPS),
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",

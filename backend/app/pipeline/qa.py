@@ -449,10 +449,23 @@ def suggest_fix(report: QAReport, job: JobInput) -> tuple[str, JobInput, str] | 
         return (f"audio outside the loudness range — lowering the music to {updated.music_volume}",
                 updated, "render")
 
-    if "barras_pretas" in codes and updated.background != "gradiente":
-        updated.background = "gradiente"
-        return ("background has black bars — switching to a solid gradient",
-                updated, "fundo")
+    if "barras_pretas" in codes:
+        # Re-frame before giving up on the footage. Zooming until the frame is
+        # covered cannot leave a bar, and it keeps the video the user asked
+        # for; replacing it with a gradient passes the audit by throwing the
+        # content away, which is not a fix.
+        if updated.background_fill != "preencher":
+            updated.background_fill = "preencher"
+            return ("background still has black bars — reframing to fill the "
+                    "frame instead of fitting inside it", updated, "fundo")
+        # Filling did not help, so the bars are not a framing problem: the
+        # source itself is mostly black. Only now is the gradient the better
+        # picture, and the log says the footage was dropped.
+        if updated.background != "gradiente":
+            updated.background = "gradiente"
+            return ("reframing did not clear the black bars — the source is "
+                    "too dark to use; falling back to a gradient",
+                    updated, "fundo")
 
     return None
 

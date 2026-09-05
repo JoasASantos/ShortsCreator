@@ -73,6 +73,12 @@ class JobInput(BaseModel):
     scroll: ScrollStyle = "nenhum"
     background: BackgroundMode = "auto"
     background_query: str = ""
+    # What to do with the space a landscape frame leaves in a 9:16 short:
+    # "desfoque" keeps the whole picture over a blurred copy of itself,
+    # "preencher" zooms until the frame is covered and cuts the sides. QA
+    # switches to "preencher" by itself when the first framing still reads as
+    # letterboxed.
+    background_fill: Literal["desfoque", "preencher"] = "desfoque"
     music: bool = True
     # Only meaningful for edit_mode="meu_video": that mode has no TTS at all,
     # so this is the choice between keeping the voice on the recording and
