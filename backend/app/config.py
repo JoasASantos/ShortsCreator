@@ -76,6 +76,12 @@ class Settings:
         # TTS
         self.tts_provider = os.getenv("TTS_PROVIDER", "edge")
         self.edge_voice = os.getenv("EDGE_VOICE", "pt-BR-AntonioNeural")
+        # How fast the narration is spoken. The neural voices read a sentence at
+        # about 2.9 words a second at +0%, which is quick enough that a
+        # clause-heavy line arrives as one breathless run. Backing off a little
+        # is the difference between energetic and rushed; a voice registered
+        # with its own `rate` still wins over this.
+        self.narration_rate = os.getenv("NARRATION_RATE", "-8%")
         self.elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY", "")
         self.elevenlabs_model = os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
         self.xtts_server = os.getenv("XTTS_SERVER", "http://localhost:8020")

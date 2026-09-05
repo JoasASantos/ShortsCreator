@@ -20,11 +20,27 @@ NICHE_GUIDE = {
     "generico": "Priorize clareza, ritmo e uma ideia central por short.",
 }
 
-BASE_RULES = """Regras absolutas:
+# Words the script is written to per second of finished narration — the whole
+# budget, pauses between sentences included. It is not the speaking rate: the
+# voice says about 2.9 words a second and then stops for the best part of a
+# second at every full stop, so writing to the speaking rate produces a script
+# that overshoots its target and has to be read without breathing to fit.
+#
+# Measured end to end against edge-tts at the house rate, on scripts written
+# under the one-idea-per-sentence rule below: 103 words came out as 53s, or
+# 1.94 a second. Short sentences are the reason it is this low — each one buys
+# its own pause, which is the whole point, and that pause is part of the
+# budget. Raising this is how a short starts sounding rushed again; the old
+# value of 2.6 was the speaking rate with the pauses forgotten, and every
+# script written to it ran long.
+WORDS_PER_SECOND = 2.0
+
+BASE_RULES = f"""Regras absolutas:
 - O primeiro segmento é um HOOK de no máximo 12 palavras que gera curiosidade ou choque. Sem "olá", sem "hoje eu vou falar".
 - Frases curtas, faladas. Você escreve para OUVIR, não para ler. Nada de bullets, markdown, emoji ou parênteses no texto narrado.
+- UMA IDEIA POR FRASE. No máximo 16 palavras por frase. Não empilhe orações com dois-pontos, ponto e vírgula ou vírgulas em sequência: quem ouve não tem onde respirar e a narração sai atropelada. Prefira duas frases curtas a uma longa.
 - Nenhum número escrito por extenso incorretamente: escreva "2024" e "70%" do jeito que se fala.
-- Densidade: ~2,6 palavras por segundo de narração.
+- Densidade: ~{str(WORDS_PER_SECOND).replace(".", ",")} palavras por segundo de narração.
 - Cada segmento traz `broll_query` em INGLÊS (2-4 palavras) para buscar vídeo de fundo, e `on_screen` com no máximo 5 palavras para texto de destaque.
 - Último segmento é o CTA, curto.
 - Fidelidade factual: use apenas fatos presentes no material fornecido. Se o material for raso, mantenha afirmações genéricas em vez de inventar dados."""
@@ -174,7 +190,7 @@ def build_script(job: JobInput, material: SourceMaterial) -> ShortScript:
     if material.kind == "roteiro":
         return _script_from_pasted_text(job, material)
 
-    words_target = int(job.duration * 2.6)
+    words_target = int(job.duration * WORDS_PER_SECOND)
     guide = NICHE_GUIDE.get(job.niche, NICHE_GUIDE["generico"])
 
     addendum = KIND_ADDENDUM.get(material.kind, "")
@@ -358,7 +374,7 @@ def refine_script(script: ShortScript, instruction: str, job: JobInput,
 ROTEIRO ATUAL (JSON):
 {json.dumps(current, ensure_ascii=False, indent=2)}
 
-Duração alvo: {job.duration} segundos (~{int(job.duration * 2.6)} palavras narradas)
+Duração alvo: {job.duration} segundos (~{int(job.duration * WORDS_PER_SECOND)} palavras narradas)
 Nicho: {job.niche}
 """ + (f"""
 MATERIAL DE ORIGEM (para checar fatos, não copie literalmente):
