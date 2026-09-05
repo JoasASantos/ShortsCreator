@@ -429,6 +429,14 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
             mode = "broll"
         else:
             mode = "gradiente"
+            # The gradient is what is left when there is nothing to show, and
+            # it looks identical whether it was chosen or merely settled for.
+            # Saying so is the difference between a deliberate look and a user
+            # wondering why the video they pasted never appeared.
+            log("No footage for the background: the source produced no video "
+                "and no stock bank is configured. Falling back to a gradient — "
+                "paste a video link, upload a file, or register a Pexels/"
+                "Pixabay/Coverr key to get real footage.", "warn")
 
     # "pan" is consumed inside the background functions (animated crop); "texto"
     # and "codigo" are panels overlaid later, so they survive past this point.
@@ -445,7 +453,16 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
         render.background_from_images_kenburns(cycled, durations, out, job_dir)
         applied_scroll = "nenhum"  # scrolling text over Ken Burns makes no sense
 
-    elif mode == "video_fonte" and material.video_path:
+    elif mode == "video_fonte":
+        # Asked for the source video and there is none. The image branch above
+        # already refuses in this situation; this one used to fall through to
+        # the gradient at the bottom, so a short came out looking finished with
+        # none of the footage the user pasted a link for, and nothing said why.
+        if not material.video_path:
+            raise RuntimeError(
+                "The background was set to the source video, but no video was "
+                "downloaded from this job's input. Paste a video link (YouTube, "
+                "Twitch, Vimeo…) or upload a file, or pick another background.")
         if job.edit_mode == "resumo":
             seg_durations = script_mod.segment_durations_covering(
                 short, narration.words, duration)
