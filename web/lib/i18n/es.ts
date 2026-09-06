@@ -87,6 +87,7 @@ export const es: Dictionary = {
     llm: "LLM",
     primary: "principal",
     fallback: "reserva",
+    skipped: "saltado",
     auth: "Auth",
     tts: "TTS",
     broll: "B-roll",
@@ -1161,6 +1162,32 @@ export const es: Dictionary = {
       text_to_image: "Texto → imagen",
       image_to_image: "Imagen → imagen",
     },
+  },
+
+  models: {
+    title: "Modelo que escribe el guion",
+    intro:
+      "Es el modelo de lenguaje que escribe el guion, el gancho y los subtítulos. El cambio vale al instante, sin reiniciar el servidor.",
+    inUse: "En uso",
+    sourceInterface: "elegido aquí",
+    sourceEnv: "viene del .env",
+    useEnv: "Devolver la elección al .env",
+    saved: "A partir de ahora {model} escribe los guiones.",
+    failed: "No se pudieron leer los modelos: {message}",
+    chainTitle: "Orden de respaldo",
+    chainHint:
+      "El elegido va primero y los demás quedan detrás. El que no se pueda usar se salta, y eso es normal: el guion sale del primero que responda.",
+    refresh: "Releer la lista del CLI",
+    refreshing: "Releyendo…",
+    refreshed: "Lista del CLI releída.",
+    refreshHint:
+      "La lista de modelos del CLI se lee una sola vez, al arrancar el servidor. gpt-6-astra tiene un despliegue gradual: si llegó a tu cuenta después, solo aparece aquí tras releer la lista.",
+    overrideTitle: "LLM_CHAIN manda más que esta elección",
+    overrideBody:
+      "El .env define LLM_CHAIN, y esa lista explícita gana sobre el modelo elegido aquí. Borra LLM_CHAIN del .env para que esta elección vuelva a valer.",
+    noneTitle: "Ningún modelo puede escribir el guion",
+    noneBody:
+      "Todos los eslabones del orden de abajo se saltaron, así que la generación va a fallar. Cada línea dice qué falta: casi siempre instalar y autenticar el CLI que menciona.",
   },
 
   qa: {

@@ -639,6 +639,32 @@ export interface ChainStep {
   provider: string;
   model: string;
   ready: boolean;
+  /** The backend's own sentence about why this link cannot be used, empty when
+   *  it can. Shown as written: it names the binary or the model id to fix. */
+  reason: string;
+}
+
+/** One model the chain knows how to reach. `ready` false is not a failure —
+ *  the chain simply moves on to the next link. */
+export interface ModelOption {
+  name: string;
+  provider: string;
+  model: string;
+  note: string;
+  ready: boolean;
+  reason: string;
+}
+
+export interface ModelsReport {
+  chosen: string;
+  /** "interface" when it was picked on screen, "env" when it still comes from
+   *  LLM_MODEL — the difference is what makes an ignored setting traceable. */
+  source: string;
+  chain: ChainStep[];
+  models: ModelOption[];
+  /** LLM_CHAIN in .env silently outranks the choice; the screen has to say so. */
+  chain_override: boolean;
+  any_ready: boolean;
 }
 
 /** One line of the requirements doctor. `level` mirrors `required` and is what
@@ -840,6 +866,16 @@ export const api = {
   testGenerator: (id: string) =>
     req<{ ok: boolean; provider: string; message: string }>("/api/generators/test",
       { method: "POST", body: JSON.stringify({ provider: id }) }),
+
+  // Every one of these answers with the whole report, so the screen never has
+  // to guess what the write did — it renders what the backend now holds.
+  models: () => req<ModelsReport>("/api/models"),
+  chooseModel: (model: string) =>
+    req<ModelsReport>("/api/models", { method: "PUT", body: JSON.stringify({ model }) }),
+  resetModel: () => req<ModelsReport>("/api/models", { method: "DELETE" }),
+  // The CLI listing is cached for the life of the server process, so a model
+  // enrolled after boot stays invisible until this is asked for.
+  refreshModels: () => req<ModelsReport>("/api/models/refresh", { method: "POST" }),
 
   jobs: () => req<Job[]>("/api/jobs"),
   job: (id: string) => req<Job>(`/api/jobs/${id}`),

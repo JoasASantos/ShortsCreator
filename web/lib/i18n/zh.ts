@@ -87,6 +87,7 @@ export const zh: Dictionary = {
     llm: "大模型",
     primary: "主用",
     fallback: "备用",
+    skipped: "已跳过",
     auth: "认证",
     tts: "语音合成",
     broll: "B-roll",
@@ -1138,6 +1139,32 @@ export const zh: Dictionary = {
       text_to_image: "文字 → 图像",
       image_to_image: "图像 → 图像",
     },
+  },
+
+  models: {
+    title: "撰写脚本的模型",
+    intro:
+      "负责写脚本、开场钩子和字幕的语言模型。切换后立即生效，无需重启服务。",
+    inUse: "正在使用",
+    sourceInterface: "在这里选择的",
+    sourceEnv: "来自 .env",
+    useEnv: "把选择交还给 .env",
+    saved: "之后由 {model} 撰写脚本。",
+    failed: "无法读取模型列表：{message}",
+    chainTitle: "回退顺序",
+    chainHint:
+      "所选模型排在最前，其余依次排在后面。不能使用的环节会被跳过，这是正常的：脚本由第一个能回应的模型来写。",
+    refresh: "重新读取 CLI 列表",
+    refreshing: "重新读取中…",
+    refreshed: "已重新读取 CLI 列表。",
+    refreshHint:
+      "CLI 的模型列表只在服务启动时读取一次。gpt-6-astra 正在分批开放：如果它是在那之后才开通给你的，需要重新读取列表才会出现在这里。",
+    overrideTitle: "LLM_CHAIN 的优先级高于这里的选择",
+    overrideBody:
+      ".env 中设置了 LLM_CHAIN，这份明确的链会压过这里选中的模型。把 LLM_CHAIN 从 .env 中删除，这里的选择才会生效。",
+    noneTitle: "没有任何模型可以写脚本",
+    noneBody:
+      "下面顺序中的每个环节都被跳过了，因此生成会失败。每一行都写明缺少什么——几乎都是需要安装并登录它提到的 CLI。",
   },
 
   qa: {

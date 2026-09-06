@@ -87,6 +87,7 @@ export const en: Dictionary = {
     llm: "LLM",
     primary: "primary",
     fallback: "fallback",
+    skipped: "skipped",
     auth: "Auth",
     tts: "TTS",
     broll: "B-roll",
@@ -1160,6 +1161,32 @@ export const en: Dictionary = {
       text_to_image: "Text → image",
       image_to_image: "Image → image",
     },
+  },
+
+  models: {
+    title: "Model that writes the script",
+    intro:
+      "The language model that writes the script, the hook and the captions. Switching takes effect right away, with no server restart.",
+    inUse: "In use",
+    sourceInterface: "picked here",
+    sourceEnv: "coming from .env",
+    useEnv: "Hand the choice back to .env",
+    saved: "{model} writes the scripts from now on.",
+    failed: "Could not read the models: {message}",
+    chainTitle: "Fallback order",
+    chainHint:
+      "The chosen model goes first and the others queue up behind it. A link that cannot be used is skipped, and that is normal: the script comes from the first one that answers.",
+    refresh: "Re-read the CLI listing",
+    refreshing: "Re-reading…",
+    refreshed: "CLI listing re-read.",
+    refreshHint:
+      "The CLI's model listing is read once, when the server starts. gpt-6-astra is on a staged rollout: if it reached your account after that, it only shows up here once the listing is read again.",
+    overrideTitle: "LLM_CHAIN outranks this choice",
+    overrideBody:
+      "Your .env sets LLM_CHAIN, and that explicit list wins over the model picked here. Remove LLM_CHAIN from .env for this choice to take effect.",
+    noneTitle: "No model can write a script",
+    noneBody:
+      "Every link in the order below was skipped, so generation will fail. Each line says what is missing — almost always installing and authenticating the CLI it names.",
   },
 
   qa: {

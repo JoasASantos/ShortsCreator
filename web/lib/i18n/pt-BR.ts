@@ -94,6 +94,7 @@ export const ptBR = {
     llm: "LLM",
     primary: "principal",
     fallback: "reserva",
+    skipped: "pulado",
     auth: "Auth",
     tts: "TTS",
     broll: "B-roll",
@@ -1179,6 +1180,32 @@ export const ptBR = {
       text_to_image: "Texto → imagem",
       image_to_image: "Imagem → imagem",
     },
+  },
+
+  models: {
+    title: "Modelo que escreve o roteiro",
+    intro:
+      "É o modelo de linguagem que escreve roteiro, gancho e legenda. A troca vale na hora, sem reiniciar o servidor.",
+    inUse: "Em uso",
+    sourceInterface: "escolhido aqui",
+    sourceEnv: "vindo do .env",
+    useEnv: "Devolver a escolha ao .env",
+    saved: "Agora {model} escreve os roteiros.",
+    failed: "Não foi possível ler os modelos: {message}",
+    chainTitle: "Ordem de fallback",
+    chainHint:
+      "O escolhido vem primeiro e os outros ficam atrás dele. Quem não puder ser usado é pulado, e isso é normal: o roteiro sai do primeiro elo que responder.",
+    refresh: "Reler a lista do CLI",
+    refreshing: "Relendo…",
+    refreshed: "Lista do CLI relida.",
+    refreshHint:
+      "A lista de modelos do CLI é lida uma vez, quando o servidor sobe. O gpt-6-astra está em liberação gradual: se ele chegou à sua conta depois disso, só aparece aqui depois de reler.",
+    overrideTitle: "LLM_CHAIN manda mais que esta escolha",
+    overrideBody:
+      "O .env define LLM_CHAIN, e essa lista explícita vence o modelo escolhido aqui. Apague LLM_CHAIN do .env para a escolha voltar a valer.",
+    noneTitle: "Nenhum modelo pode escrever roteiro",
+    noneBody:
+      "Todos os elos da ordem abaixo foram pulados, então a geração vai falhar. Cada linha diz o que falta — quase sempre instalar e autenticar o CLI que ela cita.",
   },
 
   qa: {

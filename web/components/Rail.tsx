@@ -183,7 +183,11 @@ export function Rail({ open = false }: { open?: boolean }) {
             key={`${step.provider}:${step.model}`}
             label={i === 0 ? `↳ ${t.rail.primary}` : `↳ ${t.rail.fallback} ${i}`}
             ok={step.ready}
-            value={step.model}
+            // The model id alone said nothing about whether this link will be
+            // tried, so a skipped one read exactly like a working one. The
+            // backend's reason is the tooltip, verbatim.
+            value={step.ready ? step.model : `${step.model} · ${t.rail.skipped}`}
+            title={step.reason}
             readyText={t.common.ready}
             offText={t.common.off}
           />
@@ -210,11 +214,12 @@ export function Rail({ open = false }: { open?: boolean }) {
   );
 }
 
-function Stat({ label, ok, value, readyText, offText }: {
-  label: string; ok?: boolean; value?: string; readyText: string; offText: string;
+function Stat({ label, ok, value, title, readyText, offText }: {
+  label: string; ok?: boolean; value?: string; title?: string;
+  readyText: string; offText: string;
 }) {
   return (
-    <div className="stat-line">
+    <div className="stat-line" title={title || undefined}>
       <span>{label}</span>
       <b style={{ color: ok ? "var(--ok)" : "var(--ink-3)" }}>
         {value ? value : ok ? readyText : offText}
