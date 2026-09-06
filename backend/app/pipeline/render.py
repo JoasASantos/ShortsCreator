@@ -18,24 +18,41 @@ W, H, FPS = settings.width, settings.height, settings.fps
 
 _FILTERS: set[str] | None = None
 
-# Fills 9:16 without bars: blurred background + original video centered.
-FIT_919 = (
-    f"split=2[a][b];"
-    f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
-    f"gblur=sigma=28,eq=brightness=-0.06[bg];"
-    f"[b]scale={W}:-2:force_original_aspect_ratio=decrease,"
-    f"scale={W}:{H}:force_original_aspect_ratio=decrease[fg];"
-    f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,fps={FPS},format=yuv420p"
-)
+def fit_filter(fmt=None) -> str:
+    """Fill the frame without bars: the whole picture over a blurred copy of
+    itself. Takes a Format so a 16:9 timeline gets a 16:9 fit; the default is
+    the vertical short."""
+    from . import formats
 
-# Zooms the footage until it covers 9:16 and cuts the sides. Nothing is left
-# over to fill, so no bars are possible — at the cost of whatever falls outside
-# the frame. This is the treatment for footage that is very wide, where the
-# blurred fit leaves more blur than picture.
-FILL_919 = (
-    f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
-    f"setsar=1,fps={FPS},format=yuv420p"
-)
+    f = fmt or formats.VERTICAL
+    return (
+        f"split=2[a][b];"
+        f"[a]scale={f.width}:{f.height}:force_original_aspect_ratio=increase,"
+        f"crop={f.width}:{f.height},gblur=sigma=28,eq=brightness=-0.06[bg];"
+        f"[b]scale={f.width}:-2:force_original_aspect_ratio=decrease,"
+        f"scale={f.width}:{f.height}:force_original_aspect_ratio=decrease[fg];"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,fps={FPS},format=yuv420p"
+    )
+
+
+def fill_filter(fmt=None) -> str:
+    """Zoom until the frame is covered and cut what falls outside. Nothing is
+    left over to fill, so no bars are possible — the treatment for footage
+    whose shape is far from the frame's, where a fit leaves more blur than
+    picture."""
+    from . import formats
+
+    f = fmt or formats.VERTICAL
+    return (
+        f"scale={f.width}:{f.height}:force_original_aspect_ratio=increase,"
+        f"crop={f.width}:{f.height},setsar=1,fps={FPS},format=yuv420p"
+    )
+
+
+# The vertical short's filters under their old names: every caller that
+# predates formats keeps working, and keeps producing the same file.
+FIT_919 = fit_filter()
+FILL_919 = fill_filter()
 
 
 def content_crop(source: Path, seconds: float = 12.0) -> str:

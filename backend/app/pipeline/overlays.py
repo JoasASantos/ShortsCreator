@@ -70,13 +70,27 @@ def _measure(draw: ImageDraw.ImageDraw, text: str, font, stroke: int) -> tuple[i
 
 
 def render_captions(words: list[dict], out_dir: Path, style: str = "karaoke",
-                    position: str = "centro", font_size: int = 88) -> list[Overlay]:
-    """Generate one PNG per subtitle event, already placed inside the safe area."""
+                    position: str = "centro", font_size: int | None = None,
+                    fmt=None) -> list[Overlay]:
+    """Generate one PNG per subtitle event, already placed inside the safe area.
+
+    `fmt` is the frame being drawn into; unset means the vertical short, with
+    the numbers this file used to hard-code. The PNG path is the fallback for
+    FFmpeg builds without libass, so it has to place words exactly where the
+    .ass path would.
+    """
+    from . import formats
+
+    fmt = fmt or formats.VERTICAL
+    W, H = fmt.width, fmt.height   # noqa: N806 — shadows the module globals on purpose
+    SIDE = fmt.side_margin         # noqa: N806
+    # The PNG glyphs render a touch heavier than libass at the same size.
+    font_size = font_size or max(fmt.caption_font_size - 4, 20)
     out_dir.mkdir(parents=True, exist_ok=True)
     font = _font(font_size)
     stroke = max(6, font_size // 14)
-    margin_v = POSITION_MARGIN_V.get(position, POSITION_MARGIN_V["centro"])
-    max_width = W - 2 * SIDE_MARGIN
+    margin_v = fmt.caption_margins.get(position, fmt.caption_margins["centro"])
+    max_width = W - 2 * SIDE
 
     scratch = Image.new("RGBA", (10, 10))
     ruler = ImageDraw.Draw(scratch)
@@ -137,16 +151,20 @@ def render_captions(words: list[dict], out_dir: Path, style: str = "karaoke",
             path = out_dir / f"cap_{index:04d}.png"
             image.save(path)
             index += 1
-            overlays.append(Overlay(path, start, end, SIDE_MARGIN,
+            overlays.append(Overlay(path, start, end, SIDE,
                                     H - margin_v - block_h, kind="caption"))
 
     return overlays
 
 
 def render_title(text: str, out_dir: Path, duration: float = 3.2,
-                 font_size: int = 56) -> Overlay | None:
+                 font_size: int = 56, fmt=None) -> Overlay | None:
     if not text:
         return None
+    from . import formats
+
+    fmt = fmt or formats.VERTICAL
+    W = fmt.width   # noqa: N806 — shadows the module global on purpose
     out_dir.mkdir(parents=True, exist_ok=True)
     font = _font(font_size)
     stroke = 5
@@ -165,7 +183,7 @@ def render_title(text: str, out_dir: Path, duration: float = 3.2,
 
     path = out_dir / "title.png"
     image.save(path)
-    return Overlay(path, 0.0, duration, 80, 190, kind="title")
+    return Overlay(path, 0.0, duration, 80, fmt.safe_top - 10, kind="title")
 
 
 # Font size per watermark size setting.
@@ -177,7 +195,7 @@ WATERMARK_SIDE_INSET = 48
 
 def render_watermark(text: str, out_dir: Path, duration: float,
                      position: str = "baixo_centro", size: str = "medio",
-                     opacity: float = 0.6) -> Overlay | None:
+                     opacity: float = 0.6, fmt=None) -> Overlay | None:
     """The channel handle burned over the video.
 
     Position, size and opacity are settings because one fixed style does not
@@ -186,6 +204,9 @@ def render_watermark(text: str, out_dir: Path, duration: float,
     """
     if not text:
         return None
+    from . import formats
+
+    fmt = fmt or formats.VERTICAL
     out_dir.mkdir(parents=True, exist_ok=True)
     font_size = WATERMARK_SIZES.get(size, WATERMARK_SIZES["medio"])
     font = _font(font_size)
@@ -201,15 +222,20 @@ def render_watermark(text: str, out_dir: Path, duration: float,
     path = out_dir / "watermark.png"
     image.save(path)
 
-    x, y = _watermark_xy(position, width, height)
+    x, y = _watermark_xy(position, width, height, fmt)
     return Overlay(path, 0.0, duration, x, y, kind="watermark")
 
 
-def _watermark_xy(position: str, width: int, height: int) -> tuple[int, int]:
-    """Both vertical anchors stay clear of the app's own interface: the bottom
-    band it covers, and the top row of buttons."""
-    bottom = H - POSITION_MARGIN_V["baixo"] - height - 30
-    top = SAFE_TOP - height // 2
+def _watermark_xy(position: str, width: int, height: int,
+                  fmt=None) -> tuple[int, int]:
+    """Both vertical anchors stay clear of the platform's own interface: the
+    bottom band it covers, and the top row of buttons."""
+    from . import formats
+
+    fmt = fmt or formats.VERTICAL
+    W, H = fmt.width, fmt.height   # noqa: N806 — the frame is the caller's
+    bottom = H - fmt.caption_margins["baixo"] - height - 30
+    top = fmt.safe_top - height // 2
     left = WATERMARK_SIDE_INSET
     right = W - width - WATERMARK_SIDE_INSET
     center = (W - width) // 2

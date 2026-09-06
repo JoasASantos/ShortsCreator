@@ -116,6 +116,17 @@ class Timeline:
     watermark_position: str = "baixo_centro"
     watermark_size: str = "medio"
     watermark_opacity: float = 0.6
+    # The frame this is composed into — "vertical" (the short), "horizontal"
+    # (a documentary) or "quadrado". Stored by name, not by pixels, so a
+    # timeline written before formats existed reads back as the vertical short
+    # it always was.
+    format: str = "vertical"
+
+    @property
+    def fmt(self):
+        from . import formats
+
+        return formats.get(self.format)
 
     def to_dict(self) -> dict:
         return {
@@ -130,6 +141,7 @@ class Timeline:
             "watermark_position": self.watermark_position,
             "watermark_size": self.watermark_size,
             "watermark_opacity": self.watermark_opacity,
+            "format": self.format,
         }
 
     @classmethod
@@ -146,6 +158,7 @@ class Timeline:
             watermark_position=data.get("watermark_position", "baixo_centro"),
             watermark_size=data.get("watermark_size", "medio"),
             watermark_opacity=float(data.get("watermark_opacity", 0.6)),
+            format=data.get("format", "vertical"),
         )
 
     def normalize(self) -> "Timeline":

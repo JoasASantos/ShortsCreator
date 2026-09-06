@@ -23,9 +23,9 @@ def render_timeline(job_dir: Path, timeline: Timeline, out: Path,
     if timeline.duration <= 0:
         raise RuntimeError("The timeline is empty.")
 
-    log(f"Compiling timeline: {len(timeline.video)} video clip(s), "
-        f"{len(timeline.audio)} audio, {len(timeline.captions)} subtitle(s), "
-        f"{len(timeline.media)} media overlay(s)")
+    log(f"Compiling timeline ({timeline.fmt.size}): {len(timeline.video)} video "
+        f"clip(s), {len(timeline.audio)} audio, {len(timeline.captions)} "
+        f"subtitle(s), {len(timeline.media)} media overlay(s)")
 
     background = _build_video_track(job_dir, timeline, log)
     overlays = _build_caption_overlays(job_dir, timeline, log)
@@ -34,6 +34,8 @@ def render_timeline(job_dir: Path, timeline: Timeline, out: Path,
 
 def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
     """Cut and position each clip; gaps between clips become black."""
+    fmt = timeline.fmt
+    W, H = fmt.width, fmt.height   # noqa: N806 — the frame is the timeline's, not the module's
     work = job_dir / "tl"
     work.mkdir(exist_ok=True)
     parts: list[Path] = []
@@ -42,7 +44,7 @@ def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
     for index, clip in enumerate(timeline.video):
         if clip.start > cursor + 0.04:
             gap = clip.start - cursor
-            parts.append(_black(work, index, gap))
+            parts.append(_black(work, index, gap, fmt))
             cursor += gap
 
         source = (job_dir / clip.source).resolve()
@@ -65,14 +67,14 @@ def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
             render._run([
                 "ffmpeg", "-y", "-stream_loop", "-1",
                 "-ss", f"{clip.in_point:.3f}", "-i", str(source),
-                "-t", f"{length:.3f}", "-an", "-vf", render.FIT_919,
+                "-t", f"{length:.3f}", "-an", "-vf", render.fit_filter(fmt),
                 "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast",
                 "-crf", "21", "-pix_fmt", "yuv420p", str(dest)])
         parts.append(dest)
         cursor += length
 
     if cursor < timeline.duration - 0.04:
-        parts.append(_black(work, len(parts) + 900, timeline.duration - cursor))
+        parts.append(_black(work, len(parts) + 900, timeline.duration - cursor, fmt))
 
     if not parts:
         raise RuntimeError("No video clip on the timeline.")
@@ -85,11 +87,11 @@ def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
     return background
 
 
-def _black(work: Path, index: int, duration: float) -> Path:
+def _black(work: Path, index: int, duration: float, fmt) -> Path:
     dest = work / f"gap_{index:03d}.mp4"
     render._run([
         "ffmpeg", "-y", "-f", "lavfi",
-        "-i", f"color=c=black:s={W}x{H}:d={max(duration, 0.05):.3f}:r={FPS}",
+        "-i", f"color=c=black:s={fmt.size}:d={max(duration, 0.05):.3f}:r={FPS}",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
         "-pix_fmt", "yuv420p", str(dest)])
     return dest
@@ -102,11 +104,12 @@ def _build_caption_overlays(job_dir: Path, timeline: Timeline, log) -> list:
     overlay_dir = job_dir / "tl_overlays"
     items = overlay_mod.render_captions(
         words, overlay_dir,
-        style=timeline.caption_style, position=timeline.caption_position)
+        style=timeline.caption_style, position=timeline.caption_position,
+        fmt=timeline.fmt)
     mark = overlay_mod.render_watermark(
         timeline.watermark, overlay_dir, timeline.duration,
         position=timeline.watermark_position, size=timeline.watermark_size,
-        opacity=timeline.watermark_opacity)
+        opacity=timeline.watermark_opacity, fmt=timeline.fmt)
     if mark:
         items = [mark] + items
     log(f"{len(items)} subtitle overlay(s)")
@@ -150,7 +153,7 @@ def _mux(job_dir: Path, timeline: Timeline, background: Path,
     for index, item in enumerate(media_inputs):
         src = f"{media_start + index}:v"
         scaled, label = f"pip{index}", f"mv{index}"
-        target_w = max(int(round(item.width * W)) // 2 * 2, 2)
+        target_w = max(int(round(item.width * timeline.fmt.width)) // 2 * 2, 2)
         # Only the width is set: -2 keeps the source's aspect ratio, so nothing
         # gets stretched no matter what the user drops in.
         chain = f"[{src}]scale={target_w}:-2"
