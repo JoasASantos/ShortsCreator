@@ -24,6 +24,72 @@ def _parse_chain(raw: str) -> list[tuple[str, str]]:
     return steps
 
 
+# The models this project knows how to reach, each under a short name so that
+# choosing one is a single word instead of a provider:model pair nobody
+# remembers. `LLM_MODEL=astra` is the whole configuration.
+#
+# Every one of these runs on a subscription already logged in on the machine —
+# `claude` for the Claude models, `codex` for the OpenAI ones — so no API key
+# is billed per token.
+MODEL_PRESETS: dict[str, tuple[str, str, str]] = {
+    # name: (provider, model id, what it is)
+    "astra": ("codex_cli", "gpt-6-astra",
+              "GPT-6 Astra via Codex — the most capable, staged rollout"),
+    "sol": ("codex_cli", "gpt-5.6-sol", "GPT-5.6 Sol via Codex"),
+    "fable": ("claude_cli", "claude-fable-5-1", "Claude Fable 5.1"),
+    "opus": ("claude_cli", "claude-opus-5", "Claude Opus 5"),
+    "sonnet": ("claude_cli", "claude-sonnet-5", "Claude Sonnet 5"),
+    # Installed by codex-chatgpt-web, which registers ChatGPT Web models inside
+    # Codex's own picker. It is reached through the same `codex` binary, so it
+    # needs no provider of its own — only the model id the launcher installed.
+    "web": ("codex_cli", os.getenv("CODEX_WEB_MODEL", "chatgpt-web"),
+            "ChatGPT Web through Codex (codex-chatgpt-web)"),
+}
+
+# Order the chain falls through when the chosen model cannot answer. Claude and
+# OpenAI alternate on purpose: a subscription runs out per account, so the next
+# link should be on the other one rather than the same quota that just failed.
+FALLBACK_ORDER = ["astra", "fable", "opus", "sol", "sonnet", "web"]
+
+
+# What LLM_CHAIN used to be shipped as, before LLM_MODEL existed. A .env
+# carrying exactly this was never a deliberate choice — it was the default
+# written out by hand — so it must not silently outrank the model the user
+# picks now. Anything else in LLM_CHAIN is a real customization and wins.
+_LEGACY_CHAIN = "claude_cli:claude-fable-5-1,claude_cli:claude-opus-5,codex_cli:gpt-5.6-sol"
+
+
+def is_legacy_chain(raw: str) -> bool:
+    return ([s for s in _parse_chain(raw)]
+            == [s for s in _parse_chain(_LEGACY_CHAIN)])
+
+
+def build_chain(chosen: str, explicit: str) -> list[tuple[str, str]]:
+    """The chain to try, in order: the chosen model first, then the rest.
+
+    `explicit` (LLM_CHAIN) still wins when set — it is the escape hatch for a
+    combination the presets do not cover. Otherwise the chain is derived from a
+    single name, so picking a model never means hand-writing a fallback list
+    and never leaves the chain one link long.
+    """
+    if explicit.strip() and not is_legacy_chain(explicit):
+        return _parse_chain(explicit)
+
+    key = chosen.strip().lower()
+    # An explicit provider:model as the chosen one — still gets the presets
+    # appended behind it, so it keeps a fallback.
+    head: list[tuple[str, str]] = []
+    if ":" in key:
+        head = _parse_chain(key)
+    elif key in MODEL_PRESETS:
+        provider, model, _ = MODEL_PRESETS[key]
+        head = [(provider, model)]
+
+    rest = [MODEL_PRESETS[name][:2] for name in FALLBACK_ORDER
+            if name != key and MODEL_PRESETS[name][:2] not in head]
+    return head + rest
+
+
 class Settings:
     """Configuration read from .env. No pydantic-settings, to avoid coupling."""
 
@@ -64,14 +130,20 @@ class Settings:
         self.codex_reasoning_effort = os.getenv("CODEX_REASONING_EFFORT", "medium")
         self.llm_cli_timeout = int(os.getenv("LLM_CLI_TIMEOUT", "420"))
 
-        # Fallback chain used when LLM_PROVIDER=chain. Format:
-        # "provider:model,provider:model" — the model is optional.
-        self.llm_chain = _parse_chain(os.getenv(
-            "LLM_CHAIN",
-            "claude_cli:claude-fable-5-1,"
-            "claude_cli:claude-opus-5,"
-            "codex_cli:gpt-5.6-sol",
-        ))
+        # Which model to use, by short name — see MODEL_PRESETS. This is the
+        # only setting most people touch: the fallback chain is derived from
+        # it, so choosing a model never means writing one out.
+        self.llm_model = os.getenv("LLM_MODEL", "astra")
+        # Escape hatch: an explicit "provider:model,provider:model" chain that
+        # overrides the derived one entirely.
+        self.llm_chain_raw = os.getenv("LLM_CHAIN", "")
+        self.llm_chain = build_chain(self.llm_model, self.llm_chain_raw)
+        # Ask the CLI which models it actually has before sending one. A model
+        # the binary does not know is either rejected or, worse, silently
+        # swapped for its default — and a short would then be written by a
+        # model nobody chose. Set to 0 to skip the check.
+        self.llm_verify_model = os.getenv("LLM_VERIFY_MODEL", "1").lower() not in (
+            "0", "false", "no")
 
         # TTS
         self.tts_provider = os.getenv("TTS_PROVIDER", "edge")

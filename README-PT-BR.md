@@ -157,18 +157,80 @@ lento, vídeo final igual). O mesmo relatório é servido em
 ### Modelo de linguagem
 
 O caminho mais barato usa uma assinatura que você já paga, em vez de chave
-cobrada por token — o backend chama a CLI local já autenticada. O padrão é a
-cadeia: Fable como principal, Opus 5 como reserva e o Codex como último recurso.
+cobrada por token — o backend chama a CLI local já autenticada.
+
+Escolher o modelo é um nome só:
 
 ```env
-LLM_PROVIDER=chain
-LLM_CHAIN=claude_cli:claude-fable-5-1,claude_cli:claude-opus-5,codex_cli:gpt-5.6-sol
+LLM_MODEL=astra
 ```
 
-Cada elo é `provider:modelo` e o backend só passa para o próximo se o anterior
-falhar (limite da assinatura, CLI fora do PATH, resposta inválida). Os dois
-primeiros usam Claude Pro/Max via Claude Code; o terceiro usa ChatGPT Plus/Pro
-via `codex login`.
+| nome | modelo | assinatura |
+|---|---|---|
+| `astra` | GPT-6 Astra via Codex | ChatGPT Plus/Pro |
+| `sol` | GPT-5.6 Sol via Codex | ChatGPT Plus/Pro |
+| `fable` | Claude Fable 5.1 | Claude Pro/Max |
+| `opus` | Claude Opus 5 | Claude Pro/Max |
+| `sonnet` | Claude Sonnet 5 | Claude Pro/Max |
+| `web` | ChatGPT Web via [codex-chatgpt-web](https://github.com/miuuyy/codex-chatgpt-web) | ChatGPT |
+
+A cadeia de reserva é derivada desse nome: o modelo escolhido vai na frente e
+todos os outros entram atrás, alternando entre as duas assinaturas — a cota
+acaba por conta, então o elo seguinte a uma cota esgotada tem que estar na
+outra. Escolher um modelo nunca deixa você com um ponto único de falha, e não
+existe configuração em que a cadeia tenha um elo só.
+
+O backend passa para o próximo elo quando um falha (cota esgotada, CLI ausente,
+modelo sem acesso, resposta inválida) e **registra isso no log do job**. Saber
+que o short foi escrito pela reserva, e não pelo modelo escolhido, importa.
+
+Ele também pergunta à CLI quais modelos ela tem antes de mandar, então um
+modelo sem acesso é pulado com o motivo em vez de ser trocado em silêncio pelo
+padrão da CLI (`LLM_VERIFY_MODEL=0` desliga isso).
+
+O modelo também pode ser trocado em **Geradores**, na interface, sem reiniciar
+— essa escolha vence o `.env`. `GET /api/models` mostra a cadeia inteira e por
+que cada elo pode ou não ser usado.
+
+#### GPT-6 Astra
+
+O Astra tem liberação em etapas. Instale e entre no Codex, depois veja se a sua
+conta já tem acesso:
+
+```bash
+npm install -g @openai/codex && codex login
+codex models          # gpt-6-astra aparece aqui quando você tiver acesso
+```
+
+Se não aparecer, o ShortsCreator pula com esse motivo e cai para o próximo
+modelo — nada quebra. `POST /api/models/refresh` relê a lista quando o acesso
+chegar, sem reiniciar.
+
+#### ChatGPT Web pelo Codex
+
+O [codex-chatgpt-web](https://github.com/miuuyy/codex-chatgpt-web) é um
+launcher não oficial que registra modelos do ChatGPT Web dentro do próprio
+seletor do Codex. Como funciona pelo mesmo binário `codex`, o ShortsCreator não
+precisa de provider novo — só do id que o launcher instalou:
+
+```bash
+curl -fsSL https://github.com/miuuyy/codex-chatgpt-web/releases/latest/download/install-launcher.sh | sh
+# entre no launcher, rode o smoke test, clique em "Install models",
+# reinicie o Codex e veja o nome que ele registrou:
+codex models
+```
+
+```env
+LLM_MODEL=web
+CODEX_WEB_MODEL=chatgpt-web   # o que aparecer em `codex models`
+```
+
+Para fixar uma cadeia explícita e ignorar tudo acima, `LLM_CHAIN` continua
+vencendo:
+
+```env
+LLM_CHAIN=claude_cli:claude-fable-5-1,codex_cli:gpt-5.6-sol
+```
 
 Para fixar um único modelo, use o provider direto:
 

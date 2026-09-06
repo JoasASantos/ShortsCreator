@@ -137,6 +137,15 @@ CREATE TABLE IF NOT EXISTS metrics (
     fetched_at TEXT NOT NULL,
     error TEXT
 );
+
+-- Settings a person changes from the interface rather than from .env. Only
+-- what is genuinely a runtime choice lives here; credentials stay in
+-- connector_credentials and paths stay in the environment.
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -240,6 +249,35 @@ def create_voice(name: str, provider: str, provider_voice_id: str = "",
 def list_voices() -> list[dict]:
     with connect() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM voices ORDER BY created_at DESC")]
+
+
+# ---------- settings ----------
+
+def get_setting(key: str, default: str = "") -> str:
+    """A setting chosen from the interface. The environment is the fallback,
+    so an untouched install behaves exactly as its .env says."""
+    try:
+        with connect() as conn:
+            row = conn.execute("SELECT value FROM app_settings WHERE key=?",
+                               (key,)).fetchone()
+    except sqlite3.Error:
+        return default   # no database yet: the caller's default is the answer
+    return row["value"] if row else default
+
+
+def set_setting(key: str, value: str) -> None:
+    with _lock, connect() as conn:
+        conn.execute(
+            "INSERT INTO app_settings (key,value,updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+            "updated_at=excluded.updated_at",
+            (key, value, now()))
+
+
+def clear_setting(key: str) -> None:
+    """Hand a setting back to the environment."""
+    with _lock, connect() as conn:
+        conn.execute("DELETE FROM app_settings WHERE key=?", (key,))
 
 
 def get_voice(voice_id: str) -> dict | None:

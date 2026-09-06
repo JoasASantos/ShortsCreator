@@ -9,6 +9,7 @@ from . import db, worker
 from .config import settings
 from .pipeline import doctor
 from .routers import (avatar, clips, connectors, films, generators, jobs,
+                      models as models_router,
                       livecuts, metrics, music, outputs, publish, reels, trends,
                       uploads, voices)
 
@@ -38,6 +39,7 @@ app.include_router(generators.router)
 app.include_router(outputs.router)
 app.include_router(metrics.router)
 app.include_router(trends.router)
+app.include_router(models_router.router)
 
 
 @app.on_event("startup")
@@ -67,15 +69,32 @@ def _llm_auth_mode() -> str:
 
 
 def _llm_chain_status() -> list[dict]:
-    """Every link in the chain with its model and whether it is available now."""
+    """Every link in the chain, in order, with why it cannot be used.
+
+    `ready` alone was not enough to act on: a link can have its CLI installed
+    and still be unusable because the account is not enrolled in that model.
+    The reason is what turns "the primary is not answering" into something the
+    user can fix.
+    """
     if settings.llm_provider != "chain":
         return []
-    return [
-        # empty model means "whatever the CLI session defaults to"; the UI
-        # renders that in the chosen language
-        {"provider": p, "model": m, "ready": _provider_ready(p)}
-        for p, m in settings.llm_chain
-    ]
+
+    from .pipeline import llm as llm_mod
+
+    chain = []
+    # The chain in force, not the one .env described at boot: the model can be
+    # changed from the interface, and the health readout has to agree with what
+    # would actually run.
+    for provider, model in llm_mod.active_chain():
+        reason = llm_mod._unavailable_reason(provider, model)  # noqa: SLF001
+        chain.append({
+            # empty model means "whatever the CLI session defaults to"; the UI
+            # renders that in the chosen language
+            "provider": provider, "model": model,
+            "ready": not reason,
+            "reason": reason,
+        })
+    return chain
 
 
 def _has_ytdlp() -> bool:
