@@ -2,16 +2,27 @@
 
 import { useRef, useState } from "react";
 
+import { FORMAT_ASPECT, FORMAT_SIZE, type TimelineFormat } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 
+const ASPECT_LABEL: Record<TimelineFormat, string> = {
+  vertical: "9:16", horizontal: "16:9", quadrado: "1:1",
+};
+
 /**
- * 9:16 frame overlaying the zones covered by the TikTok/Shorts UI.
- * This is what answers "is this really in short format?" without having to
- * upload the video to find out.
+ * The finished file in the frame it was made for.
+ *
+ * For a short that is a phone, with the zones the TikTok/Shorts UI covers
+ * drawn over it — the answer to "is this really in short format?" without
+ * uploading to find out. A documentary is a 16:9 frame with no interface to
+ * dodge, so the guides make no sense there and stay off.
  */
-export function PhonePreview({ src, poster }: { src: string; poster?: string }) {
+export function PhonePreview({ src, poster, format = "vertical" }: {
+  src: string; poster?: string; format?: TimelineFormat;
+}) {
   const { t } = useI18n();
-  const [guides, setGuides] = useState(true);
+  const landscape = format === "horizontal";
+  const [guides, setGuides] = useState(!landscape);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const video = useRef<HTMLVideoElement>(null);
@@ -19,7 +30,8 @@ export function PhonePreview({ src, poster }: { src: string; poster?: string }) 
   return (
     <div className="grid" style={{ gap: 12 }}>
       <div className="stage">
-        <div className="phone">
+        <div className="phone" data-landscape={landscape}
+             style={{ "--frame-aspect": FORMAT_ASPECT[format] } as React.CSSProperties}>
           <video
             ref={video}
             src={src}
@@ -29,25 +41,30 @@ export function PhonePreview({ src, poster }: { src: string; poster?: string }) 
             onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
             onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
           />
-          <div className="safe" style={{ opacity: guides ? 1 : 0 }}>
-            <div className="zone top" />
-            <div className="zone right" />
-            <div className="zone bottom" />
-            <div className="badge">{t.preview.uiZone}</div>
-            <div className="caption-line" style={{ top: "59%" }} />
-          </div>
+          {!landscape ? (
+            <div className="safe" style={{ opacity: guides ? 1 : 0 }}>
+              <div className="zone top" />
+              <div className="zone right" />
+              <div className="zone bottom" />
+              <div className="badge">{t.preview.uiZone}</div>
+              <div className="caption-line" style={{ top: "59%" }} />
+            </div>
+          ) : null}
         </div>
       </div>
 
       <div className="row spread wrap">
-        <button
-          className="btn sm ghost"
-          onClick={() => setGuides((on) => !on)}
-        >
-          {guides ? t.preview.hideGuides : t.preview.showGuides}
-        </button>
+        {!landscape ? (
+          <button
+            className="btn sm ghost"
+            onClick={() => setGuides((on) => !on)}
+          >
+            {guides ? t.preview.hideGuides : t.preview.showGuides}
+          </button>
+        ) : <span />}
         <span className="mono dimmer" style={{ fontSize: 11 }}>
-          {time.toFixed(1)}s / {duration ? duration.toFixed(1) : "—"}s · 1080×1920 · 9:16
+          {time.toFixed(1)}s / {duration ? duration.toFixed(1) : "—"}s ·{" "}
+          {FORMAT_SIZE[format]} · {ASPECT_LABEL[format]}
         </span>
       </div>
     </div>

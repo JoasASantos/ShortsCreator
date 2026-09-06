@@ -279,7 +279,27 @@ export interface Timeline {
   watermark_position: string;
   watermark_size: string;
   watermark_opacity: number;
+  /** The frame this is composed into — "vertical" (1080x1920, the short),
+   *  "horizontal" (1920x1080, a documentary) or "quadrado". Older timelines
+   *  carry none and are the vertical short they always were. */
+  format?: TimelineFormat;
 }
+
+export type TimelineFormat = "vertical" | "horizontal" | "quadrado";
+
+/** CSS aspect ratio for each frame, for previews that must show the shape
+ *  the file actually has instead of a phone every time. */
+export const FORMAT_ASPECT: Record<TimelineFormat, string> = {
+  vertical: "9 / 16",
+  horizontal: "16 / 9",
+  quadrado: "1 / 1",
+};
+
+export const FORMAT_SIZE: Record<TimelineFormat, string> = {
+  vertical: "1080×1920",
+  horizontal: "1920×1080",
+  quadrado: "1080×1080",
+};
 
 /** A reel you recorded yourself: exactly one of `attachment_id` or `url` —
  *  the backend answers 400 when both, or neither, come filled in. */
@@ -495,6 +515,9 @@ export interface JobResult {
   edit_mode?: string;
   /** Only on a recording of your own — the language whisper detected. */
   transcript_language?: string;
+  /** The frame the file was composed in. Absent on anything made before
+   *  formats existed, which is the vertical short. */
+  format?: TimelineFormat;
   /** Only on a recording of your own — the last suggestions asked for. */
   assist?: ReelAssist;
   qa_attempts?: QAAttempt[];
