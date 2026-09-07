@@ -173,6 +173,51 @@ def active_chain() -> list[tuple[str, str]]:
     return build_chain(active_model(), settings.llm_chain_raw)
 
 
+# Where a CLI installs itself when PATH does not carry it.
+#
+# The server usually runs as a different user than the one who installed the
+# tool — as root here, while PATH still lists /Users/<someone>/.local/bin. The
+# binary is present and authenticated and `shutil.which` finds nothing, so a
+# subscription the user is paying for looks uninstalled. `~` expands to the
+# running user's home, which is exactly the directory PATH is missing.
+_CLI_FALLBACKS = [
+    "~/.local/bin/{binary}",
+    "~/.codex/packages/standalone/current/bin/{binary}",
+    "/opt/homebrew/bin/{binary}",
+    "/usr/local/bin/{binary}",
+    "~/.npm-global/bin/{binary}",
+    "~/.bun/bin/{binary}",
+    "~/.volta/bin/{binary}",
+]
+
+# Resolved paths, so the filesystem is walked once per binary per run.
+_BINARY_CACHE: dict[str, str | None] = {}
+
+
+def find_binary(binary: str) -> str | None:
+    """The CLI's real path: PATH first, then where it is normally installed.
+
+    A broken symlink counts as absent — Homebrew leaves one behind when the
+    npm package under it is removed, and `os.path.exists` follows the link, so
+    that case resolves to None here rather than failing at exec time.
+    """
+    if not binary:
+        return None
+    if binary in _BINARY_CACHE:
+        return _BINARY_CACHE[binary]
+
+    found = shutil.which(binary)
+    if not found:
+        for pattern in _CLI_FALLBACKS:
+            candidate = Path(pattern.format(binary=binary)).expanduser()
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                found = str(candidate)
+                break
+
+    _BINARY_CACHE[binary] = found
+    return found
+
+
 # What each CLI answered when asked which models it has. Probing costs a
 # subprocess, and the answer does not change inside one run.
 _MODEL_CACHE: dict[str, set[str] | None] = {}
@@ -207,7 +252,7 @@ def available_models(provider: str) -> set[str] | None:
 
     binary = {"codex_cli": settings.codex_cli_bin,
               "claude_cli": settings.claude_cli_bin}.get(provider)
-    found = shutil.which(binary) if binary else None
+    found = find_binary(binary) if binary else None
     if not found:
         return None
 
@@ -243,7 +288,7 @@ def _unavailable_reason(provider: str, model: str) -> str:
     """
     binary = {"codex_cli": settings.codex_cli_bin,
               "claude_cli": settings.claude_cli_bin}.get(provider)
-    if binary and not shutil.which(binary):
+    if binary and not find_binary(binary):
         return f"`{binary}` is not installed"
 
     if not model or not settings.llm_verify_model:
@@ -350,10 +395,11 @@ JSON_ONLY = (
 
 
 def _resolve(binary: str, label: str) -> str:
-    found = shutil.which(binary)
+    found = find_binary(binary)
     if not found:
         raise LLMError(
-            f"CLI '{binary}' not found on PATH. "
+            f"CLI '{binary}' not found on PATH or in the usual install "
+            f"locations. "
             f"Install and authenticate {label}, or switch LLM_PROVIDER in .env."
         )
     return found
@@ -403,6 +449,35 @@ def _claude_cli_json(system: str, prompt: str, model: str | None = None) -> dict
     return _extract_json(envelope.get("result") or "")
 
 
+def _strict_schema(schema: dict) -> dict:
+    """The same schema, in the strict dialect Codex demands.
+
+    Codex rejects a structured-output schema whose objects do not each carry
+    `additionalProperties: false`, with a 400 rather than a soft failure — so a
+    schema that every other provider accepts takes the link down. Rewriting it
+    here, at the one place the schema is handed over, keeps that requirement
+    from leaking into the twenty schemas the pipeline writes.
+
+    The rewrite is a copy: the caller's schema is shared with the other
+    providers in the chain, and Anthropic does not want this key.
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    out = {k: _strict_schema(v) if isinstance(v, dict) else v
+           for k, v in schema.items()}
+    if isinstance(out.get("properties"), dict):
+        out["properties"] = {k: _strict_schema(v)
+                             for k, v in out["properties"].items()}
+        out.setdefault("additionalProperties", False)
+        # Codex also wants every property listed as required; optional fields
+        # are expressed by allowing null, not by omission.
+        out.setdefault("required", list(out["properties"]))
+    if isinstance(out.get("items"), dict):
+        out["items"] = _strict_schema(out["items"])
+    return out
+
+
 def _codex_cli_json(system: str, prompt: str, schema: dict | None,
                     model: str | None = None) -> dict:
     """Codex CLI in non-interactive mode — draws on the ChatGPT subscription."""
@@ -426,7 +501,8 @@ def _codex_cli_json(system: str, prompt: str, schema: dict | None,
             cmd += ["--model", chosen]
         if schema:
             schema_file = work_dir / "schema.json"
-            schema_file.write_text(json.dumps(schema), encoding="utf-8")
+            schema_file.write_text(json.dumps(_strict_schema(schema)),
+                                   encoding="utf-8")
             cmd += ["--output-schema", str(schema_file)]
 
         cmd.append(f"{system}\n\n{JSON_ONLY}\n\n{prompt}")

@@ -25,11 +25,32 @@ CHECK_KEYS = {"id", "label", "required", "found", "version", "unlocks",
 
 @pytest.fixture
 def empty_path(tmp_path, monkeypatch):
-    """A PATH with nothing on it — every external binary reads as missing."""
+    """A machine with nothing installed — every external binary reads as missing.
+
+    Emptying PATH is no longer enough on its own: a CLI is also looked for
+    where it normally installs itself, because the server often runs as a
+    different user than the one who installed it and PATH then points at the
+    wrong home. So HOME moves into the sandbox too, and the caches that
+    remember earlier answers are cleared.
+    """
+    from app.pipeline import llm
+
     bin_dir = tmp_path / "empty-bin"
     bin_dir.mkdir()
+    home = tmp_path / "empty-home"
+    home.mkdir()
     monkeypatch.setenv("PATH", str(bin_dir))
-    return bin_dir
+    monkeypatch.setenv("HOME", str(home))
+    # The absolute fallbacks (/opt/homebrew, /usr/local) are real directories
+    # on a developer machine and cannot be moved, so they are emptied for the
+    # duration of the test.
+    monkeypatch.setattr(llm, "_CLI_FALLBACKS",
+                        ["~/.local/bin/{binary}"], raising=False)
+    llm._BINARY_CACHE.clear()   # noqa: SLF001
+    llm._MODEL_CACHE.clear()    # noqa: SLF001
+    yield bin_dir
+    llm._BINARY_CACHE.clear()   # noqa: SLF001
+    llm._MODEL_CACHE.clear()    # noqa: SLF001
 
 
 def _stub(directory, name: str, *lines: str) -> None:

@@ -205,7 +205,12 @@ def _probe(binary: str, *args: str) -> tuple[str, str]:
     to stderr — degrades to "found but version unknown" rather than raising:
     the doctor is what people run *because* the machine is broken.
     """
-    path = shutil.which(binary)
+    # Same resolution the pipeline uses, so the doctor cannot report a CLI
+    # as missing while the chain is happily calling it — the two disagreeing
+    # is worse than either being wrong alone.
+    from . import llm as llm_mod
+
+    path = llm_mod.find_binary(binary)
     if not path:
         return "", ""
     try:
@@ -250,10 +255,12 @@ def free_gb(path=None) -> float:
 
 def provider_ready(provider: str) -> bool:
     """CLI providers depend on the logged-in binary, not on an API key."""
+    from . import llm as llm_mod
+
     if provider == "claude_cli":
-        return bool(shutil.which(settings.claude_cli_bin))
+        return bool(llm_mod.find_binary(settings.claude_cli_bin))
     if provider == "codex_cli":
-        return bool(shutil.which(settings.codex_cli_bin))
+        return bool(llm_mod.find_binary(settings.codex_cli_bin))
     if provider == "ollama":
         return True
     return bool(settings.anthropic_api_key or settings.openai_api_key)
