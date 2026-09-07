@@ -101,7 +101,10 @@ def test_a_customised_chain_is_not_mistaken_for_the_legacy_one():
 # ------------------------------------------------ loading the right model
 
 def test_a_missing_cli_is_skipped_with_a_reason(monkeypatch):
-    monkeypatch.setattr(llm.shutil, "which", lambda b: None)
+    # Truly missing means neither on PATH nor where a CLI installs itself:
+    # faking only `which` leaves the fallbacks free to find the real binary,
+    # which is precisely the case this test used to miss.
+    monkeypatch.setattr(llm, "find_binary", lambda b: None)
     reason = llm._unavailable_reason("codex_cli", "gpt-6-astra")  # noqa: SLF001
     assert "not installed" in reason
 
