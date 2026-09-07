@@ -61,9 +61,15 @@ def request_resume(job_id: str, stage: str) -> None:
 
 
 def resumable_stage(job_dir: Path) -> str | None:
-    """The furthest stage we can resume from with what is on disk."""
+    """The furthest stage we can resume from with what is on disk.
+
+    "On disk" means readable, not merely present: a restart mid-stage leaves
+    half-written files behind, and resuming past them turns a recoverable
+    interruption into a failed job.
+    """
     has_script = (job_dir / "script.json").exists() or (job_dir / "script_override.json").exists()
-    has_voice = (job_dir / "narration.json").exists() and (job_dir / "narration.mp3").exists()
+    has_voice = ((job_dir / "narration.json").exists()
+                 and _usable_audio(job_dir / "narration.mp3"))
     if not has_script:
         return None
     if not has_voice:
@@ -109,6 +115,11 @@ def _load_resume(job_id: str, job_dir: Path, log) -> tuple[set[str], ShortScript
                 "stage", "warn")
             return set(CASCADE["voz"]), short, None, None
         data = json.loads(meta.read_text(encoding="utf-8"))
+        if not _usable_audio(audio):
+            log("The saved narration is unreadable — it was probably still "
+                "being written when the server stopped. Redoing the voice.",
+                "warn")
+            return set(CASCADE["voz"]), short, None, None
         narration = tts.Narration(audio, float(data["duration"]), data["words"])
 
     # Resuming from "legendas" or "render" does not rebuild the background, but
@@ -126,22 +137,56 @@ def _load_resume(job_id: str, job_dir: Path, log) -> tuple[set[str], ShortScript
     return set(CASCADE[root]), short, narration, background
 
 
+def _probes_ok(path: Path | None, probe) -> bool:
+    """Does `probe` get a real duration out of this file?
+
+    Existing is not enough. An MP4 keeps its index in the `moov` atom at the
+    END of the file, so one that was still being written when the server
+    restarted is present, has a plausible size, and is unreadable — ffmpeg
+    answers `moov atom not found` and the resumed render dies on an artifact
+    the resume promised was there.
+
+    A probe that raises is answering the same question: unusable. Letting that
+    escape would replace a recoverable stage with a crash — which is the very
+    failure this function exists to prevent.
+    """
+    if path is None or not path.exists():
+        return False
+    try:
+        return probe(path) > 0
+    except Exception:  # noqa: BLE001 — an unprobeable file is an unusable one
+        return False
+
+
+def _usable_audio(path: Path) -> bool:
+    return _probes_ok(path, tts.audio_duration)
+
+
+def _usable_video(path: Path | None) -> bool:
+    return _probes_ok(path, render.probe_duration)
+
+
 def saved_background(job_dir: Path) -> Path | None:
     """Background from the previous render. The name varies (scroll, padding),
-    so the effective path is noted in background.json when the stage runs."""
+    so the effective path is noted in background.json when the stage runs.
+
+    Only a background that decodes counts: resuming past the background stage
+    is a promise that the file is usable, and half a file cannot keep it.
+    """
     meta = job_dir / "background.json"
     if meta.exists():
         try:
             candidate = Path(json.loads(meta.read_text(encoding="utf-8"))["path"])
         except (json.JSONDecodeError, KeyError, TypeError):
             candidate = None
-        if candidate is not None and candidate.exists():
+        if _usable_video(candidate):
             return candidate
     # jobs rendered before this record existed: look for the known names
     for name in ("background_scroll_padded.mp4", "background_scroll.mp4",
                  "background_padded.mp4", "background.mp4"):
-        if (job_dir / name).exists():
-            return job_dir / name
+        candidate = job_dir / name
+        if _usable_video(candidate):
+            return candidate
     return None
 
 

@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 from app.config import settings
 from app.pipeline import orchestrator
 from app.schemas import ShortScript
+
+from conftest import needs_ffmpeg
 
 SCRIPT = ShortScript(
     title="Short de teste", description="", hashtags=[],
@@ -14,23 +17,45 @@ SCRIPT = ShortScript(
 )
 
 
+def _tone(path, seconds: float = 1.0):
+    """Real audio, because the resume now checks that the narration decodes.
+
+    A `b"fake-audio"` placeholder is exactly the artifact a restart mid-write
+    leaves behind, and the whole point of that check is to refuse it — a test
+    that hands one over is asserting the bug.
+    """
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi",
+         "-i", f"sine=frequency=440:duration={seconds}",
+         "-c:a", "libmp3lame", str(path)], check=True, capture_output=True)
+    return path
+
+
+def _clip(path, seconds: float = 1.0):
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", f"color=c=black:s=64x64:d={seconds}",
+         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+         str(path)], check=True, capture_output=True)
+    return path
+
+
 def _prepare(job_id: str, with_script=True, with_voice=True, with_background=True):
     job_dir = settings.job_dir(job_id)
     if with_script:
         (job_dir / "script.json").write_text(SCRIPT.model_dump_json(), encoding="utf-8")
     if with_voice:
-        (job_dir / "narration.mp3").write_bytes(b"fake-audio")
+        _tone(job_dir / "narration.mp3")
         (job_dir / "narration.json").write_text(json.dumps(
             {"duration": 8.5, "words": [{"word": "oi", "start": 0.0, "end": 0.4}]}),
             encoding="utf-8")
     if with_background:
-        bg = job_dir / "background.mp4"
-        bg.write_bytes(b"fake-video")
+        bg = _clip(job_dir / "background.mp4")
         (job_dir / "background.json").write_text(json.dumps({"path": str(bg)}),
                                                  encoding="utf-8")
     return job_dir
 
 
+@needs_ffmpeg
 def test_resumable_stage_reflects_what_exists_on_disk():
     empty = _prepare("job_vazio", with_script=False, with_voice=False, with_background=False)
     assert orchestrator.resumable_stage(empty) is None
@@ -47,6 +72,7 @@ def test_resumable_stage_reflects_what_exists_on_disk():
     assert orchestrator.resumable_stage(complete) == "legendas"
 
 
+@needs_ffmpeg
 def test_load_resume_without_a_request_runs_everything():
     job_dir = _prepare("job_a")
     dirty, script, narration, background = orchestrator._load_resume(  # noqa: SLF001
@@ -55,6 +81,7 @@ def test_load_resume_without_a_request_runs_everything():
     assert script is None and narration is None and background is None
 
 
+@needs_ffmpeg
 def test_resume_from_captions_reuses_script_voice_and_background():
     job_dir = _prepare("job_b")
     orchestrator.request_resume("job_b", "legendas")
@@ -73,6 +100,7 @@ def test_resume_from_captions_reuses_script_voice_and_background():
     assert not (job_dir / "resume.json").exists()
 
 
+@needs_ffmpeg
 def test_resume_without_a_saved_background_falls_back_to_the_background_stage():
     job_dir = _prepare("job_bg", with_background=False)
     orchestrator.request_resume("job_bg", "legendas")
@@ -86,21 +114,22 @@ def test_resume_without_a_saved_background_falls_back_to_the_background_stage():
     assert any("background" in w for w in warnings)
 
 
+@needs_ffmpeg
 def test_saved_background_prefers_the_recorded_path():
     job_dir = settings.job_dir("job_bgmeta")
-    recorded = job_dir / "background_scroll_padded.mp4"
-    recorded.write_bytes(b"x")
-    (job_dir / "background.mp4").write_bytes(b"y")
+    recorded = _clip(job_dir / "background_scroll_padded.mp4")
+    _clip(job_dir / "background.mp4")
     (job_dir / "background.json").write_text(json.dumps({"path": str(recorded)}),
                                              encoding="utf-8")
     assert orchestrator.saved_background(job_dir) == recorded
 
 
+@needs_ffmpeg
 def test_saved_background_falls_back_to_known_filenames_without_metadata():
     """Jobs rendered before background.json existed must not turn into a dead
     end."""
     job_dir = settings.job_dir("job_bgvelho")
-    (job_dir / "background.mp4").write_bytes(b"y")
+    _clip(job_dir / "background.mp4")
     assert orchestrator.saved_background(job_dir) == job_dir / "background.mp4"
 
 
@@ -111,6 +140,7 @@ def test_saved_background_ignores_metadata_pointing_at_a_vanished_file():
     assert orchestrator.saved_background(job_dir) is None
 
 
+@needs_ffmpeg
 def test_resume_from_voice_keeps_the_script_and_redoes_the_narration():
     job_dir = _prepare("job_c")
     orchestrator.request_resume("job_c", "voz")
@@ -122,6 +152,7 @@ def test_resume_from_voice_keeps_the_script_and_redoes_the_narration():
     assert narration is None, "the narration has to be synthesized again"
 
 
+@needs_ffmpeg
 def test_load_resume_prefers_the_hand_edited_script():
     job_dir = _prepare("job_d")
     edited = SCRIPT.model_copy(update={"title": "Título editado"})
@@ -133,6 +164,7 @@ def test_load_resume_prefers_the_hand_edited_script():
     assert script.title == "Título editado"
 
 
+@needs_ffmpeg
 def test_load_resume_without_any_artifact_falls_back_to_the_start():
     job_dir = _prepare("job_e", with_script=False, with_voice=False,
                        with_background=False)
@@ -146,6 +178,7 @@ def test_load_resume_without_any_artifact_falls_back_to_the_start():
     assert any("script" in w for w in warnings)
 
 
+@needs_ffmpeg
 def test_load_resume_without_a_narration_falls_back_to_the_voice_stage():
     job_dir = _prepare("job_f", with_voice=False)
     orchestrator.request_resume("job_f", "legendas")
