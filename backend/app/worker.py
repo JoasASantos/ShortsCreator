@@ -15,6 +15,7 @@ from .pipeline import orchestrator
 _queue: "queue.Queue[str]" = queue.Queue()
 _clip_queue: "queue.Queue[str]" = queue.Queue()
 _film_queue: "queue.Queue[str]" = queue.Queue()
+_longform_queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
 _started = False
 _lock = threading.Lock()
 
@@ -32,6 +33,15 @@ def enqueue_clip_plan(plan_id: str) -> None:
 def enqueue_film(film_id: str) -> None:
     db.update_film(film_id, status="queued", error=None)
     _film_queue.put(film_id)
+
+
+def enqueue_longform(project_id: str, action: str = "assemble") -> None:
+    """Two kinds of work share this queue: ingesting the material (downloads
+    and transcription) and assembling the production. The status says which
+    is pending, so a restart knows what to requeue."""
+    status = "ingesting" if action == "ingest" else "queued"
+    db.update_longform(project_id, status=status, error=None)
+    _longform_queue.put((action, project_id))
 
 
 def _worker_loop() -> None:
@@ -71,6 +81,22 @@ def _film_loop() -> None:
             db.update_film(film_id, status="error", error=str(exc))
         finally:
             _film_queue.task_done()
+
+
+def _longform_loop() -> None:
+    """Fourth queue: a documentary is forty minutes of transcription and then
+    minutes of TTS, downloads and render. It waits behind other productions,
+    never in front of a short or a film."""
+    while True:
+        action, project_id = _longform_queue.get()
+        try:
+            from .pipeline import longform
+
+            longform.run(action, project_id)
+        except Exception as exc:  # noqa: BLE001
+            db.update_longform(project_id, status="error", error=str(exc))
+        finally:
+            _longform_queue.task_done()
 
 
 def _analyze_plan(plan_id: str) -> None:
@@ -146,6 +172,7 @@ def start() -> None:
         threading.Thread(target=_worker_loop, daemon=True).start()
     threading.Thread(target=_clip_loop, daemon=True).start()
     threading.Thread(target=_film_loop, daemon=True).start()
+    threading.Thread(target=_longform_loop, daemon=True).start()
     threading.Thread(target=_scheduler_loop, daemon=True).start()
     threading.Thread(target=_metrics_loop, daemon=True).start()
 
@@ -171,6 +198,14 @@ def start() -> None:
     for film in db.list_films(limit=50):
         if film["status"] in ("queued", "generating"):
             _film_queue.put(film["id"])
+    # A production interrupted mid-run resumes from its per-block ledger; one
+    # interrupted while ingesting starts the ingestion over (a half-transcribed
+    # interview is not a catalog).
+    for project in db.list_longform(limit=50):
+        if project["status"] == "ingesting":
+            _longform_queue.put(("ingest", project["id"]))
+        elif project["status"] in ("queued", "assembling"):
+            _longform_queue.put(("assemble", project["id"]))
 
 
 def queue_size() -> int:

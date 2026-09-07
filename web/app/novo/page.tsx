@@ -13,7 +13,7 @@ import { Chips, Field, Topbar, useToast } from "@/components/ui";
 // change with the language. Only the label comes from the dictionary.
 const NICHE_VALUES = [
   "tecnologia", "ciberseguranca", "programacao", "cinema", "historia",
-  "ciencia", "curiosidades", "negocios", "generico",
+  "ciencia", "curiosidades", "negocios", "games", "saude", "politica", "generico",
 ] as const;
 
 const ANGLE_VALUES = [

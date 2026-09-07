@@ -15,7 +15,7 @@ import { Chips, Field, StatusTag, Topbar, useToast } from "@/components/ui";
 
 const NICHE_KEYS = [
   "cinema", "historia", "ciencia", "curiosidades", "tecnologia",
-  "ciberseguranca", "programacao", "negocios", "generico",
+  "ciberseguranca", "programacao", "negocios", "games", "saude", "politica", "generico",
 ] as const;
 
 /** 9:16 is the house format, but a film is the one thing here someone might

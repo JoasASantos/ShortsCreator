@@ -121,6 +121,33 @@ CREATE TABLE IF NOT EXISTS films (
     updated_at TEXT NOT NULL
 );
 
+-- A long-form production (documentary, short film, mini-series). Same shape
+-- as films — one column per development stage, so each is regenerated, edited
+-- and inspected on its own — plus three the film does not need: material_json
+-- is the catalog of what the user gave, ingested and transcribed once and far
+-- too expensive to redo with every stage; progress_json is the per-block
+-- ledger a resume reads; jobs_json maps episode -> job, because a series ends
+-- as several jobs and a documentary as one.
+CREATE TABLE IF NOT EXISTS longform_projects (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    status TEXT NOT NULL,
+    stage TEXT,
+    type TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    instruction TEXT,
+    options_json TEXT,
+    material_json TEXT,
+    briefing_json TEXT,
+    roteiro_json TEXT,
+    plano_json TEXT,
+    progress_json TEXT,
+    jobs_json TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS metrics (
     schedule_id TEXT PRIMARY KEY,
     job_id TEXT NOT NULL,
@@ -453,6 +480,55 @@ def list_films(limit: int = 50) -> list[dict]:
 def delete_film(film_id: str) -> None:
     with _lock, connect() as conn:
         conn.execute("DELETE FROM films WHERE id=?", (film_id,))
+
+
+# ---------- long-form productions ----------
+
+def create_longform(kind: str, prompt: str, instruction: str, title: str,
+                    options: dict) -> str:
+    project_id = new_id("doc")
+    ts = now()
+    with _lock, connect() as conn:
+        conn.execute(
+            "INSERT INTO longform_projects (id,title,status,stage,type,prompt,"
+            "instruction,options_json,created_at,updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (project_id, title, "ingesting", None, kind, prompt, instruction,
+             json.dumps(options), ts, ts),
+        )
+    return project_id
+
+
+def update_longform(project_id: str, **fields: Any) -> None:
+    if not fields:
+        return
+    fields["updated_at"] = now()
+    cols = ", ".join(f"{k}=?" for k in fields)
+    with _lock, connect() as conn:
+        conn.execute(f"UPDATE longform_projects SET {cols} WHERE id=?",
+                     (*fields.values(), project_id))
+
+
+def get_longform(project_id: str) -> dict | None:
+    with connect() as conn:
+        return _row(conn.execute("SELECT * FROM longform_projects WHERE id=?",
+                                 (project_id,)).fetchone())
+
+
+def list_longform(limit: int = 50) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM longform_projects ORDER BY created_at DESC LIMIT ?",
+            (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_longform(project_id: str) -> None:
+    """The project and its ingestion log — the events were written under the
+    project id, since no job exists until assembly."""
+    with _lock, connect() as conn:
+        conn.execute("DELETE FROM longform_projects WHERE id=?", (project_id,))
+        conn.execute("DELETE FROM job_events WHERE job_id=?", (project_id,))
 
 
 # ---------- schedules ----------

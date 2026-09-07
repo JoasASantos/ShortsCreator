@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +10,8 @@ from fastapi.testclient import TestClient
 from app import db
 from app.main import app
 from app.schemas import JobInput
+
+from conftest import needs_ffmpeg
 
 client = TestClient(app)
 
@@ -249,6 +252,7 @@ def test_unknown_fields_ask_for_no_resume():
     assert _earliest_stage([]) is None
 
 
+@needs_ffmpeg
 def test_editing_the_watermark_applies_it_and_asks_to_resume(tmp_path):
     """End to end through the route: the field lands on the job and the
     response says which stage is being redone."""
@@ -258,15 +262,23 @@ def test_editing_the_watermark_applies_it_and_asks_to_resume(tmp_path):
     job_id = _job()
     _finish(job_id)
     job_dir = settings.job_dir(job_id)
-    # artifacts that make a resume possible
+    # Artifacts that make a resume possible — real media, because the resume
+    # only trusts a file that decodes. A `b"fake"` stand-in is exactly the
+    # half-written artifact a restart leaves behind, and `resumable_stage`
+    # exists to refuse it: handing one over here would answer "voz" and the
+    # test would be asserting the bug.
     (job_dir / "script.json").write_text(ShortScript(
         title="t", description="", segments=[{"kind": "hook", "text": "x"}],
     ).model_dump_json(), encoding="utf-8")
-    (job_dir / "narration.mp3").write_bytes(b"fake")
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                    "-c:a", "libmp3lame", str(job_dir / "narration.mp3")],
+                   check=True, capture_output=True)
     (job_dir / "narration.json").write_text(
         json.dumps({"duration": 5.0, "words": []}), encoding="utf-8")
     background = job_dir / "background.mp4"
-    background.write_bytes(b"fake")
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=1",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    str(background)], check=True, capture_output=True)
     (job_dir / "background.json").write_text(
         json.dumps({"path": str(background)}), encoding="utf-8")
 

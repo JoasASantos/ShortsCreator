@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 Niche = Literal[
     "tecnologia", "ciberseguranca", "programacao", "cinema",
-    "historia", "ciencia", "curiosidades", "negocios", "generico",
+    "historia", "ciencia", "curiosidades", "negocios", "games", "saude", "politica", "generico",
 ]
 
 # roteiro: the user pastes the final text, skipping LLM generation.

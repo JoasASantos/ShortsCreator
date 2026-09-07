@@ -287,6 +287,215 @@ export interface Timeline {
 
 export type TimelineFormat = "vertical" | "horizontal" | "quadrado";
 
+// ------------------------------------------------------------- long form
+
+/** Documentary, mini-doc, short film, mini-series — assembled from material
+ *  the user brings, over stages they correct before the next one runs. */
+export const LONGFORM_TYPES = [
+  "documentario", "mini_documentario", "curta", "mini_serie",
+] as const;
+export type LongformType = (typeof LONGFORM_TYPES)[number];
+
+/** The stages, in the order they are developed. `material` is ingestion; the
+ *  other three are the model's, each rewritable. */
+export const LONGFORM_STAGES = [
+  "material", "briefing", "roteiro", "plano_de_edicao",
+] as const;
+export type LongformStage = (typeof LONGFORM_STAGES)[number];
+
+export interface LongformTypeInfo {
+  id: LongformType;
+  label: string;
+  fiction: boolean;
+  min_minutes: number;
+  max_minutes: number;
+  default_minutes: number;
+  structure: string;
+}
+
+export interface LongformVocabulary {
+  types: LongformTypeInfo[];
+  narrators: { id: string; description: string }[];
+  tones: { id: string; description: string }[];
+  stages: LongformStage[];
+  block_kinds: string[];
+  shot_kinds: string[];
+  min_episodes: number;
+  max_episodes: number;
+}
+
+export interface LongformMaterialItem {
+  id: string;
+  kind: "entrevista" | "link" | "artigo" | "imagem";
+  /** A reference example: read for structure and rhythm, never for content. */
+  reference: boolean;
+  title: string;
+  url?: string;
+  duration: number;
+  transcript?: string;
+  description?: string;
+  status: "ok" | "failed";
+  error?: string;
+}
+
+export interface LongformBriefing {
+  title: string;
+  logline: string;
+  angle: string;
+  facts: { fact: string; source: string; why: string }[];
+  themes: string[];
+  /** A quote worth using, and where in which material it actually is. */
+  moments: { material: string; start: number; end: number; quote: string; why: string }[];
+  gaps: string[];
+  stock_queries: string[];
+  structure: { part: string; purpose: string; minutes: number }[];
+  episodes: { episode: number; title: string; focus: string }[];
+  rejected: { what: string; reason: string; fact?: string; quote?: string }[];
+}
+
+export interface LongformBlock {
+  key: string;
+  kind: string;
+  title: string;
+  narration: string;
+  words: number;
+  seconds: number;
+  budget_seconds: number;
+  /** The block was lengthened: its narration needs more time than was asked. */
+  adjusted: boolean;
+  visual: string;
+  moment: { material: string; start: number; end: number } | null;
+}
+
+export interface LongformScript {
+  episodes: {
+    episode: number; title: string; total_seconds: number;
+    narration_words: number; blocks: LongformBlock[];
+  }[];
+  rejected: { what: string; block: string; reason: string }[];
+  notes: string[];
+}
+
+export interface LongformShot {
+  kind: "entrevista" | "link" | "stock" | "imagem" | "avatar" | "cartela";
+  material?: string;
+  start?: number;
+  end?: number;
+  query?: string;
+  text?: string;
+  seconds: number;
+  lower_third?: string;
+}
+
+export interface LongformPlan {
+  episodes: {
+    episode: number; title: string;
+    blocks: {
+      key: string; kind: string; title: string; narration: string;
+      narrator: "oculto" | "avatar" | "nenhum";
+      seconds: number; shots: LongformShot[];
+    }[];
+  }[];
+  /** What the model asked for that the catalog could not honour. Shown as
+   *  written: a refusal nobody reads is a refusal that did not happen. */
+  rejected: { block: string; reason: string; shot: LongformShot | null }[];
+}
+
+export interface LongformEstimate {
+  episodes: number;
+  blocks: number;
+  target_seconds: number;
+  narration: {
+    blocks: number; words: number; seconds: number; minutes: number;
+    mode: string;
+    provider: { id: string; name: string; configured: boolean; reason: string };
+  };
+  avatar: { seconds: number; configured: boolean | null };
+  stock: {
+    clips: number; queries: number;
+    provider: { id: string; name: string; configured: boolean; reason: string };
+  };
+  interview: { cuts: number; seconds: number; minutes: number };
+  images: number;
+  cards: number;
+  narration_to_synthesize: number;
+  shots_to_prepare: number;
+  reused: number;
+  warnings: string[];
+}
+
+export interface LongformProject {
+  id: string;
+  title: string | null;
+  status: string;
+  stage: string | null;
+  type: LongformType;
+  prompt: string;
+  instruction: string;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  options: Record<string, unknown>;
+  sources: { links: string[]; attachments: string[]; references: string[] };
+  material: { items: LongformMaterialItem[] } | null;
+  // The listing sends booleans here instead of the documents, so it stays cheap.
+  briefing: LongformBriefing | boolean | null;
+  roteiro: LongformScript | boolean | null;
+  plano_de_edicao: LongformPlan | boolean | null;
+  progress: unknown[] | boolean | null;
+  jobs: Record<string, string> | null;
+  estimate?: LongformEstimate;
+}
+
+export interface LongformInput {
+  type: LongformType;
+  prompt: string;
+  instruction?: string;
+  title?: string;
+  tone?: string;
+  style?: string;
+  narrator?: string;
+  language?: string;
+  niche?: string;
+  target_minutes?: number;
+  episodes?: number;
+  links?: string[];
+  attachments?: string[];
+  references?: string[];
+  caption_style?: string;
+  caption_position?: string;
+  watermark?: string;
+}
+
+export interface LongformStageResult {
+  project_id: string;
+  stage: string;
+  invalidated: string[];
+  rejected?: unknown[];
+  queued?: boolean;
+  will_invalidate?: string[];
+  detail?: string;
+  briefing?: LongformBriefing;
+  roteiro?: LongformScript;
+  plano_de_edicao?: LongformPlan;
+}
+
+export interface LongformGenerateResult {
+  project_id: string;
+  queued: boolean;
+  status?: string;
+  estimate: LongformEstimate;
+  detail?: string;
+}
+
+export interface LongformEvent {
+  id: number;
+  job_id: string;
+  level: "info" | "warn" | "error";
+  message: string;
+  created_at: string;
+}
+
 /** CSS aspect ratio for each frame, for previews that must show the shape
  *  the file actually has instead of a phone every time. */
 export const FORMAT_ASPECT: Record<TimelineFormat, string> = {
@@ -536,8 +745,13 @@ export interface TrendItem {
   heat: number;
   /** The backend sends numbers, not a ready-made sentence: the wording is
    *  assembled in the UI so it follows the chosen language. */
-  heat_kind: "searches" | "rising" | "reddit_rising" | "points_comments" | "views";
+  heat_kind: "searches" | "rising" | "reddit_rising" | "points_comments" | "views"
+    | "feed" | "web_search";
   heat_data: Record<string, string | number>;
+  /** Niche keys the item belongs to — the first one prefills /novo. */
+  niches: string[];
+  /** Suggested opening hook, only on the LLM-curated web search items. */
+  angle?: string;
 }
 
 export interface TrendSource {
@@ -929,7 +1143,7 @@ export const api = {
     req<{ briefing: string }>(`/api/metrics/insights?niche=${niche}`),
 
   trends: (niche: string, geo = "BR") =>
-    req<{ items: TrendItem[]; sources: TrendSource[] }>(
+    req<{ items: TrendItem[]; sources: TrendSource[]; pending: string[] }>(
       `/api/trends?niche=${niche}&geo=${geo}`),
 
   clipPlans: () => req<ClipPlan[]>("/api/clips"),
@@ -979,6 +1193,32 @@ export const api = {
     req<FilmGenerateResult>(`/api/films/${id}/generate`,
       { method: "POST",
         body: JSON.stringify({ confirm, placeholder_ok: placeholderOk }) }),
+
+  // Long form. Creating one only queues the ingestion of the material; the
+  // three model stages are asked for one at a time, so each can be read and
+  // corrected before the next is written against it.
+  longformTypes: () => req<LongformVocabulary>("/api/longform/types"),
+  longforms: () => req<LongformProject[]>("/api/longform"),
+  longform: (id: string) => req<LongformProject>(`/api/longform/${id}`),
+  createLongform: (body: LongformInput) =>
+    req<LongformProject>("/api/longform",
+      { method: "POST", body: JSON.stringify(body) }),
+  deleteLongform: (id: string) =>
+    req<{ deleted: string }>(`/api/longform/${id}`, { method: "DELETE" }),
+  developLongformStage: (id: string, stage: LongformStage, instruction = "") =>
+    req<LongformStageResult>(`/api/longform/${id}/stage/${stage}`,
+      { method: "POST", body: JSON.stringify({ instruction }) }),
+  saveLongformStage: (id: string, stage: LongformStage, doc: unknown) =>
+    req<LongformStageResult>(`/api/longform/${id}/${stage}`,
+      { method: "PUT", body: JSON.stringify(doc) }),
+  // confirm=false answers with the estimate and starts nothing: a 30-minute
+  // assembly is minutes of paid work and the size of it is shown first.
+  generateLongform: (id: string, confirm: boolean, placeholderOk = false) =>
+    req<LongformGenerateResult>(`/api/longform/${id}/generate`,
+      { method: "POST",
+        body: JSON.stringify({ confirm, placeholder_ok: placeholderOk }) }),
+  longformEvents: (id: string, after = 0) =>
+    req<LongformEvent[]>(`/api/longform/${id}/events?after=${after}`),
 
   renderClips: (id: string, body: Record<string, unknown>) =>
     req<{ jobs: string[]; schedules: { job_id: string; publish_at: string }[] }>(

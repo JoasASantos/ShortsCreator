@@ -10,8 +10,8 @@ from .config import settings
 from .pipeline import doctor
 from .routers import (avatar, clips, connectors, films, generators, jobs,
                       models as models_router,
-                      livecuts, metrics, music, outputs, publish, reels, trends,
-                      uploads, voices)
+                      livecuts, longform, metrics, music, outputs, publish, reels,
+                      trends, uploads, voices)
 
 app = FastAPI(title="ShortsCreator API", version="1.0.0",
               description="Automated generation of 9:16 vertical Shorts with QA.")
@@ -32,6 +32,7 @@ app.include_router(livecuts.router)
 app.include_router(reels.router)
 app.include_router(avatar.router)
 app.include_router(films.router)
+app.include_router(longform.router)
 app.include_router(music.router)
 app.include_router(publish.router)
 app.include_router(connectors.router)
@@ -144,5 +145,6 @@ def config() -> dict:
         "min_seconds": settings.min_short_seconds,
         "max_seconds": settings.max_short_seconds,
         "niches": ["tecnologia", "ciberseguranca", "programacao", "cinema",
-                   "historia", "ciencia", "curiosidades", "negocios", "generico"],
+                   "historia", "ciencia", "curiosidades", "negocios",
+                   "games", "saude", "politica", "generico"],
     }

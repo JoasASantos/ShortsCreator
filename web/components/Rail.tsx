@@ -63,6 +63,22 @@ export function Rail({ open = false }: { open?: boolean }) {
       ],
     },
     {
+      // Long-form gets its own group rather than a line under "create with
+      // AI": a documentary is assembled from material the user brings, over
+      // stages they correct, and lives on a different clock from a short.
+      id: "longform",
+      label: t.nav.groups.longform,
+      items: [
+        // A path segment, not a query string: `isActive` compares against
+        // usePathname(), which carries no query — four items pointing at
+        // "/producoes?tipo=…" would all read as inactive.
+        { href: "/producoes/documentario", label: t.nav.documentary },
+        { href: "/producoes/mini_documentario", label: t.nav.miniDoc },
+        { href: "/producoes/curta", label: t.nav.shortFilm },
+        { href: "/producoes/mini_serie", label: t.nav.miniSeries },
+      ],
+    },
+    {
       id: "myVideo",
       label: t.nav.groups.myVideo,
       items: [

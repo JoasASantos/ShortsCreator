@@ -17,6 +17,9 @@ NICHE_GUIDE = {
     "ciencia": "Traduza o mecanismo em analogia concreta. Precisão factual acima de hype.",
     "curiosidades": "Fato surpreendente na primeira frase, sequência de reviravoltas rápidas.",
     "negocios": "Números, decisão e consequência. Evite jargão vazio.",
+    "games": "Fale como jogador: mecânica, momento e comunidade. Cite o jogo, o estúdio e a data; nada de review genérica.",
+    "saude": "Explique o mecanismo no corpo com uma analogia simples e cite o estudo ou a instituição. Sem diagnóstico, sem prescrever — informe e mande procurar um profissional.",
+    "politica": "Fato, data e quem disse — sempre atribuído à fonte. Apresente os lados envolvidos e o que está em jogo; nada de opinião nem de torcida.",
     "generico": "Priorize clareza, ritmo e uma ideia central por short.",
 }
 

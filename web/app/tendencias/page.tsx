@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { api, type TrendItem, type TrendSource } from "@/lib/api";
+import { api, type TrendItem } from "@/lib/api";
 import { formatCount } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 import { Chips, Topbar, useToast } from "@/components/ui";
@@ -10,13 +10,19 @@ import { Chips, Topbar, useToast } from "@/components/ui";
 // The key is what the API understands; the label is what the chosen language shows.
 const NICHE_KEYS = [
   "tecnologia", "ciberseguranca", "programacao", "cinema", "historia",
-  "ciencia", "curiosidades", "negocios", "generico",
+  "ciencia", "curiosidades", "negocios", "games", "saude", "politica", "generico",
 ] as const;
 
 const GEO_KEYS = ["BR", "US", "PT", "ES", "RU", "CN"] as const;
 
-/** "All sources" filter: technical value, does not change with the language. */
-const ALL_SOURCES = "todas";
+/** The LLM-curated web search can take a minute: while the backend reports it
+ *  pending, the list is refreshed at this pace, this many times at most. */
+const PENDING_POLL_MS = 8000;
+const PENDING_POLL_MAX = 8;
+
+/** Links that are not an article: /novo cannot ingest them, so the trend goes
+ *  in as a topic instead of a URL. */
+const NOT_INGESTIBLE = ["reddit.com", "youtube.com", "news.google.com"];
 
 export default function Tendencias() {
   const { t, f } = useI18n();
@@ -24,15 +30,16 @@ export default function Tendencias() {
   const [niche, setNiche] = useState("tecnologia");
   const [geo, setGeo] = useState("BR");
   const [items, setItems] = useState<TrendItem[]>([]);
-  const [feeds, setFeeds] = useState<TrendSource[]>([]);
+  const [pending, setPending] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [source, setSource] = useState(ALL_SOURCES);
 
   const niches: { value: string; label: string }[] =
     NICHE_KEYS.map((value) => ({ value, label: t.niches[value] }));
   const geos: { value: string; label: string }[] =
     GEO_KEYS.map((value) => ({ value, label: t.trends.regions[value] }));
 
+  /** Sources with a technical key (google_trends, web_search…) get a translated
+   *  name; a publication ("IGN", "G1 Política") is its own name in every language. */
   const sourceLabel = (key: string) =>
     (t.trends.sourceNames as Record<string, string>)[key] ?? key;
 
@@ -49,59 +56,63 @@ export default function Tendencias() {
     return f(template, data);
   };
 
+  /** The niche /novo is prefilled with: the one on screen when the item
+   *  belongs to it, otherwise the item's own (a Google Trends item seen from
+   *  "games" is still generic). */
+  const nicheFor = (item: TrendItem) =>
+    item.niches?.includes(niche) ? niche : item.niches?.[0] ?? niche;
+
+  const createHref = (item: TrendItem) => {
+    const ingestible = item.url && !NOT_INGESTIBLE.some((host) => item.url.includes(host));
+    return `/novo?tema=${encodeURIComponent(item.title)}&niche=${nicheFor(item)}${
+      ingestible ? `&url=${encodeURIComponent(item.url)}` : ""}`;
+  };
+
   useEffect(() => {
     let vivo = true;
-    setLoading(true);
-    api.trends(niche, geo)
-      .then((r) => { if (vivo) { setItems(r.items); setFeeds(r.sources); } })
-      .catch(() => { if (vivo) { setItems([]); setFeeds([]); } })
-      .finally(() => { if (vivo) setLoading(false); });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let polls = 0;
+    const load = (first: boolean) => {
+      if (first) setLoading(true);
+      api.trends(niche, geo)
+        .then((r) => {
+          if (!vivo) return;
+          setItems(r.items);
+          const waiting = r.pending ?? [];
+          setPending(waiting);
+          if (waiting.length && polls < PENDING_POLL_MAX) {
+            polls += 1;
+            timer = setTimeout(() => load(false), PENDING_POLL_MS);
+          }
+        })
+        .catch(() => { if (vivo && first) { setItems([]); setPending([]); } })
+        .finally(() => { if (vivo && first) setLoading(false); });
+    };
+    load(true);
     // quick niche switching: discards the response of the abandoned query
-    return () => { vivo = false; };
+    return () => { vivo = false; if (timer) clearTimeout(timer); };
   }, [niche, geo]);
 
-  const sources = [ALL_SOURCES, ...Array.from(new Set(items.map((i) => i.source)))];
-  const visible = source === ALL_SOURCES ? items : items.filter((i) => i.source === source);
   const maxHeat = Math.max(1, ...items.map((i) => i.heat));
+  const aiPending = pending.includes("web_search");
 
   return (
     <>
       <Topbar title={t.trends.title}>
-        {loading ? <i className="dot pulse" style={{ color: "var(--cyan)" }} /> : null}
+        {loading || pending.length ? <i className="dot pulse" style={{ color: "var(--cyan)" }} /> : null}
         <span className="label">{f(t.trends.subtitle, { n: items.length })}</span>
       </Topbar>
 
       <div className="content grid" style={{ gap: 16 }}>
         <section className="panel">
           <div className="panel-body grid" style={{ gap: 12 }}>
-            <div className="row spread wrap" style={{ gap: 12 }}>
-              <Chips value={niche} onChange={setNiche} options={niches} />
-              <Chips value={geo} onChange={setGeo} options={geos} />
-            </div>
-            <div className="chips">
-              {sources.map((s) => (
-                <button key={s} type="button" className="chip" data-on={source === s}
-                        onClick={() => setSource(s)}>
-                  {s === ALL_SOURCES ? t.common.all : sourceLabel(s)}
-                </button>
-              ))}
-            </div>
-            {feeds.length ? (
-              <div className="row wrap" style={{ gap: 14 }}>
-                {feeds.map((feed) => (
-                  <span className="mono dimmer" key={feed.source} style={{ fontSize: 11 }}
-                        title={feed.items === 0
-                          ? t.trends.sourceEmpty
-                          : feed.age_seconds != null
-                            ? f(t.trends.sourceAge, { n: Math.round(feed.age_seconds / 60) })
-                            : ""}>
-                    <i className="dot" style={{ marginRight: 5,
-                       color: feed.items ? "var(--ok)" : "var(--ink-3)" }} />
-                    {sourceLabel(feed.source)}
-                    {feed.items ? ` ${feed.items}` : " —"}
-                  </span>
-                ))}
-              </div>
+            <Chips value={niche} onChange={setNiche} options={niches} />
+            <Chips value={geo} onChange={setGeo} options={geos} />
+            {aiPending && !loading ? (
+              <span className="mono dimmer" style={{ fontSize: 11 }}>
+                <i className="dot pulse" style={{ marginRight: 5, color: "var(--cyan)" }} />
+                {t.trends.pendingAi}
+              </span>
             ) : null}
           </div>
         </section>
@@ -110,11 +121,11 @@ export default function Tendencias() {
             pulsing dot in the title bar signals that it is refreshing */}
         {loading && items.length === 0 ? (
           <div className="empty">{t.trends.loading}</div>
-        ) : visible.length === 0 ? (
+        ) : items.length === 0 ? (
           <div className="empty">{t.trends.empty}</div>
         ) : (
           <div className="grid" style={{ gap: 8 }}>
-            {visible.map((item, index) => (
+            {items.map((item, index) => (
               <div className="panel" key={`${item.source}-${index}`}>
                 <div className="panel-body" style={{ display: "grid",
                      gridTemplateColumns: "44px minmax(0,1fr) auto", gap: 14, alignItems: "center" }}>
@@ -128,6 +139,7 @@ export default function Tendencias() {
                   </div>
                   <div style={{ minWidth: 0 }}>
                     <div className="row wrap" style={{ gap: 8, marginBottom: 4 }}>
+                      {/* attribution only — the source is no longer a filter */}
                       <span className="tag">{sourceLabel(item.source)}</span>
                       <span className="mono dimmer" style={{ fontSize: 11 }}>{heatLabel(item)}</span>
                     </div>
@@ -138,6 +150,14 @@ export default function Tendencias() {
                         {item.snippet}
                       </p>
                     ) : null}
+                    {item.angle ? (
+                      <p style={{ margin: "4px 0 0", fontSize: 12.5, lineHeight: 1.5, color: "var(--cyan)" }}>
+                        <span className="mono dimmer" style={{ fontSize: 11, marginRight: 6 }}>
+                          {t.trends.angle}
+                        </span>
+                        {item.angle}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="row wrap" style={{ gap: 6 }}>
                     {item.url ? (
@@ -145,10 +165,7 @@ export default function Tendencias() {
                         {t.common.source} ↗
                       </a>
                     ) : null}
-                    <a className="btn sm primary"
-                       href={`/novo?tema=${encodeURIComponent(item.title)}&niche=${niche}${
-                         item.url && !item.url.includes("reddit.com") && !item.url.includes("youtube.com")
-                           ? `&url=${encodeURIComponent(item.url)}` : ""}`}>
+                    <a className="btn sm primary" href={createHref(item)}>
                       {t.trends.createShort}
                     </a>
                   </div>
