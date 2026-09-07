@@ -38,8 +38,8 @@ def test_results_are_merged_across_banks(monkeypatch):
     search only stops once it has enough."""
     monkeypatch.setattr(settings, "pexels_api_key", "k")
     monkeypatch.setattr(settings, "pixabay_api_key", "k")
-    monkeypatch.setattr(broll, "_pexels", lambda q, n: ["a.mp4"])
-    monkeypatch.setattr(broll, "_pixabay", lambda q, n: ["b.mp4", "c.mp4"])
+    monkeypatch.setattr(broll, "_pexels", lambda q, n, landscape=False: ["a.mp4"])
+    monkeypatch.setattr(broll, "_pixabay", lambda q, n, landscape=False: ["b.mp4", "c.mp4"])
 
     assert broll.search_clips("city", 3) == ["a.mp4", "b.mp4", "c.mp4"]
 
@@ -49,13 +49,13 @@ def test_a_bank_that_is_down_does_not_break_the_search(monkeypatch):
         raise httpx.ConnectError("down")
 
     monkeypatch.setattr(broll, "_pexels", explode)
-    monkeypatch.setattr(broll, "_pixabay", lambda q, n: ["b.mp4"])
+    monkeypatch.setattr(broll, "_pixabay", lambda q, n, landscape=False: ["b.mp4"])
     assert broll.search_clips("city", 2) == ["b.mp4"]
 
 
 def test_the_same_url_is_never_returned_twice(monkeypatch):
-    monkeypatch.setattr(broll, "_pexels", lambda q, n: ["dup.mp4"])
-    monkeypatch.setattr(broll, "_pixabay", lambda q, n: ["dup.mp4", "other.mp4"])
+    monkeypatch.setattr(broll, "_pexels", lambda q, n, landscape=False: ["dup.mp4"])
+    monkeypatch.setattr(broll, "_pixabay", lambda q, n, landscape=False: ["dup.mp4", "other.mp4"])
     assert broll.search_clips("city", 5) == ["dup.mp4", "other.mp4"]
 
 
@@ -65,7 +65,7 @@ def test_per_query_pulls_more_than_one_clip(monkeypatch, tmp_path):
     """One clip stretched over a whole short reads as a still image, so the
     orchestrator asks for several per query."""
     monkeypatch.setattr(broll, "search_clips",
-                        lambda q, count: [f"{q}-{i}.mp4" for i in range(count)])
+                        lambda q, count, landscape=False: [f"{q}-{i}.mp4" for i in range(count)])
     baixados = []
 
     def fake_download(url, log=None, job_dir=None):
@@ -82,7 +82,7 @@ def test_per_query_pulls_more_than_one_clip(monkeypatch, tmp_path):
 
 
 def test_a_failed_download_does_not_stop_the_others(monkeypatch, tmp_path):
-    monkeypatch.setattr(broll, "search_clips", lambda q, count: ["bad", "good"])
+    monkeypatch.setattr(broll, "search_clips", lambda q, count, landscape=False: ["bad", "good"])
 
     def fake_download(url, log=None, job_dir=None):
         if url == "bad":

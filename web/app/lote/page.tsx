@@ -11,7 +11,7 @@ import { Chips, Field, StatusTag, Topbar, useToast } from "@/components/ui";
 // The key is what the API understands; the label is what the chosen language shows.
 const NICHE_KEYS = [
   "tecnologia", "ciberseguranca", "programacao", "cinema", "historia",
-  "ciencia", "curiosidades", "negocios", "generico",
+  "ciencia", "curiosidades", "negocios", "games", "saude", "politica", "generico",
 ] as const;
 
 // One long video becomes N shorts: it transcribes, the LLM picks the moments,

@@ -29,6 +29,9 @@ PALETTES = {
     "ciencia": ("0x082f49", "0x06b6d4"),
     "curiosidades": ("0x172554", "0xdb2777"),
     "negocios": ("0x0f172a", "0x0891b2"),
+    "games": ("0x0f0a1e", "0x9333ea"),
+    "saude": ("0x062a26", "0x14b8a6"),
+    "politica": ("0x1a1614", "0xb45309"),
     "generico": ("0x0f172a", "0x334155"),
 }
 
@@ -50,47 +53,52 @@ def providers_ready() -> list[str]:
     return ready
 
 
-def search_clips(query: str, count: int = 3) -> list[str]:
+def search_clips(query: str, count: int = 3, landscape: bool = False) -> list[str]:
     """URLs of vertical videos for one query, merged across the banks.
 
     Each bank is asked for the full count rather than the remainder: a query
     that is strong on one and weak on another still fills up, and the extra
     URLs are what makes a multi-scene background possible.
+
+    `landscape` asks for 16:9 footage instead — a documentary is composed in a
+    horizontal frame, and portrait stock fitted into it is a blurred strip.
     """
     urls: list[str] = []
     for search in (_pexels, _pixabay, _coverr):
         if len(urls) >= count:
             break
         try:
-            urls += [u for u in search(query, count) if u not in urls]
+            urls += [u for u in search(query, count, landscape) if u not in urls]
         except Exception:  # noqa: BLE001 — a bank being down is not fatal
             continue
     return urls[:count]
 
 
-def _pexels(query: str, count: int) -> list[str]:
+def _pexels(query: str, count: int, landscape: bool = False) -> list[str]:
     if not settings.pexels_api_key:
         return []
     resp = httpx.get(
         "https://api.pexels.com/videos/search",
         headers={"Authorization": settings.pexels_api_key},
-        params={"query": query, "orientation": "portrait",
+        params={"query": query,
+                "orientation": "landscape" if landscape else "portrait",
                 "size": "medium", "per_page": count},
         timeout=TIMEOUT,
     )
     resp.raise_for_status()
     urls: list[str] = []
+    wanted_height = 1080 if landscape else 1920
     for video in resp.json().get("videos", []):
         files = sorted(
             (f for f in video.get("video_files", []) if f.get("height")),
-            key=lambda f: abs(f["height"] - 1920),
+            key=lambda f: abs(f["height"] - wanted_height),
         )
         if files:
             urls.append(files[0]["link"])
     return urls
 
 
-def _pixabay(query: str, count: int) -> list[str]:
+def _pixabay(query: str, count: int, landscape: bool = False) -> list[str]:
     if not settings.pixabay_api_key:
         return []
     resp = httpx.get(
@@ -109,7 +117,7 @@ def _pixabay(query: str, count: int) -> list[str]:
     return urls[:count]
 
 
-def _coverr(query: str, count: int) -> list[str]:
+def _coverr(query: str, count: int, landscape: bool = False) -> list[str]:
     """Coverr ships mostly cinematic, loopable footage — good filler when the
     other two return literal stock imagery."""
     if not settings.coverr_api_key:
@@ -160,7 +168,7 @@ def download(url: str, log=lambda m: None, job_dir: Path | None = None) -> Path 
 
 def fetch_for_queries(queries: list[str], log=lambda m: None,
                       job_dir: Path | None = None,
-                      per_query: int = 1) -> list[Path]:
+                      per_query: int = 1, landscape: bool = False) -> list[Path]:
     """Clips for a list of queries, in order.
 
     `per_query` above 1 is what turns a single flat background into a sequence
@@ -173,7 +181,7 @@ def fetch_for_queries(queries: list[str], log=lambda m: None,
         if not query:
             continue
         found = 0
-        for url in search_clips(query, count=per_query + 2):
+        for url in search_clips(query, count=per_query + 2, landscape=landscape):
             if url in seen:
                 continue
             seen.add(url)

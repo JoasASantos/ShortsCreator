@@ -63,6 +63,22 @@ export function Rail({ open = false }: { open?: boolean }) {
       ],
     },
     {
+      // Long-form gets its own group rather than a line under "create with
+      // AI": a documentary is assembled from material the user brings, over
+      // stages they correct, and lives on a different clock from a short.
+      id: "longform",
+      label: t.nav.groups.longform,
+      items: [
+        // A path segment, not a query string: `isActive` compares against
+        // usePathname(), which carries no query — four items pointing at
+        // "/producoes?tipo=…" would all read as inactive.
+        { href: "/producoes/documentario", label: t.nav.documentary },
+        { href: "/producoes/mini_documentario", label: t.nav.miniDoc },
+        { href: "/producoes/curta", label: t.nav.shortFilm },
+        { href: "/producoes/mini_serie", label: t.nav.miniSeries },
+      ],
+    },
+    {
       id: "myVideo",
       label: t.nav.groups.myVideo,
       items: [
@@ -183,7 +199,11 @@ export function Rail({ open = false }: { open?: boolean }) {
             key={`${step.provider}:${step.model}`}
             label={i === 0 ? `↳ ${t.rail.primary}` : `↳ ${t.rail.fallback} ${i}`}
             ok={step.ready}
-            value={step.model}
+            // The model id alone said nothing about whether this link will be
+            // tried, so a skipped one read exactly like a working one. The
+            // backend's reason is the tooltip, verbatim.
+            value={step.ready ? step.model : `${step.model} · ${t.rail.skipped}`}
+            title={step.reason}
             readyText={t.common.ready}
             offText={t.common.off}
           />
@@ -210,11 +230,12 @@ export function Rail({ open = false }: { open?: boolean }) {
   );
 }
 
-function Stat({ label, ok, value, readyText, offText }: {
-  label: string; ok?: boolean; value?: string; readyText: string; offText: string;
+function Stat({ label, ok, value, title, readyText, offText }: {
+  label: string; ok?: boolean; value?: string; title?: string;
+  readyText: string; offText: string;
 }) {
   return (
-    <div className="stat-line">
+    <div className="stat-line" title={title || undefined}>
       <span>{label}</span>
       <b style={{ color: ok ? "var(--ok)" : "var(--ink-3)" }}>
         {value ? value : ok ? readyText : offText}

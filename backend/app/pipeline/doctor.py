@@ -261,8 +261,12 @@ def provider_ready(provider: str) -> bool:
 
 def llm_ready() -> bool:
     if settings.llm_provider == "chain":
-        # a single usable link in the chain is enough
-        return any(provider_ready(p) for p, _ in settings.llm_chain)
+        # A single usable link is enough — that is what the chain is for. It
+        # reads the chain in force rather than the one .env described at boot,
+        # since the model can be changed from the interface.
+        from . import llm as llm_mod
+
+        return any(provider_ready(p) for p, _ in llm_mod.active_chain())
     return provider_ready(settings.llm_provider)
 
 

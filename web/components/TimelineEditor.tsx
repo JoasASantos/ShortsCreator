@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  api, type Timeline, type TimelineCue, type TimelineMedia,
+  api, FORMAT_ASPECT, type Timeline, type TimelineCue, type TimelineMedia,
   type TimelineVideoClip,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
@@ -431,7 +431,10 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
           ) : null}
         </div>
         <div className="panel-body row wrap" style={{ gap: 16, alignItems: "flex-start" }}>
-          <div className="tl-monitor">
+          <div className="tl-monitor"
+               data-landscape={timeline.format === "horizontal"}
+               style={{ "--frame-aspect":
+                 FORMAT_ASPECT[timeline.format ?? "vertical"] } as React.CSSProperties}>
             <video
               ref={videoRef}
               src={`/api/jobs/${jobId}/file/short.mp4?v=${version}`}
@@ -733,7 +736,8 @@ export function TimelineEditor({ jobId, version, onRendered, toast }: {
                 }}
                 style={{
                   position: "relative", width: "100%", maxWidth: 132,
-                  aspectRatio: "9/16", borderRadius: "var(--r)",
+                  aspectRatio: FORMAT_ASPECT[timeline.format ?? "vertical"],
+                  borderRadius: "var(--r)",
                   border: "1px solid var(--line)", overflow: "hidden",
                   background: "#000", cursor: "crosshair", touchAction: "none",
                 }}

@@ -32,8 +32,10 @@ def test_chain_uses_the_first_link_that_answers(monkeypatch):
 
     monkeypatch.setattr(llm, "_dispatch_raw", fake)
     monkeypatch.setattr(llm.settings, "llm_provider", "chain")
-    monkeypatch.setattr(llm.settings, "llm_chain",
-                        [("claude_cli", "claude-fable-5-1"), ("codex_cli", "gpt-5.6-sol")])
+    monkeypatch.setattr(llm, "active_chain",
+                        lambda: [("claude_cli", "claude-fable-5-1"),
+                                 ("codex_cli", "gpt-5.6-sol")])
+    monkeypatch.setattr(llm, "_unavailable_reason", lambda p, m: "")
 
     assert llm.complete_json("s", "p") == {"ok": "claude_cli"}
     assert called == [("claude_cli", "claude-fable-5-1")], "it should not have tried the second link"
@@ -50,10 +52,11 @@ def test_chain_falls_through_to_the_next_link_when_the_first_fails(monkeypatch):
 
     monkeypatch.setattr(llm, "_dispatch_raw", fake)
     monkeypatch.setattr(llm.settings, "llm_provider", "chain")
-    monkeypatch.setattr(llm.settings, "llm_chain",
-                        [("claude_cli", "claude-fable-5-1"),
-                         ("claude_cli", "claude-opus-5"),
-                         ("codex_cli", "gpt-5.6-sol")])
+    monkeypatch.setattr(llm, "active_chain",
+                        lambda: [("claude_cli", "claude-fable-5-1"),
+                                 ("claude_cli", "claude-opus-5"),
+                                 ("codex_cli", "gpt-5.6-sol")])
+    monkeypatch.setattr(llm, "_unavailable_reason", lambda p, m: "")
 
     assert llm.complete_json("s", "p") == {"ok": "codex_cli"}
     assert called == ["claude_cli", "claude_cli", "codex_cli"]
@@ -65,7 +68,8 @@ def test_chain_with_every_link_failing_reports_the_last_error(monkeypatch):
 
     monkeypatch.setattr(llm, "_dispatch_raw", fake)
     monkeypatch.setattr(llm.settings, "llm_provider", "chain")
-    monkeypatch.setattr(llm.settings, "llm_chain", [("a", ""), ("b", "")])
+    monkeypatch.setattr(llm, "active_chain", lambda: [("a", ""), ("b", "")])
+    monkeypatch.setattr(llm, "_unavailable_reason", lambda p, m: "")
 
     with pytest.raises(llm.LLMError, match="died at b"):
         llm.complete_json("s", "p")
@@ -73,8 +77,8 @@ def test_chain_with_every_link_failing_reports_the_last_error(monkeypatch):
 
 def test_an_empty_chain_is_a_configuration_error(monkeypatch):
     monkeypatch.setattr(llm.settings, "llm_provider", "chain")
-    monkeypatch.setattr(llm.settings, "llm_chain", [])
-    with pytest.raises(llm.LLMError, match="LLM_CHAIN"):
+    monkeypatch.setattr(llm, "active_chain", lambda: [])
+    with pytest.raises(llm.LLMError, match="LLM_MODEL"):
         llm.complete_json("s", "p")
 
 
@@ -95,8 +99,10 @@ def test_telemetry_records_both_success_and_failure(monkeypatch):
 
     monkeypatch.setattr(llm, "_dispatch_raw", fake)
     monkeypatch.setattr(llm.settings, "llm_provider", "chain")
-    monkeypatch.setattr(llm.settings, "llm_chain",
-                        [("claude_cli", "claude-fable-5-1"), ("codex_cli", "gpt-5.6-sol")])
+    monkeypatch.setattr(llm, "active_chain",
+                        lambda: [("claude_cli", "claude-fable-5-1"),
+                                 ("codex_cli", "gpt-5.6-sol")])
+    monkeypatch.setattr(llm, "_unavailable_reason", lambda p, m: "")
 
     llm.current_job.set("job_teste")
     llm.complete_json("s", "p", purpose="roteiro")

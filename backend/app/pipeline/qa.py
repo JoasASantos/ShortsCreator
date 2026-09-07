@@ -103,7 +103,15 @@ def _faststart(video: Path) -> bool:
     return mdat == -1 or moov < mdat
 
 
-def _ass_safe_area(ass_path: Path) -> list[QAIssue]:
+def _ass_safe_area(ass_path: Path, fmt=None) -> list[QAIssue]:
+    from . import formats
+
+    fmt = fmt or formats.VERTICAL
+    safe_bottom = fmt.safe_bottom
+    # "Small" depends on the frame: 54px is unreadable on a phone and the
+    # normal size for subtitles on a 16:9 screen.
+    small_font = 54 if not fmt.landscape else 30
+
     issues: list[QAIssue] = []
     if not ass_path.exists():
         issues.append(QAIssue(check="legenda_arquivo", severity="erro",
@@ -121,21 +129,21 @@ def _ass_safe_area(ass_path: Path) -> list[QAIssue]:
             margin_l, margin_r, margin_v = (float(fields[i]) for i in (19, 20, 21))
         except (IndexError, ValueError):
             break
-        if margin_v < SAFE_BOTTOM * 0.6:
+        if margin_v < safe_bottom * 0.6:
             issues.append(QAIssue(
                 check="safe_area_inferior", severity="erro",
                 message=f"MarginV={margin_v:.0f}px: the subtitle reaches into the app UI area.",
-                fix=f"Use MarginV >= {SAFE_BOTTOM}px or caption_position='centro'."))
+                fix=f"Use MarginV >= {safe_bottom}px or caption_position='centro'."))
         if min(margin_l, margin_r) < 60:
             issues.append(QAIssue(
                 check="safe_area_lateral", severity="aviso",
                 message="Side margin under 60px; risk of clipping at the edges.",
                 fix="Raise MarginL/MarginR to at least 90px."))
-        if font_size < 54:
+        if font_size < small_font:
             issues.append(QAIssue(
                 check="tamanho_fonte", severity="aviso",
-                message=f"A {font_size:.0f}px font is small for a vertical phone screen.",
-                fix="Use a font >= 72px."))
+                message=f"A {font_size:.0f}px font is small for this frame.",
+                fix=f"Use a font >= {fmt.caption_font_size}px."))
         break
 
     dialogues = [l for l in text.splitlines() if l.startswith("Dialogue:")]
@@ -159,8 +167,14 @@ def _union_seconds(spans: list[tuple[float, float]]) -> float:
     return total
 
 
-def _overlay_safe_area(manifest: Path, duration: float) -> tuple[list[QAIssue], dict]:
+def _overlay_safe_area(manifest: Path, duration: float,
+                       fmt=None) -> tuple[list[QAIssue], dict]:
     """Check the overlays actually burned into the video."""
+    from . import formats
+
+    fmt = fmt or formats.VERTICAL
+    frame_h, safe_bottom = fmt.height, fmt.safe_bottom
+
     issues: list[QAIssue] = []
     entries = json.loads(manifest.read_text(encoding="utf-8"))
     if not entries:
@@ -179,11 +193,11 @@ def _overlay_safe_area(manifest: Path, duration: float) -> tuple[list[QAIssue], 
     covered = _union_seconds(
         [(e["start"], min(e["end"], duration)) for e in captions_only])
 
-    if lowest > TARGET_H - SAFE_BOTTOM:
+    if lowest > frame_h - safe_bottom:
         issues.append(QAIssue(
             check="safe_area_inferior", severity="erro",
-            message=f"Subtitle starts at y={lowest}px, inside the {SAFE_BOTTOM}px "
-                    "reserved for the TikTok/Shorts UI.",
+            message=f"Subtitle starts at y={lowest}px, inside the {safe_bottom}px "
+                    "reserved for the platform UI.",
             fix="Use caption_position='centro'."))
     if leftmost < 60:
         issues.append(QAIssue(
@@ -209,7 +223,25 @@ def _overlay_safe_area(manifest: Path, duration: float) -> tuple[list[QAIssue], 
 
 
 def audit(video: Path, ass_path: Path | None = None,
-          expected_duration: float | None = None) -> QAReport:
+          expected_duration: float | None = None,
+          fmt=None) -> QAReport:
+    """Judge the finished file.
+
+    `fmt` is the frame it was meant to be — the vertical short unless told
+    otherwise. It sets the expected resolution and the duration window: a
+    documentary is 16:9 and half an hour long, and both of those are exactly
+    what the short's audit would fail it for.
+    """
+    from . import formats
+
+    # `frame`, not `fmt`: further down `fmt` is ffprobe's container section,
+    # and the two colliding is how an aspect-ratio failure raised
+    # AttributeError instead of reporting.
+    frame = fmt or formats.VERTICAL
+    target_w, target_h, target_ratio = frame.width, frame.height, frame.ratio
+    min_seconds = frame.min_seconds
+    max_seconds = frame.max_seconds
+
     issues: list[QAIssue] = []
     metrics: dict = {}
 
@@ -244,35 +276,37 @@ def audit(video: Path, ass_path: Path | None = None,
         "sar": vs.get("sample_aspect_ratio", "1:1"),
     })
 
-    # --- 1. 9:16 aspect ratio ---
-    if (width, height) != (TARGET_W, TARGET_H):
-        severity = "erro" if abs(ratio - TARGET_RATIO) < 0.01 else "fatal"
+    # --- 1. aspect ratio — whatever the format says it should be ---
+    if (width, height) != (target_w, target_h):
+        severity = "erro" if abs(ratio - target_ratio) < 0.01 else "fatal"
         issues.append(QAIssue(
             check="resolucao", severity=severity,
-            message=f"Resolution {width}x{height}; the target is {TARGET_W}x{TARGET_H}.",
-            fix=f"Render with -s {TARGET_W}x{TARGET_H}."))
-    if abs(ratio - TARGET_RATIO) > 0.005:
+            message=f"Resolution {width}x{height}; the target is {target_w}x{target_h}.",
+            fix=f"Render with -s {target_w}x{target_h}."))
+    if abs(ratio - target_ratio) > 0.005:
         issues.append(QAIssue(
             check="proporcao", severity="fatal",
-            message=f"Aspect ratio {ratio:.3f} is not 9:16 ({TARGET_RATIO:.3f}). "
+            message=f"Aspect ratio {ratio:.3f} is not {frame.aspect} ({target_ratio:.3f}). "
                     "Platforms will add bars.",
-            fix="Recompose the background with crop/pad to 1080x1920."))
+            fix=f"Recompose the background with crop/pad to {frame.size}."))
     if vs.get("sample_aspect_ratio", "1:1") not in ("1:1", "0:1", None):
         issues.append(QAIssue(
             check="sar", severity="erro",
             message=f"SAR {vs.get('sample_aspect_ratio')} distorts the picture.",
             fix="Add setsar=1 to the video filter."))
 
-    # --- 2. duration ---
-    if duration < settings.min_short_seconds:
+    # --- 2. duration — the window belongs to the format ---
+    if duration < min_seconds:
         issues.append(QAIssue(
             check="duracao_minima", severity="erro",
-            message=f"{duration:.1f}s is below the useful minimum of {settings.min_short_seconds}s.",
+            message=f"{duration:.1f}s is below the useful minimum of {min_seconds}s.",
             fix="Lengthen the script or slow the narration down."))
-    if duration > settings.max_short_seconds:
+    # A short has a ceiling because the feeds cut it off; a documentary has
+    # none, only a target — so a format may leave the ceiling unset.
+    if max_seconds is not None and duration > max_seconds:
         issues.append(QAIssue(
             check="duracao_maxima", severity="erro",
-            message=f"{duration:.1f}s is above the {settings.max_short_seconds}s limit "
+            message=f"{duration:.1f}s is above the {max_seconds}s limit "
                     "(Shorts cuts off past 180s; TikTok switches feeds).",
             fix="Shorten the script."))
     if expected_duration and abs(duration - expected_duration) > 1.5:
@@ -389,10 +423,10 @@ def audit(video: Path, ass_path: Path | None = None,
 
     # --- 6. subtitles / safe area ---
     if ass_path:
-        issues.extend(_ass_safe_area(Path(ass_path)))
+        issues.extend(_ass_safe_area(Path(ass_path), frame))
     manifest = video.parent / "overlays.json"
     if manifest.exists():
-        overlay_issues, overlay_metrics = _overlay_safe_area(manifest, duration)
+        overlay_issues, overlay_metrics = _overlay_safe_area(manifest, duration, frame)
         issues.extend(overlay_issues)
         metrics.update(overlay_metrics)
 
@@ -449,10 +483,23 @@ def suggest_fix(report: QAReport, job: JobInput) -> tuple[str, JobInput, str] | 
         return (f"audio outside the loudness range — lowering the music to {updated.music_volume}",
                 updated, "render")
 
-    if "barras_pretas" in codes and updated.background != "gradiente":
-        updated.background = "gradiente"
-        return ("background has black bars — switching to a solid gradient",
-                updated, "fundo")
+    if "barras_pretas" in codes:
+        # Re-frame before giving up on the footage. Zooming until the frame is
+        # covered cannot leave a bar, and it keeps the video the user asked
+        # for; replacing it with a gradient passes the audit by throwing the
+        # content away, which is not a fix.
+        if updated.background_fill != "preencher":
+            updated.background_fill = "preencher"
+            return ("background still has black bars — reframing to fill the "
+                    "frame instead of fitting inside it", updated, "fundo")
+        # Filling did not help, so the bars are not a framing problem: the
+        # source itself is mostly black. Only now is the gradient the better
+        # picture, and the log says the footage was dropped.
+        if updated.background != "gradiente":
+            updated.background = "gradiente"
+            return ("reframing did not clear the black bars — the source is "
+                    "too dark to use; falling back to a gradient",
+                    updated, "fundo")
 
     return None
 

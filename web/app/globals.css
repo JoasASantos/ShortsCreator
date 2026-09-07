@@ -550,10 +550,16 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 .phone {
   position: relative;
   width: min(320px, 78vw);
-  aspect-ratio: 9 / 16;
+  /* The frame follows the file. A documentary is 16:9, and showing it inside
+     a phone outline would be showing the wrong product. */
+  aspect-ratio: var(--frame-aspect, 9 / 16);
   border-radius: 14px;
   overflow: hidden;
   background: #000;
+}
+.phone[data-landscape="true"] {
+  width: min(640px, 92vw);
+  border-radius: 8px;
   border: 1px solid #2a3036;
   box-shadow: var(--shadow), 0 0 0 6px #0c0e10;
 }
@@ -1133,11 +1139,16 @@ hr.rule { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0; }
 .tl-monitor {
   width: 168px;
   flex-shrink: 0;
-  aspect-ratio: 9 / 16;
+  aspect-ratio: var(--frame-aspect, 9 / 16);
   border-radius: 8px;
   overflow: hidden;
   background: #000;
   border: 1px solid #2a3036;
+}
+/* A 168px-wide 16:9 monitor is 94px tall — unreadable. Landscape gets the
+   same area as the phone, laid the other way. */
+.tl-monitor[data-landscape="true"] {
+  width: min(320px, 100%);
   box-shadow: 0 12px 28px -18px rgba(0, 0, 0, 0.9);
 }
 

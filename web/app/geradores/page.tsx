@@ -8,6 +8,7 @@ import {
   type GeneratorState, type GeneratorsReport,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { ModelPicker } from "@/components/ModelPicker";
 import { Topbar, useToast } from "@/components/ui";
 
 // Same order the registry declares them in, so the screen names capabilities
@@ -93,6 +94,11 @@ export default function Generators() {
             </p>
           </div>
         </section>
+
+        {/* The language model is a generator too — the one that writes what the
+            others illustrate — and it answers on its own endpoint, so it keeps
+            its own panel above them and its own failure state. */}
+        <ModelPicker toast={toast} />
 
         {failure ? (
           <div className="issue" data-sev="fatal"

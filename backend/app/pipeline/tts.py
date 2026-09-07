@@ -157,7 +157,10 @@ def _edge(text: str, out_path: Path, voice: dict, log) -> Narration:
     import edge_tts
 
     voice_name = voice.get("provider_voice_id") or settings.edge_voice
-    rate = voice.get("rate", "+0%")
+    # A voice registered with its own rate keeps it; everything else follows
+    # the house pace, which is slightly under the provider's default so the
+    # narration lands instead of running.
+    rate = voice.get("rate") or settings.narration_rate
     pitch = voice.get("pitch", "+0Hz")
     log(f"edge-tts voice={voice_name} rate={rate} pitch={pitch}")
 

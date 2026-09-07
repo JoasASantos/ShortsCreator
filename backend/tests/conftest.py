@@ -37,7 +37,7 @@ def fresh_db():
     with db.connect() as conn:
         for table in ("jobs", "job_events", "voices", "accounts", "clip_plans",
                       "connector_credentials", "schedules", "llm_calls", "metrics",
-                      "films"):
+                      "films", "longform_projects"):
             conn.execute(f"DELETE FROM {table}")
     yield
 

@@ -170,6 +170,7 @@ export default function JobPage({ params }: { params: Promise<{ id: string }> })
                 <PhonePreview
                   src={`/api/jobs/${id}/file/short.mp4?v=${job.updated_at}`}
                   poster={`/api/jobs/${id}/file/thumb.jpg?v=${job.updated_at}`}
+                  format={job.result.format}
                 />
                 <div className="row wrap" style={{ gap: 10 }}>
                   {segments ? (

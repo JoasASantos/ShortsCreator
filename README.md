@@ -155,19 +155,80 @@ and its verdict rides along in `GET /api/health`.
 ### Language model
 
 The cheapest path uses a subscription you already pay for instead of a
-per-token key — the backend calls the local CLI that is already signed in. The
-default is a chain: Fable as primary, Opus 5 as fallback and Codex as the last
-resort.
+per-token key — the backend calls the local CLI that is already signed in.
+
+Choosing a model is one name:
 
 ```env
-LLM_PROVIDER=chain
-LLM_CHAIN=claude_cli:claude-fable-5-1,claude_cli:claude-opus-5,codex_cli:gpt-5.6-sol
+LLM_MODEL=astra
 ```
 
-Each link is `provider:model`, and the backend only moves to the next one when
-the previous fails (subscription limit, CLI missing from PATH, invalid answer).
-The first two use Claude Pro/Max through Claude Code; the third uses ChatGPT
-Plus/Pro through `codex login`.
+| name | model | subscription |
+|---|---|---|
+| `astra` | GPT-6 Astra via Codex | ChatGPT Plus/Pro |
+| `sol` | GPT-5.6 Sol via Codex | ChatGPT Plus/Pro |
+| `fable` | Claude Fable 5.1 | Claude Pro/Max |
+| `opus` | Claude Opus 5 | Claude Pro/Max |
+| `sonnet` | Claude Sonnet 5 | Claude Pro/Max |
+| `web` | ChatGPT Web via [codex-chatgpt-web](https://github.com/miuuyy/codex-chatgpt-web) | ChatGPT |
+
+The fallback chain is derived from that name: the chosen model goes first and
+every other one lines up behind it, alternating between the two subscriptions —
+a quota runs out per account, so the link after a spent one should be on the
+other. Choosing a model therefore never leaves you with a single point of
+failure, and there is no configuration where the chain is one link long.
+
+The backend moves to the next link when one fails (quota spent, CLI missing,
+model not enrolled, invalid answer) and **says so in the job log**. A short
+written by the fallback rather than by the model you picked is worth knowing
+about.
+
+It also asks the CLI which models it has before sending one, so a model your
+account is not enrolled in is skipped with a reason instead of being quietly
+swapped for the CLI's default (`LLM_VERIFY_MODEL=0` turns that off).
+
+The model can also be changed from **Geradores** in the interface, without a
+restart — that choice wins over `.env`. `GET /api/models` reports the whole
+chain and why each link can or cannot be used.
+
+#### GPT-6 Astra
+
+Astra is a staged rollout. Install and sign in to Codex, then check whether
+your account is enrolled:
+
+```bash
+npm install -g @openai/codex && codex login
+codex models          # gpt-6-astra appears here once you have access
+```
+
+If it is not listed, ShortsCreator skips it with that reason and falls to the
+next model — nothing breaks, and `POST /api/models/refresh` re-reads the
+listing once access arrives, without a restart.
+
+#### ChatGPT Web through Codex
+
+[codex-chatgpt-web](https://github.com/miuuyy/codex-chatgpt-web) is an
+unofficial launcher that registers ChatGPT Web models inside Codex's own model
+picker. Because it works through the same `codex` binary, ShortsCreator needs
+no extra provider for it — only the model id the launcher installed:
+
+```bash
+curl -fsSL https://github.com/miuuyy/codex-chatgpt-web/releases/latest/download/install-launcher.sh | sh
+# sign in inside the launcher, run its smoke test, press "Install models",
+# then restart Codex and check the name it registered:
+codex models
+```
+
+```env
+LLM_MODEL=web
+CODEX_WEB_MODEL=chatgpt-web   # whatever `codex models` shows
+```
+
+To pin an explicit chain and bypass all of the above, `LLM_CHAIN` still wins:
+
+```env
+LLM_CHAIN=claude_cli:claude-fable-5-1,codex_cli:gpt-5.6-sol
+```
 
 To pin a single model, use the provider directly:
 
