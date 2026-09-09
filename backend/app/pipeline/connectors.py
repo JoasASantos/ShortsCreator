@@ -84,6 +84,12 @@ def _check_gemini(creds: dict) -> str:
     return nanobanana.verify(creds)
 
 
+def _check_openai_images(creds: dict) -> str:
+    from .generators import gptimage
+
+    return gptimage.verify(creds)
+
+
 def _check_comfyui(creds: dict) -> str:
     """A local generator's test is reachability: a URL that is merely written
     down proves nothing about a server that is not running."""
@@ -229,6 +235,17 @@ CATALOG: list[Connector] = [
         docs="https://ai.google.dev/gemini-api/docs/image-generation",
         fields=[Field("api_key", "API key", "GEMINI_API_KEY")],
         check=_check_gemini,
+    ),
+    Connector(
+        id="openai_images", name="GPT Image 2.5 (OpenAI)", category="video",
+        auth="api_key",
+        detail="O modelo de imagem da OpenAI (gpt-image-2.5-sunburst e "
+               "gpt-image-2.5-flare). Gera e edita imagens para capas, fundos "
+               "Ken Burns e cenas de documentário, em 9:16 ou 16:9 exatos.",
+        requirement="OPENAI_API_KEY — chave em platform.openai.com",
+        docs="https://developers.openai.com/api/docs/guides/image-generation",
+        fields=[Field("api_key", "API key", "OPENAI_API_KEY")],
+        check=_check_openai_images,
     ),
     Connector(
         id="comfyui", name="ComfyUI (local)", category="video", auth="api_key",

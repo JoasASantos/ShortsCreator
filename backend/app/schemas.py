@@ -44,7 +44,7 @@ WatermarkSize = Literal["pequeno", "medio", "grande"]
 
 BackgroundMode = Literal[
     "auto", "broll", "gradiente", "video_fonte", "imagem_kenburns",
-    "codigo_scroll", "ia_video", "upload",
+    "codigo_scroll", "ia_video", "ia_imagem", "upload",
 ]
 
 

@@ -202,6 +202,10 @@ class Settings:
         # reason shows up in the job log either way.
         self.videogen_provider = os.getenv("VIDEOGEN_PROVIDER", "")
         self.videogen_model = os.getenv("VIDEOGEN_MODEL", "")
+        # Same contract for the still generators (GPT Image 2.5, Nano Banana,
+        # ComfyUI, A1111): empty means the registry chooses.
+        self.imagegen_provider = os.getenv("IMAGEGEN_PROVIDER", "")
+        self.imagegen_model = os.getenv("IMAGEGEN_MODEL", "")
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
         self.comfyui_url = os.getenv("COMFYUI_URL", "http://127.0.0.1:8188")
         self.comfyui_workflow = os.getenv(

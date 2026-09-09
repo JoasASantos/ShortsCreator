@@ -284,6 +284,7 @@ export const en: Dictionary = {
     codigo_scroll: "Scrolling code",
     gradiente: "Gradient",
     ia_video: "AI video",
+    ia_imagem: "AI images",
     upload: "Uploaded",
   },
 

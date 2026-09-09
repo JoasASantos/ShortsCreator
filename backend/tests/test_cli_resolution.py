@@ -16,6 +16,24 @@ from app.pipeline import doctor, llm
 
 
 @pytest.fixture(autouse=True)
+def _no_system_installs(monkeypatch, tmp_path):
+    """Sandboxing HOME is not enough.
+
+    Two of the fallbacks are absolute — /opt/homebrew/bin and /usr/local/bin —
+    and they are real directories on the machine running the tests. On this one
+    /usr/local/bin/codex is a symlink to the working install, so the tests
+    asserting "nothing anywhere" found the developer's own binary and failed.
+    Rerooting only the absolute patterns keeps the list's shape and its search
+    order, and leaves the ~-relative ones pointing at the sandboxed HOME the
+    individual tests set up.
+    """
+    rerooted = [pattern if pattern.startswith("~")
+                else str(tmp_path / "system" / pattern.lstrip("/"))
+                for pattern in llm._CLI_FALLBACKS]  # noqa: SLF001
+    monkeypatch.setattr(llm, "_CLI_FALLBACKS", rerooted)
+
+
+@pytest.fixture(autouse=True)
 def _clear_caches():
     llm._BINARY_CACHE.clear()   # noqa: SLF001
     llm._MODEL_CACHE.clear()    # noqa: SLF001
