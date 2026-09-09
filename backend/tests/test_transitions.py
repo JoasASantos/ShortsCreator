@@ -176,3 +176,73 @@ def test_a_still_too_short_to_move_is_still_rendered(tmp_path):
     track = timeline_render._build_video_track(tmp_path, timeline, lambda *a: None)  # noqa: SLF001
     assert _duration(track) == pytest.approx(0.8, abs=0.15)
     assert _pixel(track, 0.4)[2] > 100
+
+
+@needs_ffmpeg
+def test_a_chain_that_mixes_cuts_and_dissolves_renders(tmp_path):
+    """Regression, and it cost a seven-minute render: concat hands on a
+    1/1000000 timebase and xfade hands on 1/15360, so the first dissolve after
+    a hard cut died with "First input link main timebase do not match the
+    corresponding second input link". Two clips never showed it — the chain
+    has to mix the two filters for the mismatch to exist."""
+    sources = {name: _solid(tmp_path / f"{name}.mp4", colour, 6.0)
+               for name, colour in (("a", "red"), ("b", "green"),
+                                    ("c", "blue"), ("d", "yellow"),
+                                    ("e", "white"))}
+    clips = [
+        _clip(sources["a"].name, 0.0, 4.0),                  # dissolve into b
+        _clip(sources["b"].name, 4.0, 4.0),                  # hard cut: quote
+        _clip(sources["c"].name, 8.0, 4.0, mute=False),      # the quote
+        _clip(sources["d"].name, 12.0, 4.0),                 # dissolve into e
+        _clip(sources["e"].name, 16.0, 4.0),
+    ]
+    timeline = _timeline(clips)
+    assert timeline_render._crossfades(timeline) == {0, 3}  # noqa: SLF001
+
+    track = timeline_render._build_video_track(tmp_path, timeline, lambda *a: None)  # noqa: SLF001
+
+    assert _duration(track) == pytest.approx(20.0, abs=0.2)
+    # and every shot is still in its slot after two dissolves and two cuts
+    assert _pixel(track, 1.0)[0] > 150, "red at 1s"
+    assert _pixel(track, 10.0)[2] > 100, "the quote at 10s"
+    assert min(_pixel(track, 18.0)) > 150, "white at 18s"
+
+
+# ------------------------ a part that cannot be read back -------------------
+
+@needs_ffmpeg
+def test_a_truncated_part_is_rendered_again_instead_of_failing_the_join(tmp_path,
+                                                                       monkeypatch):
+    """An MP4's moov atom is written last, so an interrupted write leaves a file
+    that exists, has a plausible size, and cannot be opened. ffmpeg then failed
+    at the join, after every other part was rendered, naming one file out of
+    forty — it cost two renders of the same seven-minute film."""
+    source = _solid(tmp_path / "red.mp4", "red", 4.0)
+    timeline = _timeline([_clip(source.name, 0.0, 2.0)])
+    real_run = timeline_render.render._run
+    calls = {"n": 0}
+
+    def truncate_the_first(cmd, **kwargs):
+        calls["n"] += 1
+        real_run(cmd, **kwargs)
+        if calls["n"] == 1:
+            # what an interrupted write leaves behind
+            Path(cmd[-1]).write_bytes(b"\x00" * 40_000)
+
+    monkeypatch.setattr(timeline_render.render, "_run", truncate_the_first)
+    track = timeline_render._build_video_track(tmp_path, timeline, lambda *a: None)  # noqa: SLF001
+
+    assert calls["n"] >= 2, "the bad part was rendered again"
+    assert _duration(track) == pytest.approx(2.0, abs=0.15)
+
+
+@needs_ffmpeg
+def test_a_part_that_never_comes_out_readable_names_itself(tmp_path, monkeypatch):
+    source = _solid(tmp_path / "red.mp4", "red", 4.0)
+    timeline = _timeline([_clip(source.name, 0.0, 2.0)])
+
+    monkeypatch.setattr(timeline_render.render, "_run",
+                        lambda cmd, **k: Path(cmd[-1]).write_bytes(b"\x00" * 40_000))
+
+    with pytest.raises(RuntimeError, match="part_000.mp4"):
+        timeline_render._build_video_track(tmp_path, timeline, lambda *a: None)  # noqa: SLF001

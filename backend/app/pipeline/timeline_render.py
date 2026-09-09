@@ -131,20 +131,21 @@ def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
                 still = (f"scale={W}:{H}:force_original_aspect_ratio=increase,"
                          f"crop={W}:{H},scale=in_range=full:out_range=tv,"
                          f"setsar=1,fps={FPS},format=yuv420p")
-            render._run([
+            cmd = [
                 "ffmpeg", "-y", "-loop", "1", "-i", str(source),
                 "-t", f"{rendered:.3f}", "-vf", still,
                 "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast",
-                "-crf", "21", "-pix_fmt", "yuv420p", "-color_range", "tv", str(dest)])
+                "-crf", "21", "-pix_fmt", "yuv420p", "-color_range", "tv", str(dest)]
         else:
             # -stream_loop covers the case where the user stretched the clip
             # beyond the material available in the source file
-            render._run([
+            cmd = [
                 "ffmpeg", "-y", "-stream_loop", "-1",
                 "-ss", f"{clip.in_point:.3f}", "-i", str(source),
                 "-t", f"{rendered:.3f}", "-an", "-vf", render.fit_filter(fmt),
                 "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast",
-                "-crf", "21", "-pix_fmt", "yuv420p", str(dest)])
+                "-crf", "21", "-pix_fmt", "yuv420p", str(dest)]
+        _render_part(cmd, dest, rendered, log)
         parts.append((dest, rendered, dissolves))
         cursor += length
 
@@ -169,6 +170,28 @@ def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
     return background
 
 
+def _render_part(cmd: list[str], dest: Path, expected: float, log) -> Path:
+    """Render one part and prove it can be read back.
+
+    An MP4's moov atom is written last, so a write that was interrupted leaves
+    a file that exists, has a plausible size, and cannot be opened. ffmpeg then
+    fails at the *join* — after every other part was rendered — with "moov atom
+    not found" naming one file out of forty. That cost two renders of the same
+    seven-minute film, so the part is verified where it is written, and one bad
+    part costs one part instead of the whole film.
+    """
+    for attempt in (1, 2):
+        render._run(cmd)  # noqa: SLF001 — the project's one ffmpeg runner
+        if dest.exists() and abs((render.probe_duration(dest) or 0.0) - expected) < 0.5:
+            return dest
+        if attempt == 1:
+            log(f"{dest.name} came out unreadable or the wrong length; "
+                f"rendering it again", "warn")
+    raise RuntimeError(
+        f"{dest.name} was written twice and cannot be read back (expected "
+        f"{expected:.1f}s of video). Something is interrupting the render.")
+
+
 def _join_with_dissolves(work: Path, parts: list[tuple[Path, float, bool]],
                          duration: float) -> Path:
     """One filter pass: xfade where a shot dissolves, concat where it cuts.
@@ -184,7 +207,13 @@ def _join_with_dissolves(work: Path, parts: list[tuple[Path, float, bool]],
     for path, _, _ in parts:
         cmd += ["-i", path.name]
 
-    steps = [f"[{index}:v]setpts=PTS-STARTPTS[v{index}]"
+    # `settb=AVTB` on every input and after every step, because concat and
+    # xfade disagree about time: concat hands on 1/1000000 and xfade hands on
+    # 1/15360, so the first xfade after a concat dies with "First input link
+    # main timebase do not match the corresponding second input link". It is a
+    # hard failure at the end of a seven-minute render, and it only appears
+    # once a chain mixes the two.
+    steps = [f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS[v{index}]"
              for index in range(len(parts))]
     current = "v0"
     accumulated = parts[0][1]
@@ -193,10 +222,12 @@ def _join_with_dissolves(work: Path, parts: list[tuple[Path, float, bool]],
         if parts[index - 1][2]:
             offset = max(accumulated - TRANSITION, 0.0)
             steps.append(f"[{current}][v{index}]xfade=transition=fade"
-                         f":duration={TRANSITION:.3f}:offset={offset:.3f}[{label}]")
+                         f":duration={TRANSITION:.3f}:offset={offset:.3f},"
+                         f"settb=AVTB[{label}]")
             accumulated = offset + parts[index][1]
         else:
-            steps.append(f"[{current}][v{index}]concat=n=2:v=1:a=0[{label}]")
+            steps.append(f"[{current}][v{index}]concat=n=2:v=1:a=0,"
+                         f"settb=AVTB[{label}]")
             accumulated += parts[index][1]
         current = label
 
