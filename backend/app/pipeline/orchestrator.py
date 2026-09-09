@@ -12,9 +12,14 @@ from pathlib import Path
 from .. import db
 from ..config import settings
 from ..schemas import JobInput, ShortScript
-from . import (avatar, broll, captions, cover as cover_mod, highlights, ingest, llm,
-               notify, overlays as overlay_mod, qa, reels, render,
-               script as script_mod, timeline as timeline_mod, tts)
+from . import (avatar, broll, captions, cover as cover_mod, highlights,
+               imagegen, ingest, llm, notify, overlays as overlay_mod, qa,
+               reels, render, script as script_mod, timeline as timeline_mod,
+               tts)
+
+# A 90 s short with one image every ~6 s wants 15; a cap keeps a long script
+# from turning one render into forty paid image calls.
+MAX_SCENE_IMAGES = 12
 
 STAGES = [
     ("ingest", 0.08),
@@ -460,6 +465,52 @@ def _shift_words(words: list[dict], offset: float) -> list[dict]:
              "end": round(max(w["end"] + offset, 0.0), 3)} for w in words]
 
 
+def _scene_prompts(job: JobInput, short, wanted: int) -> list[str]:
+    """One drawing brief per scene.
+
+    The script already carries a visual intent per segment — `broll_query` is
+    what the writer would have searched a stock bank for — so it is reused
+    rather than invented. The style suffix is what keeps eight separate API
+    calls looking like one video instead of eight unrelated pictures.
+    """
+    style = ("fotografia cinematográfica, iluminação natural, profundidade de "
+             "campo rasa, sem texto, sem marca d'água, enquadramento vertical")
+    queries = [job.background_query] if job.background_query else [
+        s.broll_query for s in short.segments if s.broll_query]
+    if not queries:
+        queries = [short.title]
+    out: list[str] = []
+    for index in range(max(1, min(wanted, MAX_SCENE_IMAGES))):
+        subject = queries[index % len(queries)]
+        out.append(f"{subject}. {style}.")
+    return out
+
+
+def _generate_scene_images(job: JobInput, short, wanted: int, job_dir: Path,
+                           log) -> list[Path]:
+    """The stills for the 'ia_imagem' background, best effort.
+
+    Each image is a paid call, so a file already on disk is kept — a retried
+    job does not buy the same picture twice. A failure stops the loop instead
+    of walking the whole list: whatever refused the first prompt (no credit, a
+    revoked key) will refuse the next eight too, and the images already made
+    are enough to cycle over.
+    """
+    images: list[Path] = []
+    for index, prompt in enumerate(_scene_prompts(job, short, wanted)):
+        dest = job_dir / f"ia_img_{index:02d}.png"
+        if dest.exists() and dest.stat().st_size > 0:
+            images.append(dest)
+            continue
+        try:
+            images.append(imagegen.generate_image(prompt, dest, aspect="9:16",
+                                                  log=log))
+        except Exception as exc:  # noqa: BLE001 — the background has fallbacks
+            log(f"Scene image {index + 1} was not generated ({exc})", "warn")
+            break
+    return images
+
+
 def _build_background(job: JobInput, short, narration, material, job_dir: Path,
                       duration: float, log) -> Path:
     out = job_dir / "background.mp4"
@@ -472,6 +523,13 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
             mode = "video_fonte"
         elif broll.providers_ready():
             mode = "broll"
+        elif imagegen.providers_ready():
+            # Ahead of the gradient and behind real footage: a drawn scene is
+            # not the thing being talked about, but it is a picture rather than
+            # a coloured rectangle.
+            mode = "ia_imagem"
+            log("No footage for the background: no stock bank is configured, so "
+                "the scenes will be generated as images.", "warn")
         else:
             mode = "gradiente"
             # The gradient is what is left when there is nothing to show, and
@@ -557,6 +615,27 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
         from . import videogen
         prompt = job.background_query or short.segments[0].broll_query or short.title
         videogen.generate_clip(prompt, duration, out, log=log)
+
+    elif mode == "ia_imagem":
+        durations = script_mod.segment_durations_covering(
+            short, narration.words, duration) or [duration]
+        images = _generate_scene_images(job, short, len(durations), job_dir, log)
+        if images:
+            cycled = [images[i % len(images)] for i in range(len(durations))]
+            log(f"Background: {len(images)} generated image(s) with Ken Burns")
+            render.background_from_images_kenburns(cycled, durations, out, job_dir)
+            applied_scroll = "nenhum"
+        elif job.background == "ia_imagem":
+            # Asked for generated stills and got none. Quietly drawing a
+            # gradient here is the same failure the source-video branch above
+            # used to have: a finished-looking short with none of what was
+            # asked for, and nothing saying why.
+            raise RuntimeError(
+                "The background was set to generated images, but no image "
+                "could be generated. " + imagegen.why_not())
+        else:
+            log("No image could be generated; falling back to a gradient", "warn")
+            render.background_gradient(duration, job.niche, out, scroll=job.scroll)
 
     else:
         log("Background: generated gradient")

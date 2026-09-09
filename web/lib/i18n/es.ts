@@ -284,6 +284,7 @@ export const es: Dictionary = {
     codigo_scroll: "Código en desplazamiento",
     gradiente: "Degradado",
     ia_video: "Vídeo por IA",
+    ia_imagem: "Imágenes por IA",
     upload: "Subido",
   },
 

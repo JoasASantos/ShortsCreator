@@ -9,8 +9,9 @@ import httpx
 import pytest
 
 from app.config import settings
-from app.pipeline import connectors, videogen
-from app.pipeline.generators import a1111, comfyui, nanobanana, registry
+from app.pipeline import connectors, imagegen, videogen
+from app.pipeline.generators import (a1111, comfyui, gptimage, nanobanana,
+                                     registry)
 
 COMFY_URL = "http://127.0.0.1:18188"
 A1111_URL = "http://127.0.0.1:17860"
@@ -20,13 +21,16 @@ A1111_URL = "http://127.0.0.1:17860"
 def no_ambient_config(monkeypatch):
     """A developer's own .env must not decide whether these pass."""
     for var in ("HIGGSFIELD_KEY_ID", "HIGGSFIELD_KEY_SECRET", "GEMINI_API_KEY",
-                "COMFYUI_URL", "COMFYUI_WORKFLOW", "A1111_URL",
-                "VIDEOGEN_PROVIDER", "VIDEOGEN_MODEL"):
+                "OPENAI_API_KEY", "COMFYUI_URL", "COMFYUI_WORKFLOW",
+                "A1111_URL", "VIDEOGEN_PROVIDER", "VIDEOGEN_MODEL",
+                "IMAGEGEN_PROVIDER", "IMAGEGEN_MODEL"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(settings, "comfyui_url", COMFY_URL)
     monkeypatch.setattr(settings, "a1111_url", A1111_URL)
     monkeypatch.setattr(settings, "videogen_provider", "")
     monkeypatch.setattr(settings, "videogen_model", "")
+    monkeypatch.setattr(settings, "imagegen_provider", "")
+    monkeypatch.setattr(settings, "imagegen_model", "")
     monkeypatch.setattr(settings, "generator_prefer_local", False)
 
 
@@ -90,6 +94,19 @@ def test_selection_skips_a_provider_that_cannot_do_the_capability(monkeypatch):
     assert plan["nanobanana"].state == registry.INCAPABLE
     assert plan["nanobanana"].reason == "does not do text_to_video"
     assert plan["a1111"].state == registry.INCAPABLE
+
+
+def test_a_provider_that_cannot_do_the_capability_never_leads_its_list(monkeypatch):
+    """The plan's first entry is read as "this is what will run". A still
+    generator with a high priority heading the text_to_video list would say
+    the video comes from an image model."""
+    _local_server_down(monkeypatch)
+    plan = registry.candidates(registry.TEXT_TO_VIDEO)
+
+    assert plan[0].state != registry.INCAPABLE
+    states = [c.state for c in plan]
+    first_incapable = states.index(registry.INCAPABLE)
+    assert all(s == registry.INCAPABLE for s in states[first_incapable:])
 
 
 def test_selection_skips_an_unconfigured_provider_saying_what_to_configure(monkeypatch):
@@ -572,3 +589,249 @@ def test_the_route_test_answers_with_the_actionable_message(monkeypatch):
     assert "python main.py" in failed.json()["detail"]
 
     assert client.post("/api/generators/test", json={"provider": "nope"}).status_code == 404
+
+
+# ------------------------------------------------------------ GPT Image 2.5
+
+def _gpt_ok(data: bytes = b"image-bytes") -> dict:
+    return {"data": [{"b64_json": base64.b64encode(data).decode()}]}
+
+
+def test_gptimage_request_shape_and_base64_response(monkeypatch, tmp_path):
+    sent: dict = {}
+
+    def fake_post(url, **kwargs):
+        sent["url"] = url
+        sent.update(kwargs)
+        return _response(200, url, json=_gpt_ok())
+
+    monkeypatch.setattr(gptimage.httpx, "post", fake_post)
+
+    out = tmp_path / "cover.png"
+    result = gptimage.generate_image("a cover", out, {"api_key": "secret-key"})
+
+    assert sent["url"].endswith("/images/generations")
+    assert sent["headers"]["Authorization"] == "Bearer secret-key"
+    body = sent["json"]
+    assert body["model"] == "gpt-image-2.5-sunburst"
+    assert body["prompt"] == "a cover"
+    assert result.read_bytes() == b"image-bytes"
+
+
+def test_gptimage_asks_for_an_exact_nine_by_sixteen(monkeypatch, tmp_path):
+    """The documented 1024x1536 is 2:3, not 9:16 — sending it would hand the
+    compositor a still that has to be cropped or padded, which is the whole
+    thing the framing work exists to avoid."""
+    sent: dict = {}
+    monkeypatch.setattr(gptimage.httpx, "post", lambda url, **k: (
+        sent.update(k["json"]) or _response(200, url, json=_gpt_ok())))
+
+    gptimage.generate_image("x", tmp_path / "a.png", {"api_key": "k"})
+    width, height = (int(n) for n in sent["size"].split("x"))
+    assert round(height / width, 3) == round(16 / 9, 3)
+    # and a legal size: both sides multiples of 16
+    assert width % 16 == 0 and height % 16 == 0
+
+
+def test_gptimage_sixteen_by_nine_is_exact_too(monkeypatch, tmp_path):
+    sent: dict = {}
+    monkeypatch.setattr(gptimage.httpx, "post", lambda url, **k: (
+        sent.update(k["json"]) or _response(200, url, json=_gpt_ok())))
+
+    gptimage.generate_image("x", tmp_path / "a.png", {"api_key": "k"},
+                            aspect="16:9")
+    width, height = (int(n) for n in sent["size"].split("x"))
+    assert round(width / height, 3) == round(16 / 9, 3)
+    assert width % 16 == 0 and height % 16 == 0
+
+
+def test_gptimage_every_size_it_will_ever_send_is_legal():
+    """The API's own limits: sides multiples of 16, 655_360 to 8_294_400
+    pixels, aspect between 1:3 and 3:1. A size outside them is a 400 at render
+    time, which is the worst moment to find out."""
+    for name, size in gptimage.SIZES.items():
+        width, height = (int(n) for n in size.split("x"))
+        assert width % 16 == 0 and height % 16 == 0, name
+        assert 655_360 <= width * height <= 8_294_400, name
+        assert 1 / 3 <= width / height <= 3, name
+
+
+def test_gptimage_a_reference_goes_to_the_edits_endpoint(monkeypatch, tmp_path):
+    """image_to_image is a different endpoint here, not a flag: the reference
+    travels as a file part rather than base64 inside JSON."""
+    reference = tmp_path / "ref.png"
+    reference.write_bytes(b"original")
+    sent: dict = {}
+
+    def fake_post(url, **kwargs):
+        sent["url"] = url
+        sent.update(kwargs)
+        return _response(200, url, json=_gpt_ok())
+
+    monkeypatch.setattr(gptimage.httpx, "post", fake_post)
+
+    gptimage.generate_image("make it night", tmp_path / "out.png",
+                            {"api_key": "k"}, reference=reference)
+    assert sent["url"].endswith("/images/edits")
+    assert sent["files"]["image"][1] == b"original"
+    assert sent["data"]["prompt"] == "make it night"
+
+
+def test_gptimage_flare_is_selectable_by_name(monkeypatch, tmp_path):
+    sent: dict = {}
+    monkeypatch.setattr(gptimage.httpx, "post", lambda url, **k: (
+        sent.update(k["json"]) or _response(200, url, json=_gpt_ok())))
+
+    gptimage.generate_image("x", tmp_path / "a.png", {"api_key": "k"},
+                            model="gpt-image-2.5-flare")
+    assert sent["model"] == "gpt-image-2.5-flare"
+
+
+def test_gptimage_an_unknown_model_falls_back_to_the_default(monkeypatch, tmp_path):
+    """Better a still from the default model than a 400 mid-render."""
+    sent: dict = {}
+    monkeypatch.setattr(gptimage.httpx, "post", lambda url, **k: (
+        sent.update(k["json"]) or _response(200, url, json=_gpt_ok())))
+
+    gptimage.generate_image("x", tmp_path / "a.png", {"api_key": "k"},
+                            model="dall-e-2")
+    assert sent["model"] == gptimage.DEFAULT_MODEL
+
+
+def test_gptimage_a_spent_quota_is_a_refusal(monkeypatch, tmp_path):
+    monkeypatch.setattr(gptimage.httpx, "post",
+                        lambda url, **k: _response(429, url, json={}))
+
+    with pytest.raises(registry.ProviderRefused, match="quota"):
+        gptimage.generate_image("x", tmp_path / "o.png", {"api_key": "k"})
+
+
+def test_gptimage_a_rejected_key_is_a_refusal(monkeypatch, tmp_path):
+    monkeypatch.setattr(gptimage.httpx, "post",
+                        lambda url, **k: _response(401, url, json={}))
+
+    with pytest.raises(registry.ProviderRefused, match="Accounts"):
+        gptimage.generate_image("x", tmp_path / "o.png", {"api_key": "k"})
+
+
+def test_gptimage_a_server_error_is_not_a_refusal(monkeypatch, tmp_path):
+    monkeypatch.setattr(gptimage.httpx, "post",
+                        lambda url, **k: _response(503, url, json={}))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        gptimage.generate_image("x", tmp_path / "o.png", {"api_key": "k"})
+
+
+def test_gptimage_an_answer_without_an_image_is_not_a_written_file(monkeypatch, tmp_path):
+    """A refusal comes back as a 200 with an entry carrying no b64_json.
+    Indexing [0] would have produced a KeyError; writing nothing and saying so
+    is what lets the caller fall back."""
+    monkeypatch.setattr(gptimage.httpx, "post", lambda url, **k: _response(
+        200, url, json={"data": [{"revised_prompt": "..."}]}))
+
+    out = tmp_path / "o.png"
+    with pytest.raises(RuntimeError, match="without an image"):
+        gptimage.generate_image("x", out, {"api_key": "k"})
+    assert not out.exists()
+
+
+def test_gptimage_no_error_message_ever_carries_the_key(monkeypatch, tmp_path):
+    monkeypatch.setattr(gptimage.httpx, "post", lambda url, **k: _response(
+        400, url, json={"error": {"message": "Incorrect API key: sk-live-123"}}))
+
+    with pytest.raises(registry.ProviderRefused) as exc:
+        gptimage.generate_image("x", tmp_path / "o.png", {"api_key": "sk-live-123"})
+    assert "sk-live-123" not in str(exc.value)
+    assert "***" in str(exc.value)
+
+
+def test_gptimage_a_valid_key_without_the_models_says_so(monkeypatch):
+    """A connector test that merely passes would promise a still the render
+    cannot deliver."""
+    monkeypatch.setattr(gptimage.httpx, "get", lambda url, **k: _response(
+        200, url, method="GET", json={"data": [{"id": "gpt-4o"}]}))
+    assert "no GPT Image 2.5 model" in gptimage.verify({"api_key": "k"})
+
+
+def test_gptimage_verify_names_the_models_it_found(monkeypatch):
+    monkeypatch.setattr(gptimage.httpx, "get", lambda url, **k: _response(
+        200, url, method="GET", json={"data": [
+            {"id": "gpt-image-2.5-flare"}, {"id": "gpt-4o"}]}))
+    assert "gpt-image-2.5-flare" in gptimage.verify({"api_key": "k"})
+
+
+# ---------------------------------------------- choosing a still generator
+
+def test_the_openai_key_alone_makes_a_still_generator_available(monkeypatch):
+    _local_server_down(monkeypatch)
+    connectors.save("openai_images", {"api_key": "k"})
+
+    assert imagegen.providers_ready()
+    chosen = registry.select(registry.TEXT_TO_IMAGE)
+    assert chosen.provider_id == "openai_images"
+
+
+def test_gpt_image_goes_ahead_of_nano_banana_when_both_are_keyed(monkeypatch):
+    """Priority decides only among the configured ones, so this costs nobody
+    their Gemini key — it just picks the one that draws an exact 16:9."""
+    _local_server_down(monkeypatch)
+    connectors.save("openai_images", {"api_key": "k"})
+    connectors.save("gemini", {"api_key": "g"})
+
+    eligible = [c.provider_id for c in registry.candidates(registry.TEXT_TO_IMAGE)
+                if c.eligible]
+    assert eligible[:2] == ["openai_images", "nanobanana"]
+
+
+def test_asking_for_nano_banana_still_gets_nano_banana(monkeypatch):
+    _local_server_down(monkeypatch)
+    connectors.save("openai_images", {"api_key": "k"})
+    connectors.save("gemini", {"api_key": "g"})
+    monkeypatch.setattr(settings, "imagegen_provider", "nanobanana")
+
+    assert imagegen.plan()[0].provider_id == "nanobanana"
+
+
+def test_no_still_generator_at_all_names_both_ways_out(monkeypatch):
+    _local_server_down(monkeypatch)
+    assert not imagegen.providers_ready()
+    message = imagegen.why_not()
+    assert "OpenAI" in message and "Gemini" in message and "ComfyUI" in message
+
+
+def test_a_refused_image_falls_back_to_the_other_generator(monkeypatch, tmp_path):
+    _local_server_down(monkeypatch)
+    connectors.save("openai_images", {"api_key": "k"})
+    connectors.save("gemini", {"api_key": "g"})
+
+    def refuse(*_a, **_k):
+        raise registry.ProviderRefused("out of credit")
+
+    def draw(prompt, out_path, *_a, **_k):
+        out_path.write_bytes(b"gemini")
+        return out_path
+
+    monkeypatch.setattr(gptimage, "generate_image", refuse)
+    monkeypatch.setattr(nanobanana, "generate_image", draw)
+    lines: list[tuple[str, str]] = []
+
+    out = tmp_path / "scene.png"
+    imagegen.generate_image("a city", out,
+                            log=lambda m, level="info": lines.append((m, level)))
+
+    assert out.read_bytes() == b"gemini"
+    warning = next(m for m, level in lines if level == "warn")
+    assert "out of credit" in warning and "Nano Banana" in warning
+
+
+def test_an_image_network_error_does_not_change_the_model(monkeypatch, tmp_path):
+    _local_server_down(monkeypatch)
+    connectors.save("openai_images", {"api_key": "k"})
+    connectors.save("gemini", {"api_key": "g"})
+
+    def blip(*_a, **_k):
+        raise httpx.ReadTimeout("timed out")
+
+    monkeypatch.setattr(gptimage, "generate_image", blip)
+    with pytest.raises(httpx.ReadTimeout):
+        imagegen.generate_image("a city", tmp_path / "s.png")

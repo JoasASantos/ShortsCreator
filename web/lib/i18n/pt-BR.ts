@@ -292,6 +292,7 @@ export const ptBR = {
     codigo_scroll: "Código rolando",
     gradiente: "Gradiente",
     ia_video: "Vídeo por IA",
+    ia_imagem: "Imagens por IA",
     upload: "Enviado",
   },
 

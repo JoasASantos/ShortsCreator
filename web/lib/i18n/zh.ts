@@ -283,6 +283,7 @@ export const zh: Dictionary = {
     codigo_scroll: "代码滚动",
     gradiente: "渐变",
     ia_video: "AI 生成视频",
+    ia_imagem: "AI 生成图片",
     upload: "已上传",
   },
 

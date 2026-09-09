@@ -24,6 +24,14 @@ PROMPT = "Os principais golpes digitais no Brasil em 2026 e quem está por trás
 INSTRUCTION = "Tom investigativo, sem sensacionalismo."
 
 
+@pytest.fixture(autouse=True)
+def no_image_generator(monkeypatch):
+    """What happens to a stock shot with no stock bank depends on whether an
+    image generator is keyed, so a developer's own OPENAI_API_KEY must not
+    decide these. Tests about the drawn fallback opt in explicitly."""
+    monkeypatch.setattr(longform.imagegen, "providers_ready", lambda *a, **k: False)
+
+
 def _segments(total: float, every: float = 6.0, text: str = "fala") -> list[dict]:
     out, t, n = [], 0.0, 0
     while t < total - 1:
@@ -1288,3 +1296,123 @@ def test_a_production_goes_on_its_own_queue_and_not_on_the_shorts_one():
     worker.enqueue_longform(project["id"], "ingest")
     assert worker._longform_queue.get_nowait() == ("ingest", project["id"])  # noqa: SLF001
     assert db.get_longform(project["id"])["status"] == "ingesting"
+
+
+# ------------------------- the drawn stock fallback -------------------------
+
+def _draws(monkeypatch, calls: list[str], fail: bool = False):
+    """An image generator that is keyed and either draws or refuses."""
+    monkeypatch.setattr(longform.imagegen, "providers_ready", lambda *a, **k: True)
+
+    def draw(prompt, out_path, aspect="16:9", log=None, **kwargs):
+        calls.append(prompt)
+        if fail:
+            raise RuntimeError("out of credit")
+        out_path.write_bytes(b"fake-image")
+        return out_path
+
+    monkeypatch.setattr(longform.imagegen, "generate_image", draw)
+
+
+def test_with_no_stock_bank_an_image_generator_draws_the_shot(fake_assembly, monkeypatch):
+    """A card with the search terms printed on it is the worst version of this
+    shot. A drawn frame is not the recording the query asked for, but it is a
+    picture of the idea."""
+    monkeypatch.setattr(longform.broll, "providers_ready", lambda: [])
+    drawn: list[str] = []
+    _draws(monkeypatch, drawn)
+
+    project = _project()
+    longform.assemble(project["id"])
+
+    assert fake_assembly["stock"] == [], "no provider, no search"
+    assert len(drawn) == 2, "both stock shots were drawn"
+    ledger = json.loads(db.get_longform(project["id"])["progress_json"])
+    stock = [e for e in ledger if e["kind"] == "shot" and e["shot"] == "stock"]
+    assert all(e["status"] == "ok" for e in stock)
+    assert all(e["file"].endswith(".png") for e in stock)
+
+
+def test_the_drawing_carries_the_query_and_the_productions_style(fake_assembly, monkeypatch):
+    monkeypatch.setattr(longform.broll, "providers_ready", lambda: [])
+    drawn: list[str] = []
+    _draws(monkeypatch, drawn)
+
+    longform.assemble(_project()["id"])
+
+    assert any("phone" in p for p in drawn), "the shot's own query"
+    assert all("16:9" in p for p in drawn), "the production's frame"
+    assert all("sem texto" in p for p in drawn)
+
+
+def test_real_stock_still_wins_over_a_drawing(fake_assembly, monkeypatch):
+    """Second choice, never first: the query was written to find footage."""
+    drawn: list[str] = []
+    _draws(monkeypatch, drawn)
+
+    longform.assemble(_project()["id"])
+
+    assert len(fake_assembly["stock"]) == 2
+    assert drawn == [], "nothing to draw while the stock bank answers"
+
+
+def test_a_query_stock_cannot_fill_is_drawn_instead_of_carded(fake_assembly, monkeypatch):
+    """The gap this closes: a configured bank that simply has no clip for the
+    query used to leave a placeholder card."""
+    def nothing(queries, *args, **kwargs):
+        fake_assembly["stock"].append((queries[0], kwargs.get("landscape", False)))
+        return []
+
+    monkeypatch.setattr(longform.broll, "fetch_for_queries", nothing)
+    drawn: list[str] = []
+    _draws(monkeypatch, drawn)
+
+    project = _project()
+    longform.assemble(project["id"])
+
+    assert len(fake_assembly["stock"]) == 2, "the bank was still asked first"
+    assert len(drawn) == 2
+    ledger = json.loads(db.get_longform(project["id"])["progress_json"])
+    stock = [e for e in ledger if e["kind"] == "shot" and e["shot"] == "stock"]
+    assert all(e["status"] == "ok" for e in stock)
+
+
+def test_a_generator_that_refuses_falls_back_to_the_card(fake_assembly, monkeypatch):
+    """The placeholder is still the floor: one shot must not take a half-hour
+    production down."""
+    monkeypatch.setattr(longform.broll, "providers_ready", lambda: [])
+    _draws(monkeypatch, [], fail=True)
+
+    project = _project()
+    longform.assemble(project["id"])
+
+    ledger = json.loads(db.get_longform(project["id"])["progress_json"])
+    stock = [e for e in ledger if e["kind"] == "shot" and e["shot"] == "stock"]
+    assert all(e["status"] == "placeholder" for e in stock)
+    assert all("Pexels" in e["error"] for e in stock)
+
+
+def test_a_drawn_shot_is_not_bought_twice_on_a_resume(fake_assembly, monkeypatch):
+    monkeypatch.setattr(longform.broll, "providers_ready", lambda: [])
+    drawn: list[str] = []
+    _draws(monkeypatch, drawn)
+
+    project = _project()
+    longform.assemble(project["id"])
+    assert len(drawn) == 2
+
+    drawn.clear()
+    longform.assemble(project["id"])
+    assert drawn == [], "the images were already on disk"
+
+
+def test_the_estimate_says_the_stock_shots_will_be_drawn(monkeypatch):
+    """The estimate is read to decide whether to run at all, so it has to say
+    which of the two fates those shots meet."""
+    monkeypatch.setattr(longform.broll, "providers_ready", lambda: [])
+    monkeypatch.setattr(longform.imagegen, "providers_ready", lambda *a, **k: True)
+
+    report = longform.estimate(_project())
+    warning = next(w for w in report["warnings"] if "stock shot" in w)
+    assert "generated as images" in warning
+    assert "not real footage" in warning

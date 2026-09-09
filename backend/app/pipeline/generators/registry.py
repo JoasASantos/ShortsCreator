@@ -130,6 +130,32 @@ PROVIDERS: list[Provider] = [
         priority=10,
     ),
     Provider(
+        id="openai_images",
+        label="GPT Image 2.5 (OpenAI)",
+        capabilities=(TEXT_TO_IMAGE, IMAGE_TO_IMAGE),
+        hosting="hosted", cost="paid", speed="15-60 s per image",
+        setup="Register the OpenAI key on the Accounts screen (or "
+              "OPENAI_API_KEY in .env). Get one at platform.openai.com.",
+        docs="https://developers.openai.com/api/docs/guides/image-generation",
+        connector="openai_images",
+        models=(
+            ("gpt-image-2.5-sunburst", "GPT Image 2.5 Sunburst (most precise)"),
+            ("gpt-image-2.5-flare", "GPT Image 2.5 Flare (faster)"),
+        ),
+        model_aliases={
+            "gpt-image-2.5": "gpt-image-2.5-sunburst",
+            "sunburst": "gpt-image-2.5-sunburst",
+            "flare": "gpt-image-2.5-flare",
+            "chatgpt-images-2.5": "gpt-image-2.5-sunburst",
+        },
+        default_model="gpt-image-2.5-sunburst",
+        # Ahead of Nano Banana: it holds a legible frame at an exact 16:9 or
+        # 9:16 without a crop, which is what the compositor needs. Priority
+        # only decides who goes first among the *configured* ones, so this
+        # does not cost anyone their Gemini key.
+        priority=5,
+    ),
+    Provider(
         id="nanobanana",
         label="Nano Banana Pro (Gemini)",
         capabilities=(TEXT_TO_IMAGE, IMAGE_TO_IMAGE),
@@ -306,12 +332,18 @@ def candidates(capability: str, prefer: str = "", model: str = "",
         ordered = [BY_ID[prefer]] + [p for p in ordered if p.id != prefer]
 
     out: list[Candidate] = []
+    # Providers that cannot do this capability at all are listed — the screen
+    # explains why each one was passed over — but they go after the ones that
+    # can, whatever their priority. A high-priority image model heading the
+    # text_to_video list would read as the video plan's first choice.
+    incapable: list[Candidate] = []
     for provider in ordered:
         chosen_model = resolve_model(provider.id, model) if provider.models else ""
         if capability not in provider.capabilities:
-            out.append(Candidate(provider.id, provider.label, INCAPABLE, False,
-                                 f"does not do {capability}", provider.hosting,
-                                 provider.cost, provider.speed, chosen_model))
+            incapable.append(Candidate(provider.id, provider.label, INCAPABLE,
+                                       False, f"does not do {capability}",
+                                       provider.hosting, provider.cost,
+                                       provider.speed, chosen_model))
             continue
         provider_state, reason = state(provider.id, probe=probe, cache=cache)
         eligible = provider_state == READY
@@ -322,7 +354,7 @@ def candidates(capability: str, prefer: str = "", model: str = "",
         out.append(Candidate(provider.id, provider.label, provider_state, eligible,
                              reason, provider.hosting, provider.cost,
                              provider.speed, chosen_model))
-    return out
+    return out + incapable
 
 
 def select(capability: str, prefer: str = "", model: str = "",
@@ -378,6 +410,13 @@ def run_text_to_image(provider_id: str, prompt: str, out_path: Path,
     if wanted not in provider.capabilities:
         raise GeneratorNotConfigured(f"{provider.label} does not do {wanted}")
 
+    if provider_id == "openai_images":
+        from . import gptimage
+
+        return gptimage.generate_image(
+            prompt, out_path, connectors.credentials("openai_images"),
+            model=resolve_model("openai_images", model), aspect=aspect,
+            reference=reference, log=log)
     if provider_id == "nanobanana":
         from . import nanobanana
 

@@ -47,8 +47,9 @@ from ..config import settings
 from ..routers import uploads as uploads_router
 from ..schemas import JobInput
 from . import (avatar as avatar_mod, broll, captions as captions_mod, clipper,
-               formats, ingest, livecuts, llm, notify, overlays, qa as qa_mod,
-               reels, render, timeline as timeline_mod, timeline_render, tts)
+               formats, imagegen, ingest, livecuts, llm, notify, overlays,
+               qa as qa_mod, reels, render, timeline as timeline_mod,
+               timeline_render, tts)
 from .generators import heygen
 from .script import language_name
 from .timeline import AudioClip, CaptionCue, MediaOverlay, Timeline, VideoClip
@@ -1600,7 +1601,12 @@ def estimate(project: dict) -> dict:
         warnings.append(f"The narrator is an avatar and HeyGen is not configured: "
                         f"{narrator['reason']}")
     if stock and not stock_info["configured"]:
-        warnings.append(f"{len(stock)} stock shot(s) would become placeholder cards: "
+        # What happens to those shots depends on whether an image generator is
+        # around, and the estimate is read precisely to decide whether to run.
+        instead = ("would be generated as images (a drawn frame, not real "
+                   "footage)" if imagegen.providers_ready()
+                   else "would become placeholder cards")
+        warnings.append(f"{len(stock)} stock shot(s) {instead}: "
                         f"{stock_info['reason']}")
 
     return {
@@ -1891,8 +1897,13 @@ def _prepare_blocks(blocks: list[dict], episode: int, ledger: dict[str, dict],
     exactly those.
     """
     stock_unavailable = "" if broll.providers_ready() else stock_provider()["reason"]
+    # Asked once, not once per shot: the answer involves probing local servers,
+    # and forty shots would probe forty times for the same verdict.
+    can_draw = imagegen.providers_ready()
     if stock_unavailable and any(s["kind"] == "stock" for b in blocks for s in b["shots"]):
-        log(f"{stock_unavailable} Every stock shot becomes a placeholder card.", "warn")
+        log(f"{stock_unavailable} "
+            + ("Stock shots will be generated as images instead." if can_draw
+               else "Every stock shot becomes a placeholder card."), "warn")
 
     total = len(blocks)
     for index, block in enumerate(blocks, start=1):
@@ -1900,7 +1911,7 @@ def _prepare_blocks(blocks: list[dict], episode: int, ledger: dict[str, dict],
         _prepare_narration(block, ledger, work, options, log)
         for n, shot in enumerate(block.get("shots", [])):
             _prepare_shot(block, n, shot, ledger, work, source_dir, catalog, options,
-                          stock_unavailable, log)
+                          stock_unavailable, can_draw, log)
         _prepare_hold(block, ledger, work, options, log)
         # Written after every block: a crash on block 15 must not throw away
         # the fourteen already synthesized and cut.
@@ -1950,7 +1961,8 @@ def _prepare_narration(block: dict, ledger: dict[str, dict], work: Path,
 
 def _prepare_shot(block: dict, index: int, shot: dict, ledger: dict[str, dict],
                   work: Path, source_dir: Path, catalog: dict[str, dict],
-                  options: dict, stock_unavailable: str, log) -> None:
+                  options: dict, stock_unavailable: str, can_draw: bool,
+                  log) -> None:
     key = _shot_key(block, index)
     spec = _shot_spec(shot)
     if _reusable(ledger.get(key), spec, work):
@@ -1994,9 +2006,17 @@ def _prepare_shot(block: dict, index: int, shot: dict, ledger: dict[str, dict],
             entry.update(file=dest.name)
         elif shot["kind"] == "stock":
             if stock_unavailable:
-                placeholder(stock_unavailable, shot["query"])
+                dest = (_generate_shot_image(shot["query"], key, work, options, log)
+                        if can_draw else None)
+                if dest is None:
+                    placeholder(stock_unavailable, shot["query"])
+                else:
+                    entry.update(file=dest.name, seconds=round(seconds, 3))
             else:
                 dest = _fetch_stock(shot["query"], key, work, log)
+                if dest is None and can_draw:
+                    dest = _generate_shot_image(shot["query"], key, work,
+                                                options, log)
                 if dest is None:
                     placeholder(f"no stock footage found for '{shot['query']}'",
                                 shot["query"])
@@ -2048,6 +2068,34 @@ def _prepare_hold(block: dict, ledger: dict[str, dict], work: Path, options: dic
                        "status": "ok", "error": ""}
     except Exception as exc:  # noqa: BLE001
         log(f"Block {block['key']}: hold card not drawn ({exc})", "warn")
+
+
+def _generate_shot_image(query: str, key: str, work: Path, options: dict,
+                         log) -> Path | None:
+    """A drawn still for a shot no stock bank could fill.
+
+    Second choice, never first: the query was written to find real footage,
+    and a generated frame is an illustration of the idea rather than a
+    recording of it. It is still much closer to the intended shot than a card
+    with the search terms printed on it, which is what this replaces.
+
+    Returns None rather than raising — the placeholder card is still the
+    fallback, and one shot must not take the production down.
+    """
+    dest = work / f"gen_{key}.png"
+    if dest.exists() and dest.stat().st_size > 0:
+        return dest
+    style = options.get("style", "").strip()
+    prompt = (f"{query}. Fotografia documental, iluminação natural, "
+              f"enquadramento horizontal 16:9, sem texto e sem marca d'água."
+              + (f" Estilo: {style}." if style else ""))
+    try:
+        return imagegen.generate_image(prompt, dest, aspect="16:9",
+                                       log=lambda m, level="info": log(str(m), level))
+    except Exception as exc:  # noqa: BLE001 — one shot, not the production
+        log(f"Shot {key}: no image could be generated for '{query}' ({exc})",
+            "warn")
+        return None
 
 
 def _fetch_stock(query: str, key: str, work: Path, log) -> Path | None:
