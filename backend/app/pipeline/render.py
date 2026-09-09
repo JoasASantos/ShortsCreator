@@ -96,6 +96,33 @@ def content_crop(source: Path, seconds: float = 12.0) -> str:
     return f"crop={width}:{height}:{x}:{y},"
 
 
+def black_stretches(source: Path, minimum: float = 0.3) -> list[tuple[float, float]]:
+    """Where `source` is a black screen, as (start, end) seconds.
+
+    A YouTube video carries dips to black of its own — a title card, a chapter
+    transition, an outro. A cut that lands on one plays as a broken player: the
+    picture is gone and the voice keeps going. The pipeline cannot see that
+    from the transcript, because whoever is speaking over the black is still in
+    it, so this is the only way to find out.
+    """
+    probe = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(source),
+         "-vf", f"blackdetect=d={minimum:.2f}:pix_th=0.10", "-an",
+         "-f", "null", "-"],
+        capture_output=True, text=True)
+    found = re.findall(r"black_start:([\d.]+) black_end:([\d.]+)", probe.stderr)
+    return [(float(start), float(end)) for start, end in found]
+
+
+def leading_black(source: Path, minimum: float = 0.3) -> float:
+    """How many seconds of black the file opens with (0.0 when it opens on a
+    picture). What a cut has to be shifted past."""
+    for start, end in black_stretches(source, minimum):
+        if start <= 0.1:
+            return end
+    return 0.0
+
+
 def _dimensions(video: Path) -> tuple[int, int] | None:
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0",

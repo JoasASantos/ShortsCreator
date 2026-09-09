@@ -1120,7 +1120,10 @@ na ordem em que aparecem. Cada shot tem `kind`:
 - `avatar`: o apresentador em quadro lendo a narração deste bloco. Só existe
   quando o modo de narrador é avatar; nos outros modos não use.
 - `cartela`: cartão de texto em tela cheia. `text` é o texto (título de ato, dado,
-  pergunta), `seconds` na tela.
+  pergunta), `seconds` na tela. O texto é para QUEM ASSISTE. Nunca escreva nele
+  recado para quem edita — "pendência", "trecho não consta", "falta material",
+  "a verificar". Se um trecho que você queria não existe, simplesmente não use
+  esse shot: o filme não é o lugar de discutir o filme.
 
 Regras absolutas:
 - Só use ids que existem no CATÁLOGO. Um id inventado invalida o shot.
@@ -1412,7 +1415,30 @@ def _normalize_shot(raw: dict, key: str, block: dict, catalog: dict[str, dict],
     if not text:
         refuse(key, "a title card with no text", raw)
         return None
+    if _is_editorial_note(text):
+        # A note to the editor, printed on screen at 24pt for the audience:
+        # "Pendência de edição: o trecho previsto não consta na transcrição."
+        # It belongs in the rejected list, which is where the note is now read
+        # from — the film is not the place to discuss the film.
+        refuse(key, "a title card carrying an editorial note, not content", raw)
+        return None
     return _shot("cartela", text=text, seconds=seconds)
+
+
+# Openings of a note written to whoever is editing, rather than of a card
+# written for whoever is watching.
+_EDITORIAL_MARKERS = (
+    "pendência", "pendencia", "não consta", "nao consta", "a verificar",
+    "verificar:", "checar", "nota de edição", "nota de edicao", "todo:",
+    "falta ", "sem material", "trecho previsto", "placeholder",
+    "editor:", "obs.:", "observação de edição", "observacao de edicao",
+)
+
+
+def _is_editorial_note(text: str) -> bool:
+    lowered = text.strip().lower()
+    return any(lowered.startswith(marker) or f" {marker}" in lowered
+               for marker in _EDITORIAL_MARKERS)
 
 
 def _fill_seconds(shots: list[dict], block_seconds: float) -> None:
@@ -1900,10 +1926,19 @@ def _prepare_blocks(blocks: list[dict], episode: int, ledger: dict[str, dict],
     # Asked once, not once per shot: the answer involves probing local servers,
     # and forty shots would probe forty times for the same verdict.
     can_draw = imagegen.providers_ready()
+    # Built once per episode: handing windows out needs to know what every
+    # other shot took, and rebuilding it per shot would give the same stretch
+    # to every card in the film.
+    cutaways = _Cutaways(catalog, blocks)
     if stock_unavailable and any(s["kind"] == "stock" for b in blocks for s in b["shots"]):
-        log(f"{stock_unavailable} "
-            + ("Stock shots will be generated as images instead." if can_draw
-               else "Every stock shot becomes a placeholder card."), "warn")
+        if can_draw:
+            fate = "Stock shots will be generated as images instead."
+        elif cutaways.take(2.0) is not None:
+            fate = "Stock shots will be covered with your own footage instead."
+            cutaways = _Cutaways(catalog, blocks)   # the probe consumed a window
+        else:
+            fate = "Every stock shot becomes a placeholder card."
+        log(f"{stock_unavailable} {fate}", "warn")
 
     total = len(blocks)
     for index, block in enumerate(blocks, start=1):
@@ -1911,7 +1946,7 @@ def _prepare_blocks(blocks: list[dict], episode: int, ledger: dict[str, dict],
         _prepare_narration(block, ledger, work, options, log)
         for n, shot in enumerate(block.get("shots", [])):
             _prepare_shot(block, n, shot, ledger, work, source_dir, catalog, options,
-                          stock_unavailable, can_draw, log)
+                          stock_unavailable, can_draw, cutaways, log)
         _prepare_hold(block, ledger, work, options, log)
         # Written after every block: a crash on block 15 must not throw away
         # the fourteen already synthesized and cut.
@@ -1962,7 +1997,7 @@ def _prepare_narration(block: dict, ledger: dict[str, dict], work: Path,
 def _prepare_shot(block: dict, index: int, shot: dict, ledger: dict[str, dict],
                   work: Path, source_dir: Path, catalog: dict[str, dict],
                   options: dict, stock_unavailable: str, can_draw: bool,
-                  log) -> None:
+                  cutaways: "_Cutaways | None", log) -> None:
     key = _shot_key(block, index)
     spec = _shot_spec(shot)
     if _reusable(ledger.get(key), spec, work):
@@ -1994,8 +2029,20 @@ def _prepare_shot(block: dict, index: int, shot: dict, ledger: dict[str, dict],
             dest = work / f"cut_{key}.mp4"
             log(f"Shot {key}: {item['id']} {_fmt_time(shot['start'])}-{_fmt_time(shot['end'])}")
             _cut_segment(src, shot["start"], shot["end"], dest)
+            _skip_black_open(src, shot, key, dest, float(item.get("duration") or 0.0), log)
             entry.update(file=dest.name, has_audio=_has_audio(dest),
                          seconds=round(render.probe_duration(dest) or seconds, 3))
+            # The quote's own words, translated once here and kept in the
+            # ledger: the subtitle for an English answer under Portuguese
+            # narration has to be in Portuguese, and re-translating it on
+            # every assemble would spend a call per rebuild.
+            covering = _covering_segments(item, shot["start"], shot["end"])
+            if covering and options["captions"]:
+                entry["captions"] = [
+                    {"start": round(max(seg["start"] - shot["start"], 0.0), 3),
+                     "end": round(min(seg["end"], shot["end"]) - shot["start"], 3),
+                     "text": seg["text"]}
+                    for seg in _translate_cues(covering, options["language"], log)]
         elif shot["kind"] == "imagem":
             item = catalog[shot["material"]]
             src = source_dir / item["file"]
@@ -2005,18 +2052,29 @@ def _prepare_shot(block: dict, index: int, shot: dict, ledger: dict[str, dict],
             shutil.copy(src, dest)
             entry.update(file=dest.name)
         elif shot["kind"] == "stock":
+            # Four ways to fill a stock shot, best first: the bank it was
+            # written for, an image generated from the same words, a stretch
+            # of the user's own footage nothing else is using, and — only if
+            # all three are gone — a card with the query on it.
             if stock_unavailable:
                 dest = (_generate_shot_image(shot["query"], key, work, options, log)
                         if can_draw else None)
                 if dest is None:
+                    dest = _cutaway(shot, key, work, source_dir, catalog,
+                                    cutaways, log)
+                if dest is None:
                     placeholder(stock_unavailable, shot["query"])
                 else:
-                    entry.update(file=dest.name, seconds=round(seconds, 3))
+                    entry.update(file=dest.name,
+                                 seconds=round(render.probe_duration(dest) or seconds, 3))
             else:
                 dest = _fetch_stock(shot["query"], key, work, log)
                 if dest is None and can_draw:
                     dest = _generate_shot_image(shot["query"], key, work,
                                                 options, log)
+                if dest is None:
+                    dest = _cutaway(shot, key, work, source_dir, catalog,
+                                    cutaways, log)
                 if dest is None:
                     placeholder(f"no stock footage found for '{shot['query']}'",
                                 shot["query"])
@@ -2070,6 +2128,77 @@ def _prepare_hold(block: dict, ledger: dict[str, dict], work: Path, options: dic
         log(f"Block {block['key']}: hold card not drawn ({exc})", "warn")
 
 
+LEGENDA_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "lines": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"i": {"type": "integer"},
+                               "text": {"type": "string"}},
+                "required": ["i", "text"],
+            },
+        },
+    },
+    "required": ["lines"],
+}
+
+LEGENDA_SYSTEM = """Você legenda documentários.
+
+Recebe falas transcritas de um vídeo, numeradas, e devolve cada uma traduzida
+para {language}.
+
+REGRAS
+- Uma linha de saída para cada linha de entrada, com o mesmo número `i`.
+- Não junte nem divida linhas: cada uma é exibida no tempo exato da fala.
+- Tradução de legenda, não literal: natural, curta, no registro de quem fala.
+- Se a linha JÁ estiver em {language}, devolva o texto igual, sem reescrever.
+- Nomes próprios, siglas e termos técnicos consagrados ficam como estão.
+- Sem aspas ao redor, sem reticências decorativas, sem comentários."""
+
+
+def _translate_cues(segments: list[dict], language: str, log) -> list[dict]:
+    """The covering transcript lines, translated into the production's language.
+
+    An archive quote in English under Portuguese narration was being subtitled
+    in English — the viewer reads the language they do not need help with. The
+    times are the speech's own: only the text changes, so the subtitle still
+    lands on the word being said.
+
+    A failure returns the original lines. A film subtitled in the source
+    language is worse than one subtitled in the target, and much better than
+    one with no subtitles at all.
+    """
+    if not segments:
+        return []
+    numbered = "\n".join(f"{i}. {s['text'].strip()}"
+                         for i, s in enumerate(segments) if s.get("text"))
+    if not numbered.strip():
+        return segments
+    try:
+        answer = llm.complete_json(
+            _in_language(LEGENDA_SYSTEM, language),
+            f"Falas transcritas:\n{numbered}",
+            LEGENDA_SCHEMA, max_tokens=4000, purpose="legendas")
+        by_index = {int(line["i"]): str(line["text"]).strip()
+                    for line in answer.get("lines") or []
+                    if str(line.get("text") or "").strip()}
+    except Exception as exc:  # noqa: BLE001 — subtitles are not the film
+        log(f"Subtitles kept in the source language ({exc})", "warn")
+        return segments
+    if not by_index:
+        return segments
+    return [{**seg, "text": by_index.get(i, seg["text"])}
+            for i, seg in enumerate(segments)]
+
+
+def _covering_segments(item: dict, start: float, end: float) -> list[dict]:
+    """The transcript lines a cut actually contains."""
+    return [seg for seg in (item.get("segments") or [])
+            if seg.get("end", 0) > start and seg.get("start", 0) < end]
+
+
 def _generate_shot_image(query: str, key: str, work: Path, options: dict,
                          log) -> Path | None:
     """A drawn still for a shot no stock bank could fill.
@@ -2109,6 +2238,117 @@ def _fetch_stock(query: str, key: str, work: Path, log) -> Path | None:
     dest = work / f"stock_{key}.mp4"
     shutil.move(str(found[0]), dest)
     return dest
+
+
+class _Cutaways:
+    """Windows of the user's own footage that no quote is using.
+
+    The last resort before a title card, and better than one: with no stock
+    bank and no image generator, the alternative to real footage is a slide
+    with the search terms printed on it. The material is already on disk,
+    already about the subject, and already paid for.
+
+    Handed out in order and never twice, so two cards in a row do not become
+    the same shot twice in a row. Windows overlapping a quote are excluded —
+    replaying a sentence the film already used reads as a mistake — and so are
+    the first and last stretches of each file, where intros and credits live.
+    """
+
+    EDGE = 5.0        # intros and end credits
+    MARGIN = 2.0      # breathing room around a quote already on screen
+
+    def __init__(self, catalog: dict[str, dict], blocks: list[dict]):
+        used: dict[str, list[tuple[float, float]]] = {}
+        for block in blocks:
+            for shot in block.get("shots", []):
+                if shot["kind"] in ("entrevista", "link") and shot.get("material"):
+                    used.setdefault(shot["material"], []).append(
+                        (float(shot["start"]), float(shot["end"])))
+        self._free: list[tuple[str, float, float]] = []
+        for item in catalog.values():
+            if item.get("reference") or item.get("status") != "ok":
+                continue
+            if item["kind"] not in ("entrevista", "link") or not item.get("file"):
+                continue
+            duration = float(item.get("duration") or 0.0)
+            if duration <= self.EDGE * 2 + 4:
+                continue
+            taken = sorted(used.get(item["id"], []))
+            cursor = self.EDGE
+            for start, end in taken + [(duration - self.EDGE, duration)]:
+                free_end = start - self.MARGIN
+                if free_end - cursor >= 4.0:
+                    self._free.append((item["id"], cursor, free_end))
+                cursor = max(cursor, end + self.MARGIN)
+        self._offsets: dict[str, float] = {}
+
+    def take(self, seconds: float) -> tuple[str, float, float] | None:
+        """The next unused window at least `seconds` long, consumed."""
+        wanted = max(seconds, 2.0)
+        for index, (material, start, end) in enumerate(self._free):
+            used_from = self._offsets.get(f"{material}:{start}", start)
+            if end - used_from < wanted:
+                continue
+            self._offsets[f"{material}:{start}"] = used_from + wanted
+            if end - (used_from + wanted) < 4.0:
+                self._free.pop(index)
+            return material, round(used_from, 2), round(used_from + wanted, 2)
+        return None
+
+
+def _cutaway(shot: dict, key: str, work: Path, source_dir: Path,
+             catalog: dict[str, dict], cutaways: "_Cutaways | None",
+             log) -> Path | None:
+    """A muted stretch of the user's own footage covering this shot."""
+    if cutaways is None:
+        return None
+    window = cutaways.take(float(shot["seconds"]))
+    if window is None:
+        return None
+    material, start, end = window
+    item = catalog[material]
+    src = source_dir / item["file"]
+    if not src.exists():
+        return None
+    dest = work / f"cover_{key}.mp4"
+    log(f"Shot {key}: no stock for '{shot.get('query', '')}' — covering with "
+        f"{material} {_fmt_time(start)}-{_fmt_time(end)} (no audio)")
+    try:
+        _cut_segment(src, start, end, dest)
+    except Exception as exc:  # noqa: BLE001 — the card is still the floor
+        log(f"Shot {key}: could not cut the cover ({exc})", "warn")
+        return None
+    return dest
+
+
+def _skip_black_open(source: Path, shot: dict, key: str, dest: Path,
+                     duration: float, log) -> Path:
+    """Re-cut past a dip to black the source itself opens with.
+
+    The transcript cannot show this: someone talks over a title card or a
+    chapter transition, so the window passes every check and then plays as
+    five seconds of a broken player. Measured on the cut and fixed by sliding
+    the window forward, keeping its length, as long as the material has room.
+
+    The shot dict is updated in place so the subtitles are read from the
+    window that was actually used and not the one that was asked for.
+    """
+    black = render.leading_black(dest)
+    if black < 0.4:
+        return dest
+    length = float(shot["end"]) - float(shot["start"])
+    start = float(shot["start"]) + black + 0.2
+    end = start + length
+    if duration and end > duration:
+        # No room to slide: the shot keeps what it has, and the QA report is
+        # what says the picture goes dark there.
+        log(f"Shot {key}: opens on {black:.1f}s of black and the material ends "
+            f"at {_fmt_time(duration)} — no room to move the window", "warn")
+        return dest
+    log(f"Shot {key}: {black:.1f}s of black at the start of the window; moved to "
+        f"{_fmt_time(start)}-{_fmt_time(end)}")
+    shot["start"], shot["end"] = round(start, 2), round(end, 2)
+    return _cut_segment(source, start, end, dest)
 
 
 def _cut_segment(source: Path, start: float, end: float, dest: Path) -> Path:
@@ -2285,15 +2525,25 @@ def build_timeline(work: Path, blocks: list[dict], ledger: dict[str, dict],
                     source=entry["file"], in_point=0.0, out_point=round(length, 3),
                     start=round(cursor, 3), gain=1.0, role="entrevista"))
             if spoken and options["captions"]:
-                item = catalog.get(shot["material"]) or {}
-                for seg in item.get("segments") or []:
-                    if seg["end"] <= shot["start"] or seg["start"] >= shot["end"]:
-                        continue
+                # The translated cues if the cut has them (times already
+                # relative to the cut), the raw transcript otherwise — an
+                # older ledger, from before subtitles were translated, still
+                # renders instead of losing its subtitles.
+                if entry.get("captions"):
+                    lines = [(c["start"], c["end"], c["text"])
+                             for c in entry["captions"]]
+                else:
+                    item = catalog.get(shot["material"]) or {}
+                    lines = [(max(seg["start"] - shot["start"], 0.0),
+                              min(seg["end"], shot["end"]) - shot["start"],
+                              seg["text"])
+                             for seg in _covering_segments(
+                                 item, shot["start"], shot["end"])]
+                for begin, finish, text in lines:
                     cues.append(CaptionCue(
                         id=timeline_mod._new_id("c"),  # noqa: SLF001
-                        text=seg["text"],
-                        start=round(cursor + max(seg["start"] - shot["start"], 0.0), 3),
-                        end=round(cursor + min(seg["end"], shot["end"]) - shot["start"], 3)))
+                        text=text, start=round(cursor + begin, 3),
+                        end=round(cursor + finish, 3)))
             if entry.get("lower_third") and (work / entry["lower_third"]).exists():
                 media.append(MediaOverlay(
                     id=timeline_mod._new_id("m"),  # noqa: SLF001

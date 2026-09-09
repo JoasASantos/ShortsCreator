@@ -183,3 +183,72 @@ def test_parse_fps_handles_fractions_and_garbage():
     assert abs(qa._parse_fps("30000/1001") - 29.97) < 0.01   # noqa: SLF001
     assert qa._parse_fps("0/0") == 0.0          # noqa: SLF001
     assert qa._parse_fps("lixo") == 0.0         # noqa: SLF001
+
+
+# --------------------- where the problem is, not just how much --------------
+
+def _audit_with(monkeypatch, tmp_path, duration: float):
+    """Audit a fabricated 16:9 film of `duration`.
+
+    Rendering seven real minutes to test a timestamp would cost more than the
+    feature: what these check is the reporting, so the probe is faked and the
+    detectors are patched per test. The file still exists and passes the size
+    floor, because `audit` refuses to read anything else.
+    """
+    from app.pipeline import formats
+
+    video = tmp_path / "film.mp4"
+    video.write_bytes(b"0" * 40_000)
+    monkeypatch.setattr(qa, "_ffprobe", lambda v: {
+        "format": {"duration": str(duration), "size": "40000", "bit_rate": "800000"},
+        "streams": [
+            {"codec_type": "video", "width": 1920, "height": 1080,
+             "codec_name": "h264", "pix_fmt": "yuv420p", "r_frame_rate": "30/1",
+             "sample_aspect_ratio": "1:1"},
+            {"codec_type": "audio", "codec_name": "aac", "sample_rate": "48000"},
+        ],
+    })
+    monkeypatch.setattr(qa, "_loudness", lambda v: {
+        "integrated_lufs": -14.5, "loudness_range": 8.5, "true_peak_dbfs": -4.3})
+    monkeypatch.setattr(qa, "_faststart", lambda v: True)
+    # `_silence`, `_black_frames` and `_black_bars` stay for the test to set:
+    # patching them here would override what it just asked for.
+    return qa.audit(video, fmt=formats.HORIZONTAL)
+
+
+def test_black_screen_is_reported_with_the_timestamp(monkeypatch, tmp_path):
+    """"5.1s of black screen" in a seven-minute film sends someone scrubbing.
+    "at 6:33" is the shot to fix."""
+    monkeypatch.setattr(qa, "_black_frames", lambda video: [(393.0, 398.1)])
+    monkeypatch.setattr(qa, "_black_bars", lambda video, duration: None)
+    monkeypatch.setattr(qa, "_silence", lambda video: [])
+
+    report = _audit_with(monkeypatch, tmp_path, duration=437.0)
+    black = next(i for i in report.issues if i.check == "tela_preta")
+    assert "6:33" in black.message
+    assert report.metrics["black_at"] == ["6:33-6:38"]
+
+
+def test_a_stretch_with_nobody_speaking_is_named(monkeypatch, tmp_path):
+    """Counting 34 silence blocks and naming none reported a pause between
+    sentences exactly like a block whose voice never arrived."""
+    monkeypatch.setattr(qa, "_silence", lambda video: [
+        (12.0, 12.4), (100.0, 105.5), (200.0, 200.3)])
+    monkeypatch.setattr(qa, "_black_frames", lambda video: [])
+    monkeypatch.setattr(qa, "_black_bars", lambda video, duration: None)
+
+    report = _audit_with(monkeypatch, tmp_path, duration=437.0)
+    hole = next(i for i in report.issues if i.check == "silencio_no_meio")
+    assert "1:40-1:45" in hole.message
+    assert "5.5s" in hole.message
+    # a 0.4s pause between two sentences is not a hole
+    assert "0:12" not in hole.message
+
+
+def test_ordinary_pauses_do_not_raise_a_silence_issue(monkeypatch, tmp_path):
+    monkeypatch.setattr(qa, "_silence", lambda video: [(5.0, 5.6), (9.0, 9.8)])
+    monkeypatch.setattr(qa, "_black_frames", lambda video: [])
+    monkeypatch.setattr(qa, "_black_bars", lambda video, duration: None)
+
+    report = _audit_with(monkeypatch, tmp_path, duration=60.0)
+    assert not [i for i in report.issues if i.check == "silencio_no_meio"]

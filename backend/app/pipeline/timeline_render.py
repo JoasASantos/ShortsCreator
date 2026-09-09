@@ -16,6 +16,14 @@ from .timeline import Timeline, words_from_captions
 
 W, H, FPS = settings.width, settings.height, settings.fps
 
+# A crossfade between two shots, and the shortest still that gets to move.
+#
+# Both exist because a documentary made of stills and archive cuts reads as a
+# slideshow without them: 27 of the 37 shots in a seven-minute mini-doc are
+# stills, and a still that does not move is a photograph on screen.
+TRANSITION = 0.4
+MOTION_MIN_SECONDS = 1.5
+
 
 def render_timeline(job_dir: Path, timeline: Timeline, out: Path,
                     log=lambda m: None) -> Path:
@@ -32,19 +40,80 @@ def render_timeline(job_dir: Path, timeline: Timeline, out: Path,
     return _mux(job_dir, timeline, background, overlays, out)
 
 
+def _crossfades(timeline: Timeline) -> set[int]:
+    """Which clip indexes dissolve into the next one.
+
+    Only between clips that carry no speech. `mute` already says that: an
+    interview cut is unmuted because its own audio is on the timeline, and
+    dissolving over someone's sentence smears the words. So archive footage
+    and stills flow into each other, quotes cut hard, and the film stops
+    reading as a slideshow without anyone's voice being mangled.
+
+    A clip shorter than two transitions is left alone — a 0.4 s dissolve on a
+    0.5 s shot is the whole shot.
+    """
+    out: set[int] = set()
+    clips = timeline.video
+    for index, clip in enumerate(clips[:-1]):
+        nxt = clips[index + 1]
+        # Adjacent on the timeline: a real hole between them becomes black, and
+        # dissolving into black is not a transition, it is a fade-out.
+        if abs((clip.start + clip.duration) - nxt.start) > 0.04:
+            continue
+        if not (clip.mute and nxt.mute):
+            continue
+        if min(clip.duration, nxt.duration) < TRANSITION * 2:
+            continue
+        out.add(index)
+    return out
+
+
+def _ken_burns(index: int, length: float, fmt) -> str:
+    """A slow push or pull across a still.
+
+    zoompan is fed a frame larger than the output so the crop has room to move
+    without softening: at 1.15x zoom on a 1920-wide render, the pixels come
+    from a 2880-wide scale rather than being stretched up from 1920.
+
+    Direction alternates so consecutive stills do not perform the same move.
+    """
+    frames = max(int(round(length * FPS)) + 1, 2)
+    big_w, big_h = fmt.width * 3 // 2, fmt.height * 3 // 2
+    step = 0.15 / max(frames, 1)
+    if index % 2 == 0:
+        zoom = f"min(zoom+{step:.6f},1.15)"          # push in
+    else:
+        zoom = f"if(lte(zoom,1.0),1.15,max(1.001,zoom-{step:.6f}))"   # pull out
+    return (
+        f"scale={big_w}:{big_h}:force_original_aspect_ratio=increase,"
+        f"crop={big_w}:{big_h},"
+        f"zoompan=z='{zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+        f":d={frames}:s={fmt.width}x{fmt.height}:fps={FPS},"
+        f"scale=in_range=full:out_range=tv,setsar=1,format=yuv420p"
+    )
+
+
 def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
-    """Cut and position each clip; gaps between clips become black."""
+    """Cut and position each clip; gaps between clips become black.
+
+    Clips that dissolve into the next are rendered TRANSITION longer than
+    their slot, because xfade eats that much: the extra is exactly what the
+    dissolve consumes, so the assembled track still lands on the timeline's
+    own clock and the subtitles and audio stay in sync.
+    """
     fmt = timeline.fmt
     W, H = fmt.width, fmt.height   # noqa: N806 — the frame is the timeline's, not the module's
     work = job_dir / "tl"
     work.mkdir(exist_ok=True)
-    parts: list[Path] = []
+    fading = _crossfades(timeline)
+    # (path, rendered length, dissolves into the next part)
+    parts: list[tuple[Path, float, bool]] = []
     cursor = 0.0
 
     for index, clip in enumerate(timeline.video):
         if clip.start > cursor + 0.04:
             gap = clip.start - cursor
-            parts.append(_black(work, index, gap, fmt))
+            parts.append((_black(work, index, gap, fmt), gap, False))
             cursor += gap
 
         source = (job_dir / clip.source).resolve()
@@ -53,12 +122,18 @@ def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
 
         dest = work / f"part_{index:03d}.mp4"
         length = max(clip.duration, 0.1)
+        dissolves = index in fading
+        rendered = length + TRANSITION if dissolves else length
         if clip.kind == "image":
+            if length >= MOTION_MIN_SECONDS:
+                still = _ken_burns(index, rendered, fmt)
+            else:
+                still = (f"scale={W}:{H}:force_original_aspect_ratio=increase,"
+                         f"crop={W}:{H},scale=in_range=full:out_range=tv,"
+                         f"setsar=1,fps={FPS},format=yuv420p")
             render._run([
                 "ffmpeg", "-y", "-loop", "1", "-i", str(source),
-                "-t", f"{length:.3f}", "-vf",
-                f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
-                f"scale=in_range=full:out_range=tv,setsar=1,fps={FPS},format=yuv420p",
+                "-t", f"{rendered:.3f}", "-vf", still,
                 "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast",
                 "-crf", "21", "-pix_fmt", "yuv420p", "-color_range", "tv", str(dest)])
         else:
@@ -67,23 +142,69 @@ def _build_video_track(job_dir: Path, timeline: Timeline, log) -> Path:
             render._run([
                 "ffmpeg", "-y", "-stream_loop", "-1",
                 "-ss", f"{clip.in_point:.3f}", "-i", str(source),
-                "-t", f"{length:.3f}", "-an", "-vf", render.fit_filter(fmt),
+                "-t", f"{rendered:.3f}", "-an", "-vf", render.fit_filter(fmt),
                 "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast",
                 "-crf", "21", "-pix_fmt", "yuv420p", str(dest)])
-        parts.append(dest)
+        parts.append((dest, rendered, dissolves))
         cursor += length
 
     if cursor < timeline.duration - 0.04:
-        parts.append(_black(work, len(parts) + 900, timeline.duration - cursor, fmt))
+        gap = timeline.duration - cursor
+        parts.append((_black(work, len(parts) + 900, gap, fmt), gap, False))
 
     if not parts:
         raise RuntimeError("No video clip on the timeline.")
 
+    if any(dissolves for _, _, dissolves in parts):
+        log(f"{sum(1 for _, _, d in parts if d)} dissolve(s) of {TRANSITION}s "
+            f"between shots that carry no speech")
+        return _join_with_dissolves(work, parts, timeline.duration)
+
     listing = work / "concat.txt"
-    listing.write_text("".join(f"file '{p.name}'\n" for p in parts), encoding="utf-8")
+    listing.write_text("".join(f"file '{p.name}'\n" for p, _, _ in parts),
+                       encoding="utf-8")
     background = work / "video_track.mp4"
     render._run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listing.name,
                  "-c", "copy", background.name], cwd=work)
+    return background
+
+
+def _join_with_dissolves(work: Path, parts: list[tuple[Path, float, bool]],
+                         duration: float) -> Path:
+    """One filter pass: xfade where a shot dissolves, concat where it cuts.
+
+    The chain is walked left to right carrying its own accumulated length,
+    because xfade's `offset` is measured on the chain built so far and not on
+    the part being added. Getting that wrong does not fail — it silently
+    slides every later shot, which is the kind of bug that only shows up as
+    subtitles drifting out of sync near the end.
+    """
+    background = work / "video_track.mp4"
+    cmd: list[str] = ["ffmpeg", "-y"]
+    for path, _, _ in parts:
+        cmd += ["-i", path.name]
+
+    steps = [f"[{index}:v]setpts=PTS-STARTPTS[v{index}]"
+             for index in range(len(parts))]
+    current = "v0"
+    accumulated = parts[0][1]
+    for index in range(1, len(parts)):
+        label = f"j{index}"
+        if parts[index - 1][2]:
+            offset = max(accumulated - TRANSITION, 0.0)
+            steps.append(f"[{current}][v{index}]xfade=transition=fade"
+                         f":duration={TRANSITION:.3f}:offset={offset:.3f}[{label}]")
+            accumulated = offset + parts[index][1]
+        else:
+            steps.append(f"[{current}][v{index}]concat=n=2:v=1:a=0[{label}]")
+            accumulated += parts[index][1]
+        current = label
+
+    cmd += ["-filter_complex", ";".join(steps), "-map", f"[{current}]",
+            "-t", f"{duration:.3f}", "-r", str(FPS),
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-pix_fmt", "yuv420p", background.name]
+    render._run(cmd, cwd=work)
     return background
 
 
