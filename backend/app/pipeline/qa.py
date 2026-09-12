@@ -154,6 +154,12 @@ def _ass_safe_area(ass_path: Path, fmt=None) -> list[QAIssue]:
     return issues
 
 
+def _stamp(seconds: float) -> str:
+    """M:SS — where in the film, in the form someone can type into a player."""
+    seconds = max(seconds, 0.0)
+    return f"{int(seconds) // 60}:{int(seconds) % 60:02d}"
+
+
 def _union_seconds(spans: list[tuple[float, float]]) -> float:
     """Time covered by the union of the spans (karaoke produces overlapping ones)."""
     total, end_cursor = 0.0, float("-inf")
@@ -389,6 +395,25 @@ def audit(video: Path, ass_path: Path | None = None,
                     message=f"{end - start:.1f}s of silence at the end.",
                     fix="Trim the tail or shorten the background."))
                 break
+        # A hole in the middle: nobody speaking for seconds on end, which in a
+        # narrated film means a block whose voice never arrived. This used to
+        # be invisible — 34 silence blocks were counted and none was named, so
+        # the one that mattered was reported the same way as a pause between
+        # sentences.
+        gaps = [(start, end) for start, end in silences
+                if start > 0.4 and (duration and end < duration - 0.3)
+                and (end - start) >= 3.0]
+        if gaps:
+            metrics["silence_at"] = [f"{_stamp(start)}-{_stamp(end)}"
+                                     for start, end in gaps[:8]]
+            worst = max(end - start for start, end in gaps)
+            issues.append(QAIssue(
+                check="silencio_no_meio", severity="aviso" if worst < 6 else "erro",
+                message=f"{len(gaps)} stretch(es) with nobody speaking, the longest "
+                        f"{worst:.1f}s. Where: "
+                        f"{', '.join(metrics['silence_at'])}.",
+                fix="Check whether the narration for that block was synthesized, "
+                    "or shorten the block."))
 
     # --- 5. black screen / visual hole ---
     blacks = _black_frames(video)
@@ -397,17 +422,26 @@ def audit(video: Path, ass_path: Path | None = None,
         metrics["black_seconds"] = round(black_total, 2)
         metrics["black_ratio"] = round(black_total / duration, 3) if duration else 0
     longest = max((end - start for start, end in blacks), default=0.0)
+    if blacks:
+        # WHERE, not just how much. "5.1s of black screen" in a seven-minute
+        # film sends someone scrubbing; "at 6:33" is the shot to fix. The
+        # timestamps go in the metrics too, so the report keeps them even when
+        # no issue is raised.
+        metrics["black_at"] = [f"{_stamp(start)}-{_stamp(end)}"
+                               for start, end in blacks[:8]]
+    where = (" Where: " + ", ".join(metrics.get("black_at", []))) if blacks else ""
     if duration and black_total / duration > 0.15:
         issues.append(QAIssue(
             check="tela_preta", severity="erro",
             message=f"{black_total:.1f}s of black screen ({black_total / duration:.0%} "
-                    "of the video): there is a visual hole in the edit.",
+                    f"of the video): there is a visual hole in the edit.{where}",
             fix="Extend the video clips or shorten the audio on the timeline."))
     elif longest > 1.5:
         issues.append(QAIssue(
             check="tela_preta", severity="aviso",
-            message=f"A {longest:.1f}s stretch with a black screen.",
-            fix="Fill the gap on the timeline."))
+            message=f"A {longest:.1f}s stretch with a black screen.{where}",
+            fix="Fill the gap on the timeline, or move the cut past the black "
+                "the source itself has there."))
 
     # --- black bars / letterbox ---
     crop = _black_bars(video, duration)

@@ -161,3 +161,67 @@ def test_edge_itself_never_falls_back_to_edge(tmp_path, monkeypatch):
     monkeypatch.setattr(tts, "_edge", refuse)
     with pytest.raises(tts.VoiceUnavailable):
         tts.synthesize("frase", tmp_path / "n.mp3", {"provider": "edge"})
+
+
+# ------------------- a blip is not the same as a refusal -------------------
+
+def test_a_transient_failure_is_retried_at_the_same_voice(tmp_path, monkeypatch):
+    """This left a block of a real documentary with no voice at all: one read
+    timeout, and the film played thirteen seconds of subtitles over silence.
+    The next attempt of the same request nearly always works."""
+    attempts = {"n": 0}
+
+    def flaky(text, out_path, voice, log):
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise httpx.ReadTimeout("The read operation timed out")
+        out_path.write_bytes(b"fake-mp3")
+        return tts.Narration(out_path, 4.0, [])
+
+    monkeypatch.setattr(tts, "_fishaudio", flaky)
+    monkeypatch.setattr(tts.time, "sleep", lambda s: None)
+
+    narration = tts.synthesize("uma frase narrada", tmp_path / "n.mp3",
+                               {"provider": "fishaudio"})
+    assert attempts["n"] == 3, "it kept trying the voice that was chosen"
+    assert narration.duration == 4.0
+    assert narration.words, "the word timings were filled in"
+
+
+def test_the_retries_are_reported(tmp_path, monkeypatch):
+    """A narration that took three attempts is worth knowing about — it is the
+    difference between a slow provider and a broken one."""
+    said: list[tuple[str, str]] = []
+    tries = {"n": 0}
+
+    def flaky(text, out_path, voice, log):
+        tries["n"] += 1
+        if tries["n"] < 2:
+            raise httpx.ReadTimeout("timed out")
+        out_path.write_bytes(b"fake-mp3")
+        return tts.Narration(out_path, 3.0, [])
+
+    monkeypatch.setattr(tts, "_fishaudio", flaky)
+    monkeypatch.setattr(tts.time, "sleep", lambda s: None)
+
+    tts.synthesize("frase", tmp_path / "n.mp3", {"provider": "fishaudio"},
+                   log=lambda m, level="info": said.append((level, m)))
+    assert any(level == "warn" and "retrying" in m for level, m in said)
+
+
+def test_a_refusal_is_not_retried(tmp_path, monkeypatch):
+    """No credit will still be no credit on the third attempt: retrying it
+    wastes the time the fallback needs."""
+    attempts = {"n": 0}
+
+    def refuse(*a, **k):
+        attempts["n"] += 1
+        raise tts.VoiceUnavailable("fish.audio: no credit")
+
+    monkeypatch.setattr(tts, "_fishaudio", refuse)
+    monkeypatch.setattr(tts, "_edge",
+                        lambda text, out, voice, log: tts.Narration(out, 2.0, []))
+    monkeypatch.setattr(tts.time, "sleep", lambda s: None)
+
+    tts.synthesize("frase", tmp_path / "n.mp3", {"provider": "fishaudio"})
+    assert attempts["n"] == 1

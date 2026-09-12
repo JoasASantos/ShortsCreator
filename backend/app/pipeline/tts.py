@@ -38,7 +38,7 @@ class VoiceUnavailable(RuntimeError):
 
 
 def synthesize(text: str, out_path: Path, voice: dict | None = None,
-               log=lambda m: None) -> Narration:
+               log=lambda m, level="info": None) -> Narration:
     voice = voice or {}
     provider = voice.get("provider") or settings.tts_provider
     narration = _synthesize_with(provider, text, out_path, voice, log)
@@ -46,6 +46,13 @@ def synthesize(text: str, out_path: Path, voice: dict | None = None,
     if not narration.words:
         narration.words = estimate_words(text, narration.duration)
     return narration
+
+
+# A paid provider's HTTP request that timed out or dropped, retried. Not a
+# refusal and not the provider's fault: one read timeout used to leave a block
+# of a documentary with no voice at all, which reads as a broken file, and the
+# next attempt of the same request nearly always works.
+PAID_MAX_ATTEMPTS = 3
 
 
 def _synthesize_with(provider: str, text: str, out_path: Path, voice: dict,
@@ -56,23 +63,43 @@ def _synthesize_with(provider: str, text: str, out_path: Path, voice: dict,
     A short should not be lost because a voice account ran dry — the narration
     still gets made, in the system voice, and the log says why it changed. The
     fallback is deliberate for `VoiceUnavailable` only: a network blip is worth
-    surfacing rather than silently swapping the voice of the video.
+    surfacing rather than silently swapping the voice of the video. What a blip
+    gets instead is another attempt at the same voice.
     """
-    try:
-        if provider == "edge":
-            return _edge(text, out_path, voice, log)
-        if provider == "elevenlabs":
-            return _elevenlabs(text, out_path, voice, log)
-        if provider == "xtts":
-            return _xtts(text, out_path, voice, log)
-        if provider == "fishaudio":
-            return _fishaudio(text, out_path, voice, log)
-        raise RuntimeError(f"Unknown TTS_PROVIDER: {provider}")
-    except VoiceUnavailable as exc:
-        if provider == "edge":
-            raise
-        log(f"{exc} Falling back to the free edge-tts voice.", "warn")
-        return _edge(text, out_path, {}, log)
+    last_error: Exception | None = None
+    for attempt in range(1, PAID_MAX_ATTEMPTS + 1):
+        try:
+            if provider == "edge":
+                return _edge(text, out_path, voice, log)
+            if provider == "elevenlabs":
+                return _elevenlabs(text, out_path, voice, log)
+            if provider == "xtts":
+                return _xtts(text, out_path, voice, log)
+            if provider == "fishaudio":
+                return _fishaudio(text, out_path, voice, log)
+            raise RuntimeError(f"Unknown TTS_PROVIDER: {provider}")
+        except VoiceUnavailable as exc:
+            if provider == "edge":
+                raise
+            log(f"{exc} Falling back to the free edge-tts voice.", "warn")
+            return _edge(text, out_path, {}, log)
+        except Exception as exc:  # noqa: BLE001 — see the two re-raises below
+            # Broad on purpose: the failure that made a documentary block
+            # silent was `httpx.ReadTimeout`, which is neither RuntimeError
+            # nor OSError. edge-tts retries inside itself, and an unknown
+            # provider name is not going to become known on the second attempt.
+            if provider == "edge" or "Unknown TTS_PROVIDER" in str(exc):
+                raise
+            last_error = exc
+            if attempt < PAID_MAX_ATTEMPTS:
+                delay = 2 ** (attempt - 1)
+                log(f"{provider} failed ({exc}); retrying in {delay}s "
+                    f"[{attempt}/{PAID_MAX_ATTEMPTS}]", "warn")
+                time.sleep(delay)
+    # The original exception, not a wrapper: a transient failure has to reach
+    # the caller as what it was, so `except httpx.ConnectError` upstream still
+    # means what it says.
+    raise last_error if last_error else RuntimeError(f"{provider} failed")
 
 
 def trim_leading_silence(narration: Narration, out_path: Path,

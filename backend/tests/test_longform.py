@@ -24,6 +24,21 @@ PROMPT = "Os principais golpes digitais no Brasil em 2026 e quem está por trás
 INSTRUCTION = "Tom investigativo, sem sensacionalismo."
 
 
+# Captured before any fixture patches it: the assembly fixture replaces
+# `_translate_cues` with a pass-through so no test spends an LLM request, and
+# the tests about translation put the real one back.
+_REAL_TRANSLATE = longform._translate_cues
+
+
+def no_cutaways(monkeypatch):
+    """No unused window in the material, so the placeholder card is the floor.
+
+    The cover-with-your-own-footage fallback sits between stock and the card,
+    and a test about the card has to reach it: the fixture's material has
+    plenty of unused minutes, so without this the shot is covered instead."""
+    monkeypatch.setattr(longform._Cutaways, "take", lambda self, seconds: None)
+
+
 @pytest.fixture(autouse=True)
 def no_image_generator(monkeypatch):
     """What happens to a stock shot with no stock bank depends on whether an
@@ -588,6 +603,11 @@ def fake_assembly(monkeypatch):
     monkeypatch.setattr(longform, "_thumbnail",
                         lambda video, out, at=1.0: out.write_bytes(b"jpg") or out)
     monkeypatch.setattr(longform.tts, "synthesize", synthesize)
+    # Subtitles for a cut are translated through the LLM. Without this every
+    # assembly test would spend a real request per cut — the tests hung on the
+    # CLI instead of running. The translation tests patch this themselves.
+    monkeypatch.setattr(longform, "_translate_cues",
+                        lambda segments, language, log: segments)
     monkeypatch.setattr(longform.broll, "providers_ready", lambda: ["pexels"])
     monkeypatch.setattr(longform.broll, "fetch_for_queries", fetch)
     monkeypatch.setattr(longform.timeline_render, "render_timeline",
@@ -620,17 +640,22 @@ def test_assembly_produces_a_horizontal_job_with_the_narration_at_each_blocks_st
 
     edl = _timeline_of(job_id)
     assert edl["format"] == "horizontal"
-    # block 1: stock 6s + card 4s = 10s, narration 7.5s at 0.0
-    # block 2: the interview cut, 20s, its own audio; no narration
-    # block 3: stock 8 (30->38) + link 10 (38->48) + image 24-18=6 (48->54),
-    #          narration at 30.0
-    # block 4: card 8s, narration at 54.0
+    # block 1: stock 6s + card 4s = 10s of picture for 7.5s of voice, so the
+    #          silent picture is squeezed to 7.5 + 1.2 = 8.7s (narration at 0.0)
+    # block 2: the interview cut, 20s, its own audio; no narration -> ends 28.7
+    # block 3: stock 8 + link 10 + image 6: it holds a quote, so nothing is
+    #          squeezed and it keeps its 24s (narration at 28.7)
+    # block 4: card 8s for 7.5s of voice — 8.7 needed is not less than 8, so it
+    #          stays as planned (narration at 52.7)
     narration = [a for a in edl["audio"] if a["role"] == "narration"]
-    assert [a["start"] for a in narration] == [0.0, 30.0, 54.0]
+    assert [a["start"] for a in narration] == [0.0, 28.7, 52.7]
     assert all(a["source"].startswith("nar_") for a in narration)
     interviews = [a for a in edl["audio"] if a["role"] == "entrevista"]
-    assert [(a["start"], round(a["out_point"], 1)) for a in interviews] == [(10.0, 20.0), (38.0, 10.0)]
-    assert edl["duration"] == pytest.approx(62.0, abs=0.05)
+    # the quotes keep their full length; they only start earlier, because the
+    # silent picture ahead of them no longer waits for a voice that finished
+    assert [(a["start"], round(a["out_point"], 1)) for a in interviews] == [(8.7, 20.0), (36.7, 10.0)]
+    # 62.0 as planned, minus the 1.3s of dead air block 1 was holding
+    assert edl["duration"] == pytest.approx(60.7, abs=0.05)
     # the interview is heard, everything else is muted footage
     by_source = {v["source"]: v for v in edl["video"]}
     assert by_source["cut_shot_e01_b02_00.mp4"]["mute"] is False
@@ -660,6 +685,7 @@ def test_a_stock_query_that_finds_nothing_leaves_a_placeholder_and_the_film_asse
         path.write_bytes(b"fake-stock")
         return [path]
 
+    no_cutaways(monkeypatch)
     monkeypatch.setattr(longform.broll, "fetch_for_queries", flaky)
     project = _project()
     longform.assemble(project["id"])
@@ -682,6 +708,7 @@ def test_a_stock_query_that_finds_nothing_leaves_a_placeholder_and_the_film_asse
 
 def test_no_stock_provider_turns_every_stock_shot_into_a_card_without_searching(
         fake_assembly, monkeypatch):
+    no_cutaways(monkeypatch)
     monkeypatch.setattr(longform.broll, "providers_ready", lambda: [])
     project = _project()
     longform.assemble(project["id"])
@@ -696,6 +723,7 @@ def test_no_stock_provider_turns_every_stock_shot_into_a_card_without_searching(
 def test_a_resume_redoes_only_what_failed(fake_assembly, monkeypatch):
     """A placeholder is a failure marker, not a result. Everything that
     succeeded — narration, cuts, the other stock clip — is not paid for twice."""
+    no_cutaways(monkeypatch)
     failing = {"on": True}
     real_fetch = longform.broll.fetch_for_queries
 
@@ -1380,6 +1408,7 @@ def test_a_query_stock_cannot_fill_is_drawn_instead_of_carded(fake_assembly, mon
 def test_a_generator_that_refuses_falls_back_to_the_card(fake_assembly, monkeypatch):
     """The placeholder is still the floor: one shot must not take a half-hour
     production down."""
+    no_cutaways(monkeypatch)
     monkeypatch.setattr(longform.broll, "providers_ready", lambda: [])
     _draws(monkeypatch, [], fail=True)
 
@@ -1416,3 +1445,394 @@ def test_the_estimate_says_the_stock_shots_will_be_drawn(monkeypatch):
     warning = next(w for w in report["warnings"] if "stock shot" in w)
     assert "generated as images" in warning
     assert "not real footage" in warning
+
+
+# --------------------- cover with the user's own footage ---------------------
+
+def test_a_stock_shot_no_bank_can_fill_is_covered_with_the_users_footage(
+        fake_assembly, monkeypatch):
+    """Better than a card with the search terms printed on it: the material is
+    already on disk, already about the subject, already paid for."""
+    monkeypatch.setattr(longform.broll, "providers_ready", lambda: [])
+    project = _project()
+    longform.assemble(project["id"])
+
+    ledger = json.loads(db.get_longform(project["id"])["progress_json"])
+    stock = [e for e in ledger if e["kind"] == "shot" and e["shot"] == "stock"]
+    assert stock and all(e["status"] == "ok" for e in stock)
+    assert all(e["file"].startswith("cover_") for e in stock)
+
+
+def test_the_cover_never_replays_a_window_a_quote_already_uses(fake_assembly):
+    """Replaying a sentence the film already used reads as a mistake, not as
+    b-roll."""
+    project = _project()
+    plan = json.loads(project["plano_json"])
+    blocks = longform.plan_blocks(plan)
+    catalog = {i["id"]: i for i in json.loads(project["material_json"])["items"]}
+    quotes = [(s["material"], s["start"], s["end"]) for b in blocks
+              for s in b["shots"] if s["kind"] in ("entrevista", "link")]
+    assert quotes, "the fixture has to use quotes for this to mean anything"
+
+    cutaways = longform._Cutaways(catalog, blocks)  # noqa: SLF001
+    for _ in range(6):
+        window = cutaways.take(6.0)
+        if window is None:
+            break
+        material, start, end = window
+        for quoted_material, quoted_start, quoted_end in quotes:
+            if material != quoted_material:
+                continue
+            assert end <= quoted_start or start >= quoted_end, \
+                f"{material} {start}-{end} overlaps the quote {quoted_start}-{quoted_end}"
+
+
+def test_the_cover_hands_out_each_window_only_once(fake_assembly):
+    project = _project()
+    blocks = longform.plan_blocks(json.loads(project["plano_json"]))
+    catalog = {i["id"]: i for i in json.loads(project["material_json"])["items"]}
+
+    cutaways = longform._Cutaways(catalog, blocks)  # noqa: SLF001
+    taken = []
+    while len(taken) < 8:
+        window = cutaways.take(5.0)
+        if window is None:
+            break
+        taken.append(window)
+    assert len(taken) >= 2, "the fixture's material has room for a few covers"
+    for index, (material, start, end) in enumerate(taken):
+        for other_material, other_start, other_end in taken[index + 1:]:
+            if material != other_material:
+                continue
+            assert end <= other_start or start >= other_end, \
+                "two shots were given the same footage"
+
+
+def test_the_cover_skips_the_intro_and_the_credits(fake_assembly):
+    """Where an intro card and end credits live — the two stretches most
+    likely to be black or a logo."""
+    project = _project()
+    blocks = longform.plan_blocks(json.loads(project["plano_json"]))
+    catalog = {i["id"]: i for i in json.loads(project["material_json"])["items"]}
+
+    cutaways = longform._Cutaways(catalog, blocks)  # noqa: SLF001
+    while True:
+        window = cutaways.take(4.0)
+        if window is None:
+            break
+        material, start, end = window
+        duration = float(catalog[material]["duration"])
+        assert start >= longform._Cutaways.EDGE  # noqa: SLF001
+        assert end <= duration - longform._Cutaways.EDGE + 0.01  # noqa: SLF001
+
+
+def test_a_reference_example_is_never_used_as_cover(fake_assembly):
+    """A reference is structure only — putting its footage in the film would
+    publish someone else's documentary inside this one."""
+    project = _project()
+    blocks = longform.plan_blocks(json.loads(project["plano_json"]))
+    catalog = {i["id"]: i for i in json.loads(project["material_json"])["items"]}
+    assert any(i.get("reference") for i in catalog.values()), "fixture needs one"
+
+    cutaways = longform._Cutaways(catalog, blocks)  # noqa: SLF001
+    while True:
+        window = cutaways.take(4.0)
+        if window is None:
+            break
+        assert not catalog[window[0]].get("reference")
+
+
+# ------------------------ subtitles in the target language ------------------
+
+def test_a_quote_in_another_language_is_subtitled_in_the_productions_language(
+        fake_assembly, monkeypatch):
+    """The viewer reading English subtitles under Portuguese narration is
+    being helped with the language they did not need help with."""
+    asked: list[str] = []
+
+    def translate(system, prompt, schema=None, max_tokens=8000, purpose=""):
+        asked.append(prompt)
+        lines = [line for line in prompt.splitlines() if line[:1].isdigit()]
+        return {"lines": [{"i": i, "text": f"[pt] {line.split('. ', 1)[-1]}"}
+                          for i, line in enumerate(lines)]}
+
+    monkeypatch.setattr(longform, "_translate_cues", _REAL_TRANSLATE)
+    monkeypatch.setattr(longform.llm, "complete_json", translate)
+    project = _project()
+    longform.assemble(project["id"])
+
+    assert asked, "the cuts' transcript lines were sent for translation"
+    timeline = _timeline_of(json.loads(
+        db.get_longform(project["id"])["jobs_json"])["1"])
+    interview_cues = [c["text"] for c in timeline["captions"]
+                      if c["text"].startswith("[pt] ")]
+    assert interview_cues, "the interview subtitles came from the translation"
+
+
+def test_a_failed_translation_keeps_the_original_subtitles(fake_assembly, monkeypatch):
+    """A film subtitled in the source language is worse than one subtitled in
+    the target, and much better than one with no subtitles at all."""
+    def refuse(*_a, **_k):
+        raise RuntimeError("every model is out of quota")
+
+    monkeypatch.setattr(longform, "_translate_cues", _REAL_TRANSLATE)
+    monkeypatch.setattr(longform.llm, "complete_json", refuse)
+    project = _project()
+    longform.assemble(project["id"])
+
+    timeline = _timeline_of(json.loads(
+        db.get_longform(project["id"])["jobs_json"])["1"])
+    assert timeline["captions"], "the subtitles survived the failure"
+
+
+def test_the_translation_is_not_paid_for_twice_on_a_resume(fake_assembly, monkeypatch):
+    calls: list[str] = []
+
+    def translate(system, prompt, schema=None, max_tokens=8000, purpose=""):
+        calls.append(purpose)
+        return {"lines": []}
+
+    monkeypatch.setattr(longform, "_translate_cues", _REAL_TRANSLATE)
+    monkeypatch.setattr(longform.llm, "complete_json", translate)
+    project = _project()
+    longform.assemble(project["id"])
+    first = len(calls)
+    assert first > 0
+
+    calls.clear()
+    longform.assemble(project["id"])
+    assert calls == [], "the cuts and their subtitles were already on disk"
+
+
+# ------------------- a cut that lands on the source's own black -------------
+
+def test_a_cut_opening_on_black_is_moved_forward(fake_assembly, monkeypatch):
+    """The failure the transcript cannot show: someone talks over a title card
+    or a chapter transition, so the window passes every check and then plays
+    as five seconds of a broken player."""
+    monkeypatch.setattr(longform.render, "leading_black",
+                        lambda path, minimum=0.3: 5.07)
+    cuts: list[tuple[float, float]] = []
+    monkeypatch.setattr(longform, "_cut_segment",
+                        lambda src, start, end, dest: cuts.append((start, end))
+                        or dest.write_bytes(b"fake-cut") or dest)
+
+    project = _project()
+    longform.assemble(project["id"])
+
+    # For at least one window there are two cuts: the one that was planned and
+    # the one that slid past the black, 5.07s + a margin later, keeping its
+    # length — a shorter window would drop the end of the quote.
+    slid = [(start, end) for start, end in cuts
+            if any(abs(start - (s + 5.07 + 0.2)) < 0.01
+                   and abs((end - start) - (e - s)) < 0.01
+                   for s, e in cuts)]
+    assert slid, f"no window was moved past the black: {cuts}"
+
+
+def test_a_black_open_with_no_room_to_move_is_reported_not_forced(
+        fake_assembly, monkeypatch):
+    """Sliding a window past the end of the material would cut nothing at all."""
+    monkeypatch.setattr(longform.render, "leading_black",
+                        lambda path, minimum=0.3: 5.0)
+    lines: list[tuple[str, str]] = []
+    shot = {"kind": "link", "material": "m02", "start": 500.0, "end": 508.0,
+            "seconds": 8.0}
+
+    result = longform._skip_black_open(  # noqa: SLF001
+        Path("nowhere.mp4"), shot, "shot_x", Path("cut.mp4"), 509.0,
+        lambda m, level="info": lines.append((level, m)))
+
+    assert result == Path("cut.mp4"), "the cut it already had"
+    assert shot["start"] == 500.0, "the window was not moved off the material"
+    assert any(level == "warn" and "no room" in m for level, m in lines)
+
+
+def test_a_clean_cut_is_not_cut_twice(fake_assembly, monkeypatch):
+    """Probing is cheap, re-cutting is not: a window that opens on a picture
+    must not pay for a second pass."""
+    monkeypatch.setattr(longform.render, "leading_black",
+                        lambda path, minimum=0.3: 0.0)
+    cuts: list[tuple[float, float]] = []
+    monkeypatch.setattr(longform, "_cut_segment",
+                        lambda src, start, end, dest: cuts.append((start, end))
+                        or dest.write_bytes(b"fake-cut") or dest)
+
+    longform.assemble(_project()["id"])
+    assert len(cuts) == len(set(cuts))
+
+
+# ---------------- a card is for the audience, not for the editor ------------
+
+def test_a_card_carrying_an_editorial_note_is_refused():
+    """This shipped in a real film: 11 seconds of "Pendência de edição: o
+    trecho previsto não consta na transcrição", printed on screen for the
+    audience. The note belongs in the rejected list."""
+    for note in ("Pendência de edição: o trecho previsto não consta na transcrição.",
+                 "A verificar: falta material sobre o assunto",
+                 "TODO: gravar narração deste bloco",
+                 "placeholder"):
+        assert longform._is_editorial_note(note), note  # noqa: SLF001
+
+
+def test_a_real_card_is_not_mistaken_for_a_note():
+    for card in ("Responsabilidade\nAutorização, ações e destino das descobertas",
+                 "1960: o clube de ferromodelismo do MIT",
+                 "O que é o Hacking",
+                 "Faltam respostas — e é isso que o filme investiga"):
+        assert not longform._is_editorial_note(card), card  # noqa: SLF001
+
+
+def test_a_cut_already_on_disk_still_gets_its_subtitles_translated(
+        fake_assembly, monkeypatch):
+    """The gap between the two halves of the feature: the cut's fingerprint did
+    not change when subtitles started being translated, so a film assembled
+    before it would keep its English subtitles forever — re-cutting to fix that
+    would throw away work that was already paid for."""
+    monkeypatch.setattr(longform, "_translate_cues", lambda segments, language, log: segments)
+    project = _project()
+    longform.assemble(project["id"])
+
+    # what an older ledger looks like: cuts on disk, no translated subtitles
+    row = db.get_longform(project["id"])
+    ledger = json.loads(row["progress_json"])
+    for entry in ledger:
+        entry.pop("captions", None)
+    db.update_longform(project["id"], progress_json=json.dumps(ledger))
+
+    cuts: list[tuple[float, float]] = []
+    monkeypatch.setattr(longform, "_cut_segment",
+                        lambda src, start, end, dest: cuts.append((start, end))
+                        or dest.write_bytes(b"fake-cut") or dest)
+    monkeypatch.setattr(longform, "_translate_cues",
+                        lambda segments, language, log: [
+                            {**s, "text": f"[pt] {s['text']}"} for s in segments])
+
+    longform.assemble(project["id"])
+
+    assert cuts == [], "nothing was re-cut"
+    ledger = {e["key"]: e for e in json.loads(
+        db.get_longform(project["id"])["progress_json"])}
+    quotes = [e for e in ledger.values()
+              if e["kind"] == "shot" and e["shot"] in ("entrevista", "link")]
+    assert quotes and all(e.get("captions") for e in quotes)
+    assert all(c["text"].startswith("[pt] ") for e in quotes for c in e["captions"])
+
+
+# ------------------ the picture gives way to the voice ---------------------
+
+def test_a_block_whose_voice_is_shorter_than_its_picture_is_tightened(fake_assembly):
+    """The complaint was "não tá com uma edição muito boa", and this was most
+    of it: twelve stretches with nobody speaking, the longest 9.8s, each one a
+    still card being held because the plan sized the block for a slower
+    narrator than the voice that read it."""
+    project = _project()
+    longform.assemble(project["id"])
+    row = db.get_longform(project["id"])
+    timeline = _timeline_of(json.loads(row["jobs_json"])["1"])
+    ledger = {e["key"]: e for e in json.loads(row["progress_json"])}
+    blocks = longform.plan_blocks(json.loads(row["plano_json"]))
+
+    quote_files = {e["file"] for e in ledger.values()
+                   if e.get("shot") in ("entrevista", "link")}
+    by_file = {c["source"]: c for c in timeline["video"]}
+
+    checked = 0
+    for block in blocks:
+        if not block.get("narration"):
+            continue
+        files = [ledger[longform._shot_key(block, n)]["file"]  # noqa: SLF001
+                 for n, _ in enumerate(block["shots"])
+                 if longform._shot_key(block, n) in ledger]    # noqa: SLF001
+        if any(f in quote_files for f in files):
+            continue        # a block holding a quote is left exactly as planned
+        voice = float(ledger[longform._narration_key(block)]["seconds"])  # noqa: SLF001
+        on_screen = sum(by_file[f]["out_point"] - by_file[f]["in_point"]
+                        for f in files if f in by_file)
+        planned = sum(float(s["seconds"]) for s in block["shots"])
+        if planned <= voice + longform.NARRATION_TAIL_SECONDS:
+            continue        # there was nothing to trim
+        assert on_screen < planned, f"{block['key']} kept its dead air"
+        assert on_screen >= voice, f"{block['key']} cuts the narration off"
+        checked += 1
+    assert checked, "the fixture has to contain a block worth tightening"
+
+
+def test_a_quote_is_never_trimmed_to_fit_the_narration(fake_assembly):
+    """An interview cut carries its own audio: shortening it cuts someone off
+    mid-sentence."""
+    project = _project()
+    longform.assemble(project["id"])
+    timeline = _timeline_of(json.loads(
+        db.get_longform(project["id"])["jobs_json"])["1"])
+    ledger = {e["key"]: e for e in json.loads(
+        db.get_longform(project["id"])["progress_json"])}
+
+    for clip in timeline["video"]:
+        entry = next((e for e in ledger.values() if e.get("file") == clip["source"]), None)
+        if entry and entry.get("shot") in ("entrevista", "link"):
+            length = clip["out_point"] - clip["in_point"]
+            assert length == pytest.approx(float(entry["seconds"]), abs=0.05), \
+                f"the quote {clip['source']} was trimmed"
+
+
+def test_the_squeeze_never_takes_a_shot_below_the_minimum(fake_assembly):
+    """A shot has to register on screen: a 0.4s flash of a card is worse than
+    a second of silence."""
+    project = _project()
+    longform.assemble(project["id"])
+    timeline = _timeline_of(json.loads(
+        db.get_longform(project["id"])["jobs_json"])["1"])
+
+    for clip in timeline["video"]:
+        assert clip["out_point"] - clip["in_point"] >= longform.MIN_SHOT_SECONDS - 0.01
+
+
+def test_a_block_with_no_narration_keeps_its_planned_lengths(fake_assembly):
+    """Nothing to squeeze against: the shots are the block."""
+    blocks = longform.plan_blocks(json.loads(_project()["plano_json"]))
+    silent = next(b for b in blocks if not b.get("narration"))
+    assert longform._picture_squeeze(  # noqa: SLF001
+        silent, {}, Path("/nowhere"), longform.options_of(_project())) == 1.0
+
+
+# --------------------------- the card is not a void -------------------------
+
+def test_a_title_card_is_not_a_black_screen(tmp_path):
+    """ffmpeg's blackdetect flagged three cards in a seven-minute film, and it
+    was right: a flat dark frame with one line of text is over 98% black
+    pixels, and for three and a half seconds the film looks like a dead
+    player."""
+    from PIL import Image
+
+    options = longform.options_of(_project())
+    card = longform._card("Responsabilidade", tmp_path / "card.png", options)  # noqa: SLF001
+
+    pixels = list(Image.open(card).convert("L").getdata())
+    nearly_black = sum(1 for value in pixels if value < 26)   # ffmpeg's pix_th=0.10
+    assert nearly_black / len(pixels) < 0.90, \
+        f"{nearly_black / len(pixels):.0%} of the card is black"
+
+
+def test_the_card_still_reads_as_the_niches_palette(tmp_path):
+    """Fixing the blackness must not turn every card into grey mush: the
+    darkest tone of the palette still has to dominate."""
+    from PIL import Image
+
+    options = longform.options_of(_project())
+    card = Image.open(longform._card("Um título", tmp_path / "c.png", options))  # noqa: SLF001
+    average = sum(Image.open(longform._card(  # noqa: SLF001
+        "Um título", tmp_path / "c.png", options)).convert("L").getdata()) / (
+        card.width * card.height)
+    assert 12 < average < 110, f"average luma {average:.0f}"
+
+
+def test_the_card_text_is_still_legible_over_it(tmp_path):
+    """The text is near-white; if the wash ever got bright enough to swallow
+    it, the card would be a gradient with a rumour of a sentence on it."""
+    from PIL import Image
+
+    options = longform.options_of(_project())
+    card = Image.open(longform._card("Hacking", tmp_path / "c.png", options))  # noqa: SLF001
+    values = list(card.convert("L").getdata())
+    assert max(values) > 200, "no light text on the card"
