@@ -285,6 +285,7 @@ export const es: Dictionary = {
     gradiente: "Degradado",
     ia_video: "Vídeo por IA",
     ia_imagem: "Imágenes por IA",
+    site_scroll: "Grabación del sitio",
     upload: "Subido",
   },
 

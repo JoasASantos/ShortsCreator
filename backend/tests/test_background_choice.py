@@ -39,8 +39,12 @@ def _run(job: JobInput, material: SourceMaterial, tmp_path: Path,
     called: list[str] = []
     events: list[tuple[str, str]] = []
 
-    from app.pipeline import broll, imagegen, render
+    from app.pipeline import broll, imagegen, render, webcast
 
+    # No browser by default: `auto` films the page when there is a link and a
+    # browser, and these tests are about the choice AFTER that — a machine with
+    # Chrome installed must not send them to the network.
+    monkeypatch.setattr(webcast, "available", lambda: (False, "no browser"))
     monkeypatch.setattr(imagegen, "providers_ready", lambda *a, **k: bool(images))
     monkeypatch.setattr(imagegen, "why_not",
                         lambda *a, **k: "No AI image generator is available.")

@@ -540,6 +540,22 @@ def _stock_video(env: _Env) -> Requirement:
     )
 
 
+def _page_recorder(env: _Env) -> Requirement:
+    from . import webcast
+
+    found, reason = webcast.available()
+    return Requirement(
+        id="page_recorder", label="Browser for filming pages (Playwright)",
+        required=False, found=found,
+        version="ready" if found else "",
+        unlocks="the 'site_scroll' background: the page itself on screen, "
+                "rendered and scrolling, instead of its text",
+        install="pip install playwright  (it drives the Google Chrome already "
+                "installed; otherwise run `playwright install chromium`)",
+        note="" if found else reason,
+    )
+
+
 def _assets(env: _Env) -> list[Requirement]:
     """Fonts and music tracks: gitignored folders, so a fresh clone has neither."""
     fonts = sorted(p for p in (settings.assets_dir / "fonts").glob("*")
@@ -596,6 +612,7 @@ def check() -> dict:
         _codex_cli(env),
         _tts_cloning(env),
         _stock_video(env),
+        _page_recorder(env),
         *_assets(env),
     ]
 

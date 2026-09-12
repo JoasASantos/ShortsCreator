@@ -15,7 +15,7 @@ from ..schemas import JobInput, ShortScript
 from . import (avatar, broll, captions, cover as cover_mod, highlights,
                imagegen, ingest, llm, notify, overlays as overlay_mod, qa,
                reels, render, script as script_mod, timeline as timeline_mod,
-               tts)
+               tts, webcast)
 
 # A 90 s short with one image every ~6 s wants 15; a cap keeps a long script
 # from turning one render into forty paid image calls.
@@ -465,6 +465,20 @@ def _shift_words(words: list[dict], offset: float) -> list[dict]:
              "end": round(max(w["end"] + offset, 0.0), 3)} for w in words]
 
 
+def _page_to_record(job: JobInput, material) -> str:
+    """The address to film: what the job was pointed at, or an explicit one.
+
+    A video link is not a page to scroll — it is a video, and the source-video
+    background already exists for it.
+    """
+    for candidate in (job.background_query, material.url,
+                      job.source if ingest.is_url(job.source) else ""):
+        url = (candidate or "").strip()
+        if ingest.is_url(url) and not ingest.is_video_url(url):
+            return url
+    return ""
+
+
 def _scene_prompts(job: JobInput, short, wanted: int) -> list[str]:
     """One drawing brief per scene.
 
@@ -521,6 +535,12 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
             mode = "imagem_kenburns"
         elif material.kind == "video" and material.video_path:
             mode = "video_fonte"
+        elif _page_to_record(job, material) and webcast.available()[0]:
+            # The page the short is about, filmed. Ahead of stock and of a
+            # drawing because it is the actual subject on screen — a short
+            # about a repository should show that repository's page, the way
+            # whoever opened it saw it.
+            mode = "site_scroll"
         elif broll.providers_ready():
             mode = "broll"
         elif imagegen.providers_ready():
@@ -610,6 +630,22 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
         log("Background: gradient with code scroll")
         render.background_gradient(duration, job.niche, out, scroll="nenhum")
         applied_scroll = "codigo"
+
+    elif mode == "site_scroll":
+        page = _page_to_record(job, material)
+        if not page:
+            raise RuntimeError(
+                "The background was set to a screen recording of the page, but "
+                "this job has no URL. Paste a link as the source, or put the "
+                "address in the background query.")
+        try:
+            webcast.record_scroll(page, duration, out, log=log)
+        except webcast.RecorderUnavailable as exc:
+            if job.background == "site_scroll":
+                raise RuntimeError(f"The page could not be recorded: {exc}") from exc
+            log(f"The page could not be recorded ({exc}); falling back to a "
+                f"gradient", "warn")
+            render.background_gradient(duration, job.niche, out, scroll=job.scroll)
 
     elif mode == "ia_video":
         from . import videogen
