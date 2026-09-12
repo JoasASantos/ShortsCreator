@@ -1794,3 +1794,45 @@ def test_a_block_with_no_narration_keeps_its_planned_lengths(fake_assembly):
     silent = next(b for b in blocks if not b.get("narration"))
     assert longform._picture_squeeze(  # noqa: SLF001
         silent, {}, Path("/nowhere"), longform.options_of(_project())) == 1.0
+
+
+# --------------------------- the card is not a void -------------------------
+
+def test_a_title_card_is_not_a_black_screen(tmp_path):
+    """ffmpeg's blackdetect flagged three cards in a seven-minute film, and it
+    was right: a flat dark frame with one line of text is over 98% black
+    pixels, and for three and a half seconds the film looks like a dead
+    player."""
+    from PIL import Image
+
+    options = longform.options_of(_project())
+    card = longform._card("Responsabilidade", tmp_path / "card.png", options)  # noqa: SLF001
+
+    pixels = list(Image.open(card).convert("L").getdata())
+    nearly_black = sum(1 for value in pixels if value < 26)   # ffmpeg's pix_th=0.10
+    assert nearly_black / len(pixels) < 0.90, \
+        f"{nearly_black / len(pixels):.0%} of the card is black"
+
+
+def test_the_card_still_reads_as_the_niches_palette(tmp_path):
+    """Fixing the blackness must not turn every card into grey mush: the
+    darkest tone of the palette still has to dominate."""
+    from PIL import Image
+
+    options = longform.options_of(_project())
+    card = Image.open(longform._card("Um título", tmp_path / "c.png", options))  # noqa: SLF001
+    average = sum(Image.open(longform._card(  # noqa: SLF001
+        "Um título", tmp_path / "c.png", options)).convert("L").getdata()) / (
+        card.width * card.height)
+    assert 12 < average < 110, f"average luma {average:.0f}"
+
+
+def test_the_card_text_is_still_legible_over_it(tmp_path):
+    """The text is near-white; if the wash ever got bright enough to swallow
+    it, the card would be a gradient with a rumour of a sentence on it."""
+    from PIL import Image
+
+    options = longform.options_of(_project())
+    card = Image.open(longform._card("Hacking", tmp_path / "c.png", options))  # noqa: SLF001
+    values = list(card.convert("L").getdata())
+    assert max(values) > 200, "no light text on the card"

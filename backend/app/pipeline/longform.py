@@ -40,7 +40,7 @@ import subprocess
 import textwrap
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from .. import db
 from ..config import settings
@@ -2438,6 +2438,35 @@ def _text_font(size: int):
             return ImageFont.load_default()
 
 
+def _card_background(dark: tuple, accent: tuple) -> Image.Image:
+    """The card's ground: a diagonal wash instead of one flat colour.
+
+    A full-frame card in the palette's darkest tone with one line of text on it
+    is over 98% black pixels — which is not a metaphor, it is what ffmpeg's
+    blackdetect measures, and it flagged three cards in a seven-minute film as
+    black screens. It was right: for three and a half seconds the film looks
+    like a dead player. The wash keeps the palette and gives the frame
+    something to be.
+    """
+    width, height = FRAME.width, FRAME.height
+    top = tuple(min(int(channel * 1.55) + 18, 255) for channel in dark[:3])
+    glow = tuple(int(a * 0.22 + b * 0.78) for a, b in zip(accent[:3], dark[:3]))
+    image = Image.new("RGB", (width, height), dark[:3])
+    draw = ImageDraw.Draw(image)
+    # Rows, not pixels: 1080 interpolated bands cost nothing and read as smooth.
+    for y in range(height):
+        ratio = y / max(height - 1, 1)
+        row = tuple(int(t + (d - t) * ratio) for t, d in zip(top, dark[:3]))
+        draw.line([(0, y), (width, y)], fill=row)
+    # A soft corner light, so the frame has a direction as well as a tone.
+    corner = Image.new("RGB", (width, height), glow)
+    mask = Image.new("L", (width, height), 0)
+    ImageDraw.Draw(mask).ellipse(
+        [-width // 3, -height, int(width * 0.9), int(height * 0.75)], fill=90)
+    image.paste(corner, (0, 0), mask.filter(ImageFilter.GaussianBlur(120)))
+    return image
+
+
 def _card(text: str, dest: Path, options: dict, subtitle: str = "") -> Path:
     """A full-frame title card: the niche's palette, the text centred.
 
@@ -2446,7 +2475,7 @@ def _card(text: str, dest: Path, options: dict, subtitle: str = "") -> Path:
     in the editor.
     """
     dark, accent = _palette(options)
-    image = Image.new("RGB", (FRAME.width, FRAME.height), dark)
+    image = _card_background(dark, accent)
     draw = ImageDraw.Draw(image)
     draw.rectangle([0, FRAME.height - 14, FRAME.width, FRAME.height], fill=accent)
 
