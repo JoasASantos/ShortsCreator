@@ -1994,6 +1994,23 @@ def _prepare_narration(block: dict, ledger: dict[str, dict], work: Path,
     ledger[key] = entry
 
 
+def _subtitle_cut(entry: dict, item: dict, shot: dict, options: dict, log) -> None:
+    """The quote's own words, translated once and kept in the ledger.
+
+    The subtitle for an English answer under Portuguese narration has to be in
+    Portuguese, and re-translating on every assemble would spend a call per
+    rebuild. Times stay the speech's own — only the text changes.
+    """
+    covering = _covering_segments(item, shot["start"], shot["end"])
+    if not covering or not options["captions"]:
+        return
+    entry["captions"] = [
+        {"start": round(max(seg["start"] - shot["start"], 0.0), 3),
+         "end": round(min(seg["end"], shot["end"]) - shot["start"], 3),
+         "text": seg["text"]}
+        for seg in _translate_cues(covering, options["language"], log)]
+
+
 def _prepare_shot(block: dict, index: int, shot: dict, ledger: dict[str, dict],
                   work: Path, source_dir: Path, catalog: dict[str, dict],
                   options: dict, stock_unavailable: str, can_draw: bool,
@@ -2001,6 +2018,14 @@ def _prepare_shot(block: dict, index: int, shot: dict, ledger: dict[str, dict],
     key = _shot_key(block, index)
     spec = _shot_spec(shot)
     if _reusable(ledger.get(key), spec, work):
+        # The cut is on disk and stays there — re-cutting it to add subtitles
+        # would throw away work. But a cut made before the subtitles were
+        # translated has none, and its fingerprint did not change, so it would
+        # keep its English subtitles forever. Top it up in place.
+        reused = ledger[key]
+        if (shot["kind"] in ("entrevista", "link") and options["captions"]
+                and not reused.get("captions") and shot.get("material") in catalog):
+            _subtitle_cut(reused, catalog[shot["material"]], shot, options, log)
         return
 
     entry = {"kind": "shot", "key": key, "block": block["key"], "shot": shot["kind"],
@@ -2036,13 +2061,7 @@ def _prepare_shot(block: dict, index: int, shot: dict, ledger: dict[str, dict],
             # ledger: the subtitle for an English answer under Portuguese
             # narration has to be in Portuguese, and re-translating it on
             # every assemble would spend a call per rebuild.
-            covering = _covering_segments(item, shot["start"], shot["end"])
-            if covering and options["captions"]:
-                entry["captions"] = [
-                    {"start": round(max(seg["start"] - shot["start"], 0.0), 3),
-                     "end": round(min(seg["end"], shot["end"]) - shot["start"], 3),
-                     "text": seg["text"]}
-                    for seg in _translate_cues(covering, options["language"], log)]
+            _subtitle_cut(entry, item, shot, options, log)
         elif shot["kind"] == "imagem":
             item = catalog[shot["material"]]
             src = source_dir / item["file"]
@@ -2299,26 +2318,41 @@ class _Cutaways:
 def _cutaway(shot: dict, key: str, work: Path, source_dir: Path,
              catalog: dict[str, dict], cutaways: "_Cutaways | None",
              log) -> Path | None:
-    """A muted stretch of the user's own footage covering this shot."""
+    """A muted stretch of the user's own footage covering this shot.
+
+    Up to three windows are tried, because a window is only good if it has a
+    picture in it: a YouTube video dips to black for its own chapter cards, and
+    a cover is chosen freely, so a black one is simply exchanged for the next
+    instead of being kept. This is the difference between the cover cutting the
+    black screen down and the cover *adding* to it, which is what the first
+    assembled cut of the film did.
+    """
     if cutaways is None:
         return None
-    window = cutaways.take(float(shot["seconds"]))
-    if window is None:
-        return None
-    material, start, end = window
-    item = catalog[material]
-    src = source_dir / item["file"]
-    if not src.exists():
-        return None
     dest = work / f"cover_{key}.mp4"
-    log(f"Shot {key}: no stock for '{shot.get('query', '')}' — covering with "
-        f"{material} {_fmt_time(start)}-{_fmt_time(end)} (no audio)")
-    try:
-        _cut_segment(src, start, end, dest)
-    except Exception as exc:  # noqa: BLE001 — the card is still the floor
-        log(f"Shot {key}: could not cut the cover ({exc})", "warn")
-        return None
-    return dest
+    for attempt in range(3):
+        window = cutaways.take(float(shot["seconds"]))
+        if window is None:
+            return None
+        material, start, end = window
+        item = catalog[material]
+        src = source_dir / item["file"]
+        if not src.exists():
+            return None
+        log(f"Shot {key}: no stock for '{shot.get('query', '')}' — covering with "
+            f"{material} {_fmt_time(start)}-{_fmt_time(end)} (no audio)")
+        try:
+            _cut_segment(src, start, end, dest)
+        except Exception as exc:  # noqa: BLE001 — the card is still the floor
+            log(f"Shot {key}: could not cut the cover ({exc})", "warn")
+            return None
+        black = sum(finish - begin for begin, finish
+                    in render.black_stretches(dest))
+        if black < 0.4:
+            return dest
+        log(f"Shot {key}: that window is {black:.1f}s of black screen — "
+            f"trying another one{'' if attempt < 2 else ' (last try)'}", "warn")
+    return dest if dest.exists() else None
 
 
 def _skip_black_open(source: Path, shot: dict, key: str, dest: Path,
@@ -2479,6 +2513,56 @@ def _cues_from_words(words: list[dict], offset: float) -> list[CaptionCue]:
     return cues
 
 
+# A breath after the narration ends before the next block starts. Silence is
+# part of a documentary; five to ten seconds of it under a static card is not.
+NARRATION_TAIL_SECONDS = 1.2
+
+
+def _picture_squeeze(block: dict, ledger: dict[str, dict], work: Path,
+                     options: dict) -> float:
+    """How much to trim this block's silent picture, as a factor of 1.0.
+
+    The plan sizes a block in seconds, but the voice decides how long it really
+    takes: a faster narrator than the plan assumed leaves the difference on
+    screen as a still card over silence. The film had twelve of those, the
+    longest 9.8 s — and the shots being held were exactly the ones with nothing
+    to say.
+
+    A block that contains a quote is left exactly as planned. Not because its
+    picture could not be trimmed, but because the narration starts at the
+    block's start: pulling the quote earlier would slide it under the narrator,
+    two voices at once. Those blocks were never the problem anyway — the twelve
+    silent stretches were all blocks made of stock and cards.
+
+    Never below `MIN_SHOT_SECONDS`: a 0.4 s flash of a card is worse than a
+    second of silence.
+    """
+    if not block.get("narration") or block.get("narrator") == "nenhum":
+        return 1.0
+    narration = ledger.get(_narration_key(block)) or {}
+    if narration.get("status") != "ok":
+        return 1.0
+    voice = float(narration.get("seconds") or 0.0)
+    if voice <= 0:
+        return 1.0
+
+    silent = 0.0
+    for n, shot in enumerate(block.get("shots", [])):
+        entry = ledger.get(_shot_key(block, n))
+        if entry is None or not entry.get("file") or not (work / entry["file"]).exists():
+            continue
+        if shot["kind"] in ("entrevista", "link") and entry.get("status") == "ok":
+            return 1.0
+        silent += max(float(entry.get("seconds") or shot["seconds"]), 0.5)
+    if silent <= 0:
+        return 1.0
+
+    needed = voice + NARRATION_TAIL_SECONDS
+    if needed >= silent - 0.5:
+        return 1.0            # the picture is already shorter than the voice
+    return max(needed / silent, 0.2)
+
+
 def build_timeline(work: Path, blocks: list[dict], ledger: dict[str, dict],
                    catalog: dict[str, dict], options: dict) -> Timeline:
     """Everything prepared, laid out as an editable HORIZONTAL timeline.
@@ -2502,6 +2586,7 @@ def build_timeline(work: Path, blocks: list[dict], ledger: dict[str, dict],
     for block in blocks:
         block_start = cursor
         placed: list[tuple[VideoClip, dict]] = []
+        squeeze = _picture_squeeze(block, ledger, work, options)
 
         for n, shot in enumerate(block.get("shots", [])):
             entry = ledger.get(_shot_key(block, n))
@@ -2509,6 +2594,9 @@ def build_timeline(work: Path, blocks: list[dict], ledger: dict[str, dict],
                 continue
             length = max(float(entry.get("seconds") or shot["seconds"]), 0.5)
             spoken = shot["kind"] in ("entrevista", "link") and entry.get("status") == "ok"
+            if not spoken:
+                # Silent picture is trimmed to what the voice actually needs.
+                length = max(length * squeeze, MIN_SHOT_SECONDS)
             clip = VideoClip(
                 id=timeline_mod._new_id("v"),  # noqa: SLF001
                 source=entry["file"], in_point=0.0, out_point=round(length, 3),

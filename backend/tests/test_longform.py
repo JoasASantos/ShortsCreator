@@ -640,17 +640,22 @@ def test_assembly_produces_a_horizontal_job_with_the_narration_at_each_blocks_st
 
     edl = _timeline_of(job_id)
     assert edl["format"] == "horizontal"
-    # block 1: stock 6s + card 4s = 10s, narration 7.5s at 0.0
-    # block 2: the interview cut, 20s, its own audio; no narration
-    # block 3: stock 8 (30->38) + link 10 (38->48) + image 24-18=6 (48->54),
-    #          narration at 30.0
-    # block 4: card 8s, narration at 54.0
+    # block 1: stock 6s + card 4s = 10s of picture for 7.5s of voice, so the
+    #          silent picture is squeezed to 7.5 + 1.2 = 8.7s (narration at 0.0)
+    # block 2: the interview cut, 20s, its own audio; no narration -> ends 28.7
+    # block 3: stock 8 + link 10 + image 6: it holds a quote, so nothing is
+    #          squeezed and it keeps its 24s (narration at 28.7)
+    # block 4: card 8s for 7.5s of voice — 8.7 needed is not less than 8, so it
+    #          stays as planned (narration at 52.7)
     narration = [a for a in edl["audio"] if a["role"] == "narration"]
-    assert [a["start"] for a in narration] == [0.0, 30.0, 54.0]
+    assert [a["start"] for a in narration] == [0.0, 28.7, 52.7]
     assert all(a["source"].startswith("nar_") for a in narration)
     interviews = [a for a in edl["audio"] if a["role"] == "entrevista"]
-    assert [(a["start"], round(a["out_point"], 1)) for a in interviews] == [(10.0, 20.0), (38.0, 10.0)]
-    assert edl["duration"] == pytest.approx(62.0, abs=0.05)
+    # the quotes keep their full length; they only start earlier, because the
+    # silent picture ahead of them no longer waits for a voice that finished
+    assert [(a["start"], round(a["out_point"], 1)) for a in interviews] == [(8.7, 20.0), (36.7, 10.0)]
+    # 62.0 as planned, minus the 1.3s of dead air block 1 was holding
+    assert edl["duration"] == pytest.approx(60.7, abs=0.05)
     # the interview is heard, everything else is muted footage
     by_source = {v["source"]: v for v in edl["video"]}
     assert by_source["cut_shot_e01_b02_00.mp4"]["mute"] is False
@@ -1676,3 +1681,116 @@ def test_a_real_card_is_not_mistaken_for_a_note():
                  "O que é o Hacking",
                  "Faltam respostas — e é isso que o filme investiga"):
         assert not longform._is_editorial_note(card), card  # noqa: SLF001
+
+
+def test_a_cut_already_on_disk_still_gets_its_subtitles_translated(
+        fake_assembly, monkeypatch):
+    """The gap between the two halves of the feature: the cut's fingerprint did
+    not change when subtitles started being translated, so a film assembled
+    before it would keep its English subtitles forever — re-cutting to fix that
+    would throw away work that was already paid for."""
+    monkeypatch.setattr(longform, "_translate_cues", lambda segments, language, log: segments)
+    project = _project()
+    longform.assemble(project["id"])
+
+    # what an older ledger looks like: cuts on disk, no translated subtitles
+    row = db.get_longform(project["id"])
+    ledger = json.loads(row["progress_json"])
+    for entry in ledger:
+        entry.pop("captions", None)
+    db.update_longform(project["id"], progress_json=json.dumps(ledger))
+
+    cuts: list[tuple[float, float]] = []
+    monkeypatch.setattr(longform, "_cut_segment",
+                        lambda src, start, end, dest: cuts.append((start, end))
+                        or dest.write_bytes(b"fake-cut") or dest)
+    monkeypatch.setattr(longform, "_translate_cues",
+                        lambda segments, language, log: [
+                            {**s, "text": f"[pt] {s['text']}"} for s in segments])
+
+    longform.assemble(project["id"])
+
+    assert cuts == [], "nothing was re-cut"
+    ledger = {e["key"]: e for e in json.loads(
+        db.get_longform(project["id"])["progress_json"])}
+    quotes = [e for e in ledger.values()
+              if e["kind"] == "shot" and e["shot"] in ("entrevista", "link")]
+    assert quotes and all(e.get("captions") for e in quotes)
+    assert all(c["text"].startswith("[pt] ") for e in quotes for c in e["captions"])
+
+
+# ------------------ the picture gives way to the voice ---------------------
+
+def test_a_block_whose_voice_is_shorter_than_its_picture_is_tightened(fake_assembly):
+    """The complaint was "não tá com uma edição muito boa", and this was most
+    of it: twelve stretches with nobody speaking, the longest 9.8s, each one a
+    still card being held because the plan sized the block for a slower
+    narrator than the voice that read it."""
+    project = _project()
+    longform.assemble(project["id"])
+    row = db.get_longform(project["id"])
+    timeline = _timeline_of(json.loads(row["jobs_json"])["1"])
+    ledger = {e["key"]: e for e in json.loads(row["progress_json"])}
+    blocks = longform.plan_blocks(json.loads(row["plano_json"]))
+
+    quote_files = {e["file"] for e in ledger.values()
+                   if e.get("shot") in ("entrevista", "link")}
+    by_file = {c["source"]: c for c in timeline["video"]}
+
+    checked = 0
+    for block in blocks:
+        if not block.get("narration"):
+            continue
+        files = [ledger[longform._shot_key(block, n)]["file"]  # noqa: SLF001
+                 for n, _ in enumerate(block["shots"])
+                 if longform._shot_key(block, n) in ledger]    # noqa: SLF001
+        if any(f in quote_files for f in files):
+            continue        # a block holding a quote is left exactly as planned
+        voice = float(ledger[longform._narration_key(block)]["seconds"])  # noqa: SLF001
+        on_screen = sum(by_file[f]["out_point"] - by_file[f]["in_point"]
+                        for f in files if f in by_file)
+        planned = sum(float(s["seconds"]) for s in block["shots"])
+        if planned <= voice + longform.NARRATION_TAIL_SECONDS:
+            continue        # there was nothing to trim
+        assert on_screen < planned, f"{block['key']} kept its dead air"
+        assert on_screen >= voice, f"{block['key']} cuts the narration off"
+        checked += 1
+    assert checked, "the fixture has to contain a block worth tightening"
+
+
+def test_a_quote_is_never_trimmed_to_fit_the_narration(fake_assembly):
+    """An interview cut carries its own audio: shortening it cuts someone off
+    mid-sentence."""
+    project = _project()
+    longform.assemble(project["id"])
+    timeline = _timeline_of(json.loads(
+        db.get_longform(project["id"])["jobs_json"])["1"])
+    ledger = {e["key"]: e for e in json.loads(
+        db.get_longform(project["id"])["progress_json"])}
+
+    for clip in timeline["video"]:
+        entry = next((e for e in ledger.values() if e.get("file") == clip["source"]), None)
+        if entry and entry.get("shot") in ("entrevista", "link"):
+            length = clip["out_point"] - clip["in_point"]
+            assert length == pytest.approx(float(entry["seconds"]), abs=0.05), \
+                f"the quote {clip['source']} was trimmed"
+
+
+def test_the_squeeze_never_takes_a_shot_below_the_minimum(fake_assembly):
+    """A shot has to register on screen: a 0.4s flash of a card is worse than
+    a second of silence."""
+    project = _project()
+    longform.assemble(project["id"])
+    timeline = _timeline_of(json.loads(
+        db.get_longform(project["id"])["jobs_json"])["1"])
+
+    for clip in timeline["video"]:
+        assert clip["out_point"] - clip["in_point"] >= longform.MIN_SHOT_SECONDS - 0.01
+
+
+def test_a_block_with_no_narration_keeps_its_planned_lengths(fake_assembly):
+    """Nothing to squeeze against: the shots are the block."""
+    blocks = longform.plan_blocks(json.loads(_project()["plano_json"]))
+    silent = next(b for b in blocks if not b.get("narration"))
+    assert longform._picture_squeeze(  # noqa: SLF001
+        silent, {}, Path("/nowhere"), longform.options_of(_project())) == 1.0
