@@ -285,6 +285,7 @@ export const ru: Dictionary = {
     gradiente: "Градиент",
     ia_video: "Видео от ИИ",
     ia_imagem: "Изображения от ИИ",
+    site_scroll: "Запись экрана сайта",
     upload: "Загруженное",
   },
 

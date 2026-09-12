@@ -112,7 +112,8 @@ export interface JobInput {
   scroll: "nenhum" | "texto" | "pan" | "codigo";
   background:
     | "auto" | "broll" | "gradiente" | "video_fonte"
-    | "imagem_kenburns" | "codigo_scroll" | "ia_video" | "ia_imagem" | "upload";
+    | "imagem_kenburns" | "codigo_scroll" | "ia_video" | "ia_imagem"
+    | "site_scroll" | "upload";
   background_query: string;
   music: boolean;
   // Only meaningful in meu_video mode: keep the voice on the recording, or

@@ -35,7 +35,7 @@ const CAPTION_STYLE_VALUES = ["karaoke", "bloco", "palavra"] as const;
 const SCROLL_VALUES = ["nenhum", "texto", "codigo", "pan"] as const;
 const BACKGROUND_VALUES = [
   "auto", "broll", "video_fonte", "imagem_kenburns", "codigo_scroll", "gradiente",
-  "ia_imagem", "ia_video",
+  "ia_imagem", "ia_video", "site_scroll",
 ] as const;
 
 const niches = (t: Dictionary) =>

@@ -293,6 +293,7 @@ export const ptBR = {
     gradiente: "Gradiente",
     ia_video: "Vídeo por IA",
     ia_imagem: "Imagens por IA",
+    site_scroll: "Gravação do site",
     upload: "Enviado",
   },
 

@@ -13,5 +13,9 @@ anthropic>=0.40
 google-auth-oauthlib>=1.2
 google-api-python-client>=2.150
 pillow>=11.0
+# Optional: films a web page for the 'site_scroll' background. Drives
+# the browser already installed; `playwright install chromium` only if
+# the machine has none.
+playwright>=1.49
 faster-whisper>=1.2
 pytest>=8.3

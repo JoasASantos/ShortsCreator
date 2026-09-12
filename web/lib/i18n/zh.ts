@@ -284,6 +284,7 @@ export const zh: Dictionary = {
     gradiente: "渐变",
     ia_video: "AI 生成视频",
     ia_imagem: "AI 生成图片",
+    site_scroll: "网页录屏",
     upload: "已上传",
   },
 
