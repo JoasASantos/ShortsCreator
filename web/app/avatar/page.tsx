@@ -10,6 +10,7 @@ import {
 import { useI18n } from "@/lib/i18n";
 import { Chips, Field, StatusTag, Topbar, useToast } from "@/components/ui";
 import { MicRecorder } from "@/components/MicRecorder";
+import { DockerService } from "@/components/DockerService";
 
 /* Neither state that matters here is red. A key nobody registered and a local
    server that is not running are both normal states with an obvious next step
@@ -206,7 +207,8 @@ export default function AvatarStudio() {
             {report ? (
               <div className="two" style={{ alignItems: "start" }}>
                 {report.providers.map((provider) => (
-                  <PathCard key={provider.id} provider={provider} />
+                  <PathCard key={provider.id} provider={provider}
+                            onChanged={pullState} />
                 ))}
               </div>
             ) : null}
@@ -513,7 +515,10 @@ export default function AvatarStudio() {
 /** One path of the feature with the reason it is in the state it is in. The
  *  reason is the backend's own sentence — it names the URL that was tried, or
  *  the exact credential that is missing. */
-function PathCard({ provider }: { provider: AvatarProvider }) {
+function PathCard({ provider, onChanged }: {
+  provider: AvatarProvider;
+  onChanged?: () => void;
+}) {
   const { t } = useI18n();
 
   return (
@@ -561,6 +566,13 @@ function PathCard({ provider }: { provider: AvatarProvider }) {
           </a>
         ) : null}
       </div>
+
+      {/* A path that runs in a container can be started from here. The card
+          was already printing the docker command; this is the same thing with
+          the copy-paste removed — and it still asks first. */}
+      {provider.id === "voicestudio" ? (
+        <DockerService serviceId="voicestudio" onReady={onChanged} />
+      ) : null}
     </div>
   );
 }

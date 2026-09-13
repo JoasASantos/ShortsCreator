@@ -1225,6 +1225,17 @@ export const es: Dictionary = {
     hideGuides: "Ocultar guías de área segura",
   },
 
+  services: {
+    confirm: "¿Levantar {label} ahora, en esta máquina, con Docker?",
+    yes: "Sí, levantar",
+    no: "Ahora no",
+    start: "Levantar con Docker",
+    restart: "Encender de nuevo",
+    stop: "Parar",
+    stopKeeps: "no se borra nada — encenderlo otra vez tarda segundos",
+    starting: "levantando… la primera vez descarga la imagen, puede tardar",
+    running: "{label} en marcha",
+  },
   requirements: {
     title: "Requisitos de esta máquina",
     subtitle: "qué ya está aquí y qué falta",

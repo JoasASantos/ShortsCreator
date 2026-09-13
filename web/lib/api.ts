@@ -1089,6 +1089,20 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.status === 204 ? (null as T) : res.json();
 }
 
+/** A local server the panel can start with docker. `state` is the container's,
+ *  not the service's: "running" says the container is up, which happens well
+ *  before a model finishes loading. */
+export type ServiceStatus = {
+  id: string;
+  label: string;
+  state: "sem_docker" | "docker_parado" | "nao_criado" | "parado" | "rodando";
+  reason: string;
+  can_start: boolean;
+  image: string;
+  note: string;
+  docs: string;
+};
+
 export const api = {
   health: () => req<Health>("/api/health"),
   config: () => req<{ niches: string[]; min_seconds: number; max_seconds: number }>("/api/config"),
@@ -1096,6 +1110,20 @@ export const api = {
   // The doctor probes binaries on every call, so this is asked for when the
   // install screen opens and on demand — never on a timer.
   requirements: () => req<RequirementsReport>("/api/system/requirements"),
+
+  // Local servers started from the panel. The catalogue lives in the backend:
+  // a request names a service, never a command.
+  services: () => req<{ docker: { ok: boolean; state: string; reason: string };
+                        services: ServiceStatus[] }>("/api/services"),
+  service: (id: string) => req<ServiceStatus>(`/api/services/${id}`),
+  startService: (id: string) =>
+    req<{ started: boolean; state: ServiceStatus["state"]; message: string }>(
+      `/api/services/${id}/start`, { method: "POST" }),
+  stopService: (id: string) =>
+    req<{ stopped: boolean; state: ServiceStatus["state"]; message: string }>(
+      `/api/services/${id}/stop`, { method: "POST" }),
+  serviceLogs: (id: string) =>
+    req<{ logs: string }>(`/api/services/${id}/logs`),
 
   // probe=true is what makes a local server's state truthful; it costs one
   // round trip per server.

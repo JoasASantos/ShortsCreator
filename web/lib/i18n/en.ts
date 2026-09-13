@@ -1224,6 +1224,17 @@ export const en: Dictionary = {
     hideGuides: "Hide safe area guides",
   },
 
+  services: {
+    confirm: "Start {label} now, on this machine, with Docker?",
+    yes: "Yes, start it",
+    no: "Not now",
+    start: "Start with Docker",
+    restart: "Start it again",
+    stop: "Stop",
+    stopKeeps: "nothing is deleted — starting again takes seconds",
+    starting: "starting… the first time pulls the image, this can take a while",
+    running: "{label} running",
+  },
   requirements: {
     title: "Requirements on this machine",
     subtitle: "what is already here and what is missing",
