@@ -38,6 +38,18 @@ const BACKGROUND_VALUES = [
   "ia_imagem", "ia_video", "site_scroll",
 ] as const;
 
+// The nine the script prompt knows how to write in (backend: script.LANGUAGE_NAMES).
+// Their labels are endonyms — someone picking Japanese for a short is not
+// necessarily reading the panel in Portuguese.
+const LANGUAGE_VALUES = [
+  ["pt-BR", "Português (BR)"], ["en", "English"], ["es", "Español"],
+  ["fr", "Français"], ["de", "Deutsch"], ["it", "Italiano"],
+  ["ru", "Русский"], ["zh", "简体中文"], ["ja", "日本語"],
+] as const;
+
+const languages = () =>
+  LANGUAGE_VALUES.map(([value, label]) => ({ value, label }));
+
 const niches = (t: Dictionary) =>
   NICHE_VALUES.map((value) => ({ value, label: t.niches[value] }));
 
@@ -108,10 +120,14 @@ export default function NovoShort() {
   // a hand-written CTA is not overwritten when the language changes
   const ctaTouched = useRef(false);
   const watermarkTouched = useRef(false);
+  // a language picked for this short is not overwritten when the panel's own
+  // language changes
+  const languageTouched = useRef(false);
 
   const sourceOptions = useMemo(() => sources(t), [t]);
   const angleOptions = useMemo(() => angles(t), [t]);
   const nicheOptions = useMemo(() => niches(t), [t]);
+  const languageOptions = useMemo(() => languages(), []);
 
   useEffect(() => {
     api.voices().then(setVoices).catch(() => setVoices([]));
@@ -146,7 +162,9 @@ export default function NovoShort() {
   useEffect(() => {
     setForm((prev) => ({
       ...prev,
-      language: narrationLanguage,
+      // the interface's language is the default, never an override: picking
+      // English for this short survives switching the panel back
+      language: languageTouched.current ? prev.language : narrationLanguage,
       cta: ctaTouched.current ? prev.cta : t.newJob.ctaDefault,
     }));
   }, [narrationLanguage, t]);
@@ -371,6 +389,24 @@ export default function NovoShort() {
                     />
                   </Field>
                 ) : null}
+
+                {/* The short's language, not the panel's. They start equal —
+                    someone using the interface in Portuguese usually wants a
+                    Portuguese short — but a channel that publishes in two
+                    languages must not have to switch the whole interface to
+                    make the second video. The narration voice follows this
+                    too: without it, an English script was read by a Brazilian
+                    voice. */}
+                <Field label={t.newJob.language} hint={t.newJob.languageHint}>
+                  <Chips
+                    value={form.language}
+                    onChange={(value) => {
+                      languageTouched.current = true;
+                      set("language", value);
+                    }}
+                    options={languageOptions}
+                  />
+                </Field>
 
                 <div className="two">
                   <Field label={t.newJob.duration}

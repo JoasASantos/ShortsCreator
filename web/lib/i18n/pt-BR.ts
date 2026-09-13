@@ -160,6 +160,8 @@ export const ptBR = {
     angle: "Ângulo",
     angleHint: "qual o tipo de abordagem",
     niche: "Nicho",
+    language: "Idioma do vídeo",
+    languageHint: "roteiro, legenda e narração saem neste idioma",
     nicheHint: "ajusta o tom e o ritmo do roteiro",
     duration: "Duração alvo",
     cta: "Chamada final (CTA)",

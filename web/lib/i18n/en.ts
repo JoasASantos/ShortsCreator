@@ -153,6 +153,8 @@ export const en: Dictionary = {
     angle: "Angle",
     angleHint: "which approach to take",
     niche: "Niche",
+    language: "Video language",
+    languageHint: "script, captions and narration come out in this language",
     nicheHint: "sets the tone and pace of the script",
     duration: "Target length",
     cta: "Closing call (CTA)",

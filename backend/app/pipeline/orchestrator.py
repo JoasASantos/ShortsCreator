@@ -275,7 +275,7 @@ def run_job(job_id: str) -> dict:
                 voice = db.get_voice(job.voice_id) if job.voice_id else None
                 narration_text = script_mod.full_narration(short)
                 narration = tts.synthesize(narration_text, job_dir / "narration.mp3",
-                                          voice, log)
+                                          voice, log, language=job.language)
                 log(f"Narration: {narration.duration:.1f}s, "
                     f"{len(narration.words)} timed words")
                 # timings on disk: this is what allows resuming from "legendas"

@@ -153,6 +153,8 @@ export const es: Dictionary = {
     angle: "Enfoque",
     angleHint: "qué tipo de abordaje",
     niche: "Nicho",
+    language: "Idioma del vídeo",
+    languageHint: "guion, subtítulos y narración salen en este idioma",
     nicheHint: "ajusta el tono y el ritmo del guion",
     duration: "Duración objetivo",
     cta: "Llamada final (CTA)",

@@ -39,7 +39,8 @@ from .generators.registry import (NOT_CONFIGURED, READY, UNREACHABLE,
 
 XTTS = "xtts"
 FISHAUDIO = "fishaudio"
-PROVIDERS = (XTTS, FISHAUDIO)
+VOICESTUDIO = "voicestudio"
+PROVIDERS = (VOICESTUDIO, XTTS, FISHAUDIO)
 
 # Below this there is not enough voice in the file for either engine to model
 # a timbre; XTTS's own guidance is a handful of seconds of clean speech, and
@@ -178,6 +179,105 @@ def probe_xtts(base_url: str = "") -> str:
     return f"XTTS answering at {url} — local cloning available, no key needed"
 
 
+def voicestudio_url() -> str:
+    from .tts import voicestudio_url as url
+
+    return url()
+
+
+def probe_voicestudio(base_url: str = "") -> str:
+    """Proves VoiceStudio is running, and says what it can speak with.
+
+    Same contract as `probe_xtts`: a URL written down proves nothing about a
+    server that is not there, so this runs before a voice is registered rather
+    than at the first render.
+    """
+    url = (base_url or voicestudio_url()).rstrip("/")
+    try:
+        resp = httpx.get(f"{url}/v1/audio/voices", timeout=PROBE_TIMEOUT)
+    except httpx.HTTPError as exc:
+        raise LocalServerDown(
+            f"VoiceStudio is not answering at {url}. Start the app (or "
+            f"`docker run -d -p 127.0.0.1:3900:3900 "
+            f"palashdeb/omnivoice-studio:stable`), or point VOICESTUDIO_URL at "
+            f"the machine that runs it. ({type(exc).__name__})") from exc
+    if resp.status_code == 404:
+        raise LocalServerDown(
+            f"Something is answering at {url} but it is not VoiceStudio "
+            f"(/v1/audio/voices is unknown to it). Check VOICESTUDIO_URL.")
+    resp.raise_for_status()
+    try:
+        profiles = resp.json()
+        count = len(profiles.get("voices") if isinstance(profiles, dict) else profiles)
+    except Exception:  # noqa: BLE001 — a live server answering oddly
+        count = 0
+    return (f"VoiceStudio answering at {url} — {count} voice(s) available, "
+            f"cloning on your own hardware, no key")
+
+
+def list_voicestudio_profiles(base_url: str = "") -> list[dict]:
+    """The voices VoiceStudio already has, ready to be used here.
+
+    Cloning is not the only way in: someone who built a voice in VoiceStudio's
+    own interface — designed rather than cloned, or cloned before installing
+    this — should not have to do it twice.
+    """
+    url = (base_url or voicestudio_url()).rstrip("/")
+    resp = httpx.get(f"{url}/v1/audio/voices", timeout=PROBE_TIMEOUT)
+    resp.raise_for_status()
+    payload = resp.json()
+    raw = payload.get("voices") if isinstance(payload, dict) else payload
+    out = []
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        voice_id = str(item.get("voice_id") or item.get("id") or "").strip()
+        if not voice_id:
+            continue
+        out.append({"id": voice_id,
+                    "name": str(item.get("name") or voice_id),
+                    "language": str(item.get("language") or ""),
+                    "description": str(item.get("description") or "")})
+    return out
+
+
+def _voicestudio_create_profile(name: str, sample: Path, language: str,
+                                base_url: str = "") -> str:
+    """Clone a profile from the sample. Returns its id.
+
+    `kind=clone` with `ref_audio` is VoiceStudio's own cloning path — the same
+    one its interface uses — so the profile that comes out is an ordinary
+    VoiceStudio voice afterwards, usable there as well as here.
+    """
+    url = (base_url or voicestudio_url()).rstrip("/")
+    with sample.open("rb") as handle:
+        resp = httpx.post(
+            f"{url}/profiles",
+            data={"name": name, "kind": "clone",
+                  "language": language or "Auto"},
+            files={"ref_audio": (sample.name, handle, "audio/wav")},
+            timeout=CLONE_TIMEOUT,
+        )
+    if resp.status_code in (400, 422):
+        raise SampleRejected(
+            f"VoiceStudio refused this sample: {_detail(resp)}")
+    resp.raise_for_status()
+    profile_id = str((resp.json() or {}).get("id") or "").strip()
+    if not profile_id:
+        raise CloneUnavailable(
+            "VoiceStudio accepted the sample but returned no profile id.")
+    return profile_id
+
+
+def _detail(resp: httpx.Response) -> str:
+    try:
+        body = resp.json()
+    except ValueError:
+        return resp.text[:200]
+    detail = body.get("detail") if isinstance(body, dict) else None
+    return str(detail or body)[:200]
+
+
 def fish_configured() -> bool:
     from . import connectors
 
@@ -189,6 +289,13 @@ def fish_key() -> str:
 
     return connectors.credentials(FISHAUDIO).get("api_key", "")
 
+
+VOICESTUDIO_SETUP = (
+    "Install VoiceStudio and leave it running — it is the local, open-source "
+    "ElevenLabs alternative (github.com/debpalash/VoiceStudio): "
+    "`docker run -d -p 127.0.0.1:3900:3900 palashdeb/omnivoice-studio:stable`, "
+    "or the desktop app. No key, no bill, and the sample never leaves this "
+    "machine. Point VOICESTUDIO_URL at it if it runs elsewhere.")
 
 XTTS_SETUP = (
     "Start the local XTTS server (`pip install xtts-api-server`, then "
@@ -219,8 +326,31 @@ def describe_providers(probe: bool = True) -> list[dict]:
         xtts_state = READY
         xtts_reason = f"local server at {xtts_url()} (not probed)"
 
+    if probe:
+        try:
+            vs_state, vs_reason = READY, probe_voicestudio()
+        except LocalServerDown as exc:
+            vs_state, vs_reason = UNREACHABLE, str(exc)
+        except Exception as exc:  # noqa: BLE001 — a live server misbehaving
+            vs_state = UNREACHABLE
+            vs_reason = (f"{voicestudio_url()} answered, but not like "
+                         f"VoiceStudio: {exc}")
+    else:
+        vs_state = READY
+        vs_reason = f"local server at {voicestudio_url()} (not probed)"
+
     fish_ready = fish_configured()
     return [
+        {
+            "id": VOICESTUDIO, "label": "VoiceStudio (local)",
+            "kind": "voice_clone", "hosting": "local", "cost": "free",
+            "speed": "seconds to clone, seconds per sentence to speak",
+            "state": vs_state, "reason": vs_reason, "setup": VOICESTUDIO_SETUP,
+            "docs": "https://github.com/debpalash/VoiceStudio",
+            "connector": VOICESTUDIO, "base_url": voicestudio_url(),
+            "unlocks": ["your own voice, cloned and spoken entirely on this "
+                        "machine, in 600+ languages and with no key"],
+        },
         {
             "id": XTTS, "label": "XTTS (local)", "kind": "voice_clone",
             "hosting": "local", "cost": "free",
@@ -353,11 +483,14 @@ def register(name: str, source: Path, provider: str = "",
     providers = describe_providers()
     by_id = {p["id"]: p for p in providers}
     if not provider:
-        wanted = [XTTS, FISHAUDIO]
-    elif provider == XTTS:
-        wanted = [XTTS]
+        # Local first, and VoiceStudio ahead of XTTS: both keep the sample on
+        # this machine, and VoiceStudio also speaks it without a GPU server of
+        # its own having to be wired up separately.
+        wanted = [VOICESTUDIO, XTTS, FISHAUDIO]
+    elif provider in (VOICESTUDIO, XTTS):
+        wanted = [provider]
     else:
-        wanted = [provider, XTTS]
+        wanted = [provider, VOICESTUDIO, XTTS]
 
     from .tts import VoiceUnavailable  # noqa: PLC0415
 
@@ -385,6 +518,22 @@ def register(name: str, source: Path, provider: str = "",
 
 def _register_with(provider: str, name: str, sample: Path, facts: dict,
                    language: str, log) -> dict:
+    if provider == VOICESTUDIO:
+        log(f"Cloning locally with VoiceStudio from {sample.name} "
+            f"({facts['seconds']:.1f}s) — nothing is uploaded.")
+        profile_id = _voicestudio_create_profile(name, sample, language)
+        voice_id = db.create_voice(
+            name=name, provider=VOICESTUDIO, provider_voice_id=profile_id,
+            sample_path=str(sample),
+            settings_json={"language": language, "cloned": True,
+                           "engine": settings.voicestudio_engine,
+                           "sample_seconds": facts["seconds"],
+                           "sample_dbfs": facts["mean_dbfs"]})
+        return _described(voice_id, provider, facts,
+                          f"Cloned on this machine by VoiceStudio at "
+                          f"{voicestudio_url()} (profile {profile_id}). The "
+                          f"sample never left here.")
+
     if provider == XTTS:
         log(f"Cloning locally with XTTS from {sample.name} "
             f"({facts['seconds']:.1f}s) — nothing is uploaded.")

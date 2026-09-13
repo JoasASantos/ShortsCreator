@@ -37,10 +37,50 @@ class VoiceUnavailable(RuntimeError):
     right move."""
 
 
+# The free voice each language gets when nobody picked one. Verified against
+# edge-tts's own catalogue rather than guessed: a name that does not exist
+# fails at synthesis, which is the worst moment to find out.
+#
+# This exists because of a quiet bug, not for completeness: EDGE_VOICE is a
+# single pt-BR name, so a short written in English was narrated by a Brazilian
+# voice reading English words. The script already followed `job.language`; the
+# voice did not.
+DEFAULT_EDGE_VOICES = {
+    "pt": "pt-BR-AntonioNeural",
+    "en": "en-US-AndrewNeural",
+    "es": "es-ES-AlvaroNeural",
+    "fr": "fr-FR-HenriNeural",
+    "de": "de-DE-ConradNeural",
+    "it": "it-IT-DiegoNeural",
+    "ru": "ru-RU-DmitryNeural",
+    "zh": "zh-CN-YunxiNeural",
+    "ja": "ja-JP-KeitaNeural",
+}
+
+
+def default_voice_for(language: str) -> str:
+    """The system voice for a language tag ('es-ES' -> the Spanish one).
+
+    Falls back to EDGE_VOICE, which is what someone who set it deliberately
+    expects — and to Portuguese only when even that is empty.
+    """
+    tag = (language or "").strip().lower()
+    if tag:
+        chosen = DEFAULT_EDGE_VOICES.get(tag.split("-")[0])
+        if chosen:
+            return chosen
+    return settings.edge_voice or DEFAULT_EDGE_VOICES["pt"]
+
+
 def synthesize(text: str, out_path: Path, voice: dict | None = None,
-               log=lambda m, level="info": None) -> Narration:
+               log=lambda m, level="info": None, language: str = "") -> Narration:
+    """`language` is the job's, and it only decides anything when no voice was
+    chosen: a registered voice is a deliberate choice and is never overridden
+    by the language of the script."""
     voice = voice or {}
     provider = voice.get("provider") or settings.tts_provider
+    if language and not voice.get("provider_voice_id") and not voice.get("provider"):
+        voice = {**voice, "provider_voice_id": default_voice_for(language)}
     narration = _synthesize_with(provider, text, out_path, voice, log)
 
     if not narration.words:
@@ -77,6 +117,8 @@ def _synthesize_with(provider: str, text: str, out_path: Path, voice: dict,
                 return _xtts(text, out_path, voice, log)
             if provider == "fishaudio":
                 return _fishaudio(text, out_path, voice, log)
+            if provider == "voicestudio":
+                return _voicestudio(text, out_path, voice, log)
             raise RuntimeError(f"Unknown TTS_PROVIDER: {provider}")
         except VoiceUnavailable as exc:
             if provider == "edge":
@@ -326,6 +368,73 @@ def _xtts(text: str, out_path: Path, voice: dict, log) -> Narration:
                   "language": voice.get("language", "pt")},
             timeout=600,
         )
+        resp.raise_for_status()
+        part.write_bytes(resp.content)
+        length = audio_duration(part)
+        spans.append({"word": sentence, "start": round(cursor, 3),
+                      "end": round(cursor + length, 3)})
+        cursor += length
+        parts.append(part)
+
+    _concat_audio(parts, out_path)
+    return Narration(out_path, audio_duration(out_path), words_from_sentences(spans))
+
+
+# ---------------- VoiceStudio (local) ----------------
+
+def voicestudio_url() -> str:
+    from . import connectors
+
+    saved = connectors.credentials("voicestudio").get("base_url", "")
+    return (saved or settings.voicestudio_url).rstrip("/")
+
+
+def _voicestudio(text: str, out_path: Path, voice: dict, log) -> Narration:
+    """VoiceStudio on this machine, through its OpenAI-shaped speech API.
+
+    `voice` is a profile id — including one cloned from the user's own
+    recording, which is the whole point: their voice never leaves the machine
+    and costs nothing per word.
+
+    Like XTTS and fish.audio it answers with audio and no timings, so the text
+    is synthesized sentence by sentence and each file measured. Estimating over
+    the total instead would let the error pile up across a 90-second narration,
+    and the captions are word-synced.
+    """
+    base = voicestudio_url()
+    profile = voice.get("provider_voice_id") or "default"
+    engine = (voice.get("settings", {}) or {}).get("engine") if isinstance(
+        voice.get("settings"), dict) else ""
+    model = engine or settings.voicestudio_engine or "tts-1"
+    log(f"voicestudio voice={profile} engine={model} at {base}")
+
+    sentences = _split_sentences(text)
+    work = out_path.parent / f"{out_path.stem}_vs"
+    work.mkdir(parents=True, exist_ok=True)
+
+    parts: list[Path] = []
+    spans: list[dict] = []
+    cursor = 0.0
+    for index, sentence in enumerate(sentences):
+        part = work / f"part_{index:03d}.wav"
+        try:
+            resp = httpx.post(
+                f"{base}/v1/audio/speech",
+                json={"model": model, "input": sentence, "voice": profile,
+                      "response_format": "wav"},
+                timeout=600,
+            )
+        except httpx.HTTPError as exc:
+            raise RuntimeError(
+                f"VoiceStudio is not answering at {base} ({type(exc).__name__}). "
+                f"Start the app, or point VOICESTUDIO_URL at the machine that "
+                f"runs it.") from exc
+        if resp.status_code == 404:
+            # A profile that was deleted in VoiceStudio: no retry fixes it, and
+            # falling back to the system voice is better than a failed render.
+            raise VoiceUnavailable(
+                f"VoiceStudio does not know the voice '{profile}' any more — "
+                f"it was probably deleted there.")
         resp.raise_for_status()
         part.write_bytes(resp.content)
         length = audio_duration(part)

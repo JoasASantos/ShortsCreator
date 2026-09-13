@@ -578,7 +578,8 @@ def fake_assembly(monkeypatch):
     """
     calls = {"tts": [], "stock": [], "qa": []}
 
-    def synthesize(text, out_path, voice=None, log=lambda m, level="info": None):
+    def synthesize(text, out_path, voice=None, log=lambda m, level="info": None,
+                   language=""):
         calls["tts"].append(text)
         out_path.write_bytes(b"fake-audio")
         return longform.tts.Narration(out_path, 7.5, longform.tts.estimate_words(text, 7.5))
@@ -777,7 +778,8 @@ def test_a_rewritten_narration_is_recorded_again_and_the_rest_is_kept(fake_assem
 
 
 def test_narration_that_fails_to_record_stays_as_captions(fake_assembly, monkeypatch):
-    def mute(text, out_path, voice=None, log=lambda m, level="info": None):
+    def mute(text, out_path, voice=None, log=lambda m, level="info": None,
+             language=""):
         raise RuntimeError("tts provider out of credit")
 
     monkeypatch.setattr(longform.tts, "synthesize", mute)
@@ -937,7 +939,8 @@ def test_a_real_interview_cut_renders_a_real_horizontal_file(monkeypatch):
     monkeypatch.setattr(longform.notify, "job_done", lambda *a, **k: None)
     monkeypatch.setattr(longform.broll, "providers_ready", lambda: [])
 
-    def synthesize(text, out_path, voice=None, log=lambda m, level="info": None):
+    def synthesize(text, out_path, voice=None, log=lambda m, level="info": None,
+                   language=""):
         subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=330:duration=2",
                         "-c:a", "libmp3lame", str(out_path)], check=True, capture_output=True)
         return longform.tts.Narration(out_path, 2.0, longform.tts.estimate_words(text, 2.0))
