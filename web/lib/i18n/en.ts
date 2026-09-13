@@ -1122,6 +1122,10 @@ export const en: Dictionary = {
     installing: "Adding…",
     installed: "added",
     installedToast: 'Voice "{name}" added.',
+    voicestudioField: "VoiceStudio profile id",
+    voicestudioHint: "copy it from VoiceStudio\u2019s voices screen, or clone your own voice under Avatar",
+    cloneOwnTitle: "Cloning YOUR voice:",
+    cloneOwnWhere: "lives on another screen — record from the microphone or upload audio under",
     cloneTitle: "How to clone a character's voice",
     cloneIntro:
       "To narrate with a character's voice (a voice actor, your own voice) there are two routes:",
@@ -1134,6 +1138,7 @@ export const en: Dictionary = {
     formTitle: "Add a voice",
     providerField: "Provider",
     providers: {
+      voicestudio: "VoiceStudio (local)",
       edge: "Edge (free)",
       fishaudio: "fish.audio",
       elevenlabs: "ElevenLabs",
@@ -1376,6 +1381,13 @@ export const en: Dictionary = {
     pathAuto: "Whichever is available",
     pathXtts: "Local XTTS (free)",
     pathFish: "fish.audio (paid)",
+    recordStart: "Record now",
+    recordStop: "Stop and use",
+    recordingNow: "recording",
+    recordHint: "or upload a file below",
+    recordUnsupported: "This browser cannot record here (needs HTTPS or localhost). Upload a file instead.",
+    recordDenied: "No microphone access. Allow it in the browser, or upload a file.",
+    recordTooShort: "Too short — the minimum is {min}s. Try again.",
     sampleLabel: "Sample of your voice",
     sampleHint: "minimum {min}s · ideally {ideal}s",
     sampleRules:

@@ -1102,6 +1102,10 @@ export const zh: Dictionary = {
     installing: "添加中…",
     installed: "已添加",
     installedToast: "已添加配音“{name}”。",
+    voicestudioField: "VoiceStudio 配置 ID",
+    voicestudioHint: "从 VoiceStudio 的声音页面复制，或在「数字人」页克隆你自己的声音",
+    cloneOwnTitle: "克隆你自己的声音：",
+    cloneOwnWhere: "在另一个页面 — 用麦克风录音或上传音频，位置在",
     cloneTitle: "如何克隆角色的声音",
     cloneIntro:
       "想用某个角色的声音（配音演员，或你自己的声音）来做旁白，有两条路：",
@@ -1114,6 +1118,7 @@ export const zh: Dictionary = {
     formTitle: "登记配音",
     providerField: "服务商",
     providers: {
+      voicestudio: "VoiceStudio（本地）",
       edge: "Edge（免费）",
       fishaudio: "fish.audio",
       elevenlabs: "ElevenLabs",
@@ -1353,6 +1358,13 @@ export const zh: Dictionary = {
     pathAuto: "用当前可用的",
     pathXtts: "本地 XTTS（免费）",
     pathFish: "fish.audio（付费）",
+    recordStart: "现在录音",
+    recordStop: "停止并使用",
+    recordingNow: "录音中",
+    recordHint: "或在下面上传文件",
+    recordUnsupported: "此浏览器无法在这里录音（需要 HTTPS 或 localhost）。请改为上传文件。",
+    recordDenied: "无法访问麦克风。请在浏览器中允许，或上传文件。",
+    recordTooShort: "太短了 — 最少 {min} 秒。请重试。",
     sampleLabel: "你的声音样本",
     sampleHint: "最少 {min} 秒 · 建议 {ideal} 秒",
     sampleRules:
