@@ -1243,6 +1243,17 @@ export const ptBR = {
 
   /** Relatório do doctor na tela de Instalação. Obrigatório e opcional são
    *  distinções reais aqui: faltar um opcional não é defeito. */
+  services: {
+    confirm: "Subir o {label} agora, aqui nesta máquina, com Docker?",
+    yes: "Sim, subir",
+    no: "Agora não",
+    start: "Subir com Docker",
+    restart: "Ligar de novo",
+    stop: "Parar",
+    stopKeeps: "nada é apagado — ligar de novo leva segundos",
+    starting: "subindo… a primeira vez baixa a imagem, pode demorar",
+    running: "{label} rodando",
+  },
   requirements: {
     title: "Requisitos desta máquina",
     subtitle: "o que já está aqui e o que falta",

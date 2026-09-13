@@ -1204,6 +1204,17 @@ export const zh: Dictionary = {
     hideGuides: "隐藏安全区参考线",
   },
 
+  services: {
+    confirm: "现在用 Docker 在这台机器上启动 {label} 吗？",
+    yes: "是，启动",
+    no: "暂不",
+    start: "用 Docker 启动",
+    restart: "重新启动",
+    stop: "停止",
+    stopKeeps: "不会删除任何东西 — 再次启动只需几秒",
+    starting: "启动中… 第一次需要拉取镜像，可能较久",
+    running: "{label} 运行中",
+  },
   requirements: {
     title: "本机环境要求",
     subtitle: "已具备什么，还缺什么",
