@@ -464,10 +464,24 @@ export default function NovoShort() {
                 </Field>
 
                 <div className="two">
-                  <Field label={t.newJob.brollQuery} hint={t.newJob.brollQueryHint}>
+                  {/* The same field carries two different things depending on
+                      the background, so it says which one it wants: search
+                      terms for stock footage, an address for the recording.
+                      Asking for a URL under the label "B-roll search" is how
+                      someone ends up with no idea where the page goes. */}
+                  <Field
+                    label={form.background === "site_scroll"
+                      ? t.newJob.pageToRecord : t.newJob.brollQuery}
+                    hint={form.background === "site_scroll"
+                      ? (form.source_type === "url" || form.source_type === "github"
+                        ? t.newJob.pageToRecordHintSource
+                        : t.newJob.pageToRecordHint)
+                      : t.newJob.brollQueryHint}>
                     <input
                       className="input"
-                      placeholder="server room, hacker typing"
+                      placeholder={form.background === "site_scroll"
+                        ? "https://github.com/rtk-ai/rtk"
+                        : "server room, hacker typing"}
                       value={form.background_query}
                       onChange={(e) => set("background_query", e.target.value)}
                     />
