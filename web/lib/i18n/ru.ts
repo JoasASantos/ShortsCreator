@@ -1121,6 +1121,10 @@ export const ru: Dictionary = {
     installing: "Добавляем…",
     installed: "добавлен",
     installedToast: 'Голос "{name}" добавлен.',
+    voicestudioField: "ID профиля в VoiceStudio",
+    voicestudioHint: "скопируйте его на экране голосов VoiceStudio или клонируйте свой голос в разделе «Аватар»",
+    cloneOwnTitle: "Клонировать ВАШ голос:",
+    cloneOwnWhere: "это на другом экране — запишите с микрофона или загрузите аудио в",
     cloneTitle: "Как клонировать голос персонажа",
     cloneIntro:
       "Чтобы озвучивать голосом персонажа (актёра дубляжа или своим собственным), есть два пути:",
@@ -1133,6 +1137,7 @@ export const ru: Dictionary = {
     formTitle: "Добавить голос",
     providerField: "Провайдер",
     providers: {
+      voicestudio: "VoiceStudio (локально)",
       edge: "Edge (бесплатно)",
       fishaudio: "fish.audio",
       elevenlabs: "ElevenLabs",
@@ -1375,6 +1380,13 @@ export const ru: Dictionary = {
     pathAuto: "Тот, который доступен",
     pathXtts: "Локальный XTTS (бесплатно)",
     pathFish: "fish.audio (платно)",
+    recordStart: "Записать сейчас",
+    recordStop: "Стоп и использовать",
+    recordingNow: "идёт запись",
+    recordHint: "или загрузите файл ниже",
+    recordUnsupported: "Этот браузер не может записывать здесь (нужен HTTPS или localhost). Загрузите файл.",
+    recordDenied: "Нет доступа к микрофону. Разрешите его в браузере или загрузите файл.",
+    recordTooShort: "Слишком коротко — минимум {min} с. Попробуйте снова.",
     sampleLabel: "Образец вашего голоса",
     sampleHint: "минимум {min}с · лучше {ideal}с",
     sampleRules:

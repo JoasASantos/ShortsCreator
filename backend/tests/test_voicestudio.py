@@ -259,3 +259,17 @@ def test_the_connector_test_is_reachability(monkeypatch):
     monkeypatch.setattr(voice_clone.httpx, "get", lambda *a, **k: _response(
         200, method="GET", json={"voices": []}))
     assert "answering" in connectors.test("voicestudio")
+
+
+def test_registering_a_profile_without_its_id_is_refused_with_the_way_out(tmp_path):
+    """An empty id would register a voice that silently speaks as 'default' —
+    someone's short narrated by a voice they did not choose."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    answer = TestClient(app).post(
+        "/api/voices", data={"name": "Minha voz", "provider": "voicestudio"})
+    assert answer.status_code == 400
+    detail = answer.json()["detail"]
+    assert "profile id" in detail and "Avatar" in detail

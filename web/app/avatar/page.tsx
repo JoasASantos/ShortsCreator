@@ -9,6 +9,7 @@ import {
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { Chips, Field, StatusTag, Topbar, useToast } from "@/components/ui";
+import { MicRecorder } from "@/components/MicRecorder";
 
 /* Neither state that matters here is red. A key nobody registered and a local
    server that is not running are both normal states with an obvious next step
@@ -397,6 +398,30 @@ export default function AvatarStudio() {
                         ideal: limits.recommended_sample_seconds })
                   : undefined}
               >
+                {/* Recording is the common case — "clone your voice" should not
+                    start with opening a recorder app, exporting and coming
+                    back. The file picker below stays for the clip someone
+                    already has. */}
+                <MicRecorder
+                  minSeconds={limits?.min_sample_seconds ?? 3}
+                  idealSeconds={limits?.recommended_sample_seconds ?? 10}
+                  onRecorded={(file) => {
+                    setSample(file);
+                    if (sampleInput.current) sampleInput.current.value = "";
+                  }}
+                  labels={{
+                    start: t.avatarPage.recordStart,
+                    stop: t.avatarPage.recordStop,
+                    recording: t.avatarPage.recordingNow,
+                    unsupported: t.avatarPage.recordUnsupported,
+                    denied: t.avatarPage.recordDenied,
+                    tooShort: limits
+                      ? f(t.avatarPage.recordTooShort,
+                          { min: limits.min_sample_seconds })
+                      : t.avatarPage.recordDenied,
+                    hint: t.avatarPage.recordHint,
+                  }}
+                />
                 <label
                   onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
                   onDragLeave={() => setDragging(false)}

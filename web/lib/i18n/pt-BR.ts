@@ -1139,6 +1139,10 @@ export const ptBR = {
     installing: "Adicionando…",
     installed: "adicionada",
     installedToast: 'Voz "{name}" adicionada.',
+    voicestudioField: "ID do perfil no VoiceStudio",
+    voicestudioHint: "copie da tela de vozes do VoiceStudio, ou clone a sua voz em Avatar",
+    cloneOwnTitle: "Clonar a SUA voz:",
+    cloneOwnWhere: "é em outra tela — grave pelo microfone ou envie um áudio em",
     cloneTitle: "Como clonar a voz de um personagem",
     cloneIntro:
       "Para narrar com a voz de um personagem (um dublador, sua própria voz), há dois caminhos:",
@@ -1151,6 +1155,7 @@ export const ptBR = {
     formTitle: "Cadastrar voz",
     providerField: "Provedor",
     providers: {
+      voicestudio: "VoiceStudio (local)",
       edge: "Edge (grátis)",
       fishaudio: "fish.audio",
       elevenlabs: "ElevenLabs",
@@ -1399,6 +1404,13 @@ export const ptBR = {
     pathAuto: "A que estiver disponível",
     pathXtts: "XTTS local (grátis)",
     pathFish: "fish.audio (pago)",
+    recordStart: "Gravar agora",
+    recordStop: "Parar e usar",
+    recordingNow: "gravando",
+    recordHint: "ou envie um arquivo abaixo",
+    recordUnsupported: "Este navegador não permite gravar aqui (precisa de HTTPS ou localhost). Envie um arquivo.",
+    recordDenied: "Sem acesso ao microfone. Libere a permissão no navegador, ou envie um arquivo.",
+    recordTooShort: "Gravação curta demais — o mínimo é {min}s. Tente de novo.",
     sampleLabel: "Amostra da sua voz",
     sampleHint: "mínimo {min}s · ideal {ideal}s",
     sampleRules:

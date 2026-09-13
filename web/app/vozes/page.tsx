@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { api, type Voice, type VoicePreset } from "@/lib/api";
@@ -14,7 +15,7 @@ export default function Vozes() {
   const [catalog, setCatalog] = useState<{ id: string; name: string; gender: string }[]>([]);
   const [presets, setPresets] = useState<VoicePreset[]>([]);
   const [installing, setInstalling] = useState("");
-  const [provider, setProvider] = useState<"edge" | "elevenlabs" | "xtts" | "fishaudio">("edge");
+  const [provider, setProvider] = useState<"edge" | "elevenlabs" | "xtts" | "fishaudio" | "voicestudio">("edge");
   const [name, setName] = useState("");
   const [voiceId, setVoiceId] = useState("");
   const [rate, setRate] = useState("+0%");
@@ -175,7 +176,14 @@ export default function Vozes() {
                   <b>{t.voicesPage.providers.xtts}</b> {t.voicesPage.cloneXtts}
                 </li>
               </ul>
-              <p style={{ marginBottom: 0 }}>{t.voicesPage.cloneWarning}</p>
+              <p>{t.voicesPage.cloneWarning}</p>
+              {/* The question this answers: someone reading "clone" on this
+                  screen looks for a record button here, and cloning lives on
+                  the Avatar screen. */}
+              <p style={{ marginBottom: 0 }}>
+                <b>{t.voicesPage.cloneOwnTitle}</b> {t.voicesPage.cloneOwnWhere}{" "}
+                <Link href="/avatar" className="link">{t.nav.avatar}</Link>.
+              </p>
             </div>
           </section>
         </div>
@@ -194,6 +202,7 @@ export default function Vozes() {
                   { value: "fishaudio", label: t.voicesPage.providers.fishaudio },
                   { value: "elevenlabs", label: t.voicesPage.providers.elevenlabs },
                   { value: "xtts", label: t.voicesPage.providers.xtts },
+                  { value: "voicestudio", label: t.voicesPage.providers.voicestudio },
                 ]}
               />
             </Field>
@@ -217,6 +226,16 @@ export default function Vozes() {
                     </option>
                   ))}
                 </select>
+              </Field>
+            ) : provider === "voicestudio" ? (
+              <Field label={t.voicesPage.voicestudioField}
+                     hint={t.voicesPage.voicestudioHint}>
+                <input
+                  className="input"
+                  placeholder="ab12cd34"
+                  value={voiceId}
+                  onChange={(e) => setVoiceId(e.target.value)}
+                />
               </Field>
             ) : provider === "xtts" ? (
               <Field label={t.voicesPage.sampleField} hint={t.voicesPage.sampleHint}>

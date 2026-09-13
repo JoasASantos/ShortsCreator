@@ -116,6 +116,11 @@ async def create_voice(
         raise HTTPException(400, "XTTS requires a reference audio file.")
     if provider == "elevenlabs" and not provider_voice_id:
         raise HTTPException(400, "ElevenLabs requires the provider_voice_id of the cloned voice.")
+    if provider == "voicestudio" and not provider_voice_id:
+        raise HTTPException(
+            400, "VoiceStudio requires the profile id (copy it from its voices "
+                 "screen), or clone your voice on the Avatar screen and it is "
+                 "filled in for you.")
     if provider == "fishaudio" and not provider_voice_id:
         raise HTTPException(
             400, "fish.audio requires the reference_id of the voice model "
