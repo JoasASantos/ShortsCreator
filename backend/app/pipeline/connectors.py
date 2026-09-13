@@ -84,6 +84,15 @@ def _check_gemini(creds: dict) -> str:
     return nanobanana.verify(creds)
 
 
+def _check_voicestudio(creds: dict) -> str:
+    """A local voice server's test is reachability, exactly as for ComfyUI: a
+    URL that is merely written down proves nothing about an app that is not
+    running."""
+    from . import voice_clone
+
+    return voice_clone.probe_voicestudio(creds.get("base_url") or "")
+
+
 def _check_openai_images(creds: dict) -> str:
     from .generators import gptimage
 
@@ -291,6 +300,20 @@ CATALOG: list[Connector] = [
         docs="https://docs.fish.audio/overview/capabilities",
         fields=[Field("api_key", "API key", "FISHAUDIO_API_KEY")],
         check=_check_fishaudio,
+    ),
+    Connector(
+        id="voicestudio", name="VoiceStudio (local)", category="voz",
+        auth="api_key",
+        detail="A alternativa local e open-source ao ElevenLabs. Clona a sua "
+               "voz a partir de uma amostra e fala com ela na sua própria "
+               "máquina — sem chave, sem cobrança por palavra, e a amostra não "
+               "sai daqui. Mais de 600 idiomas.",
+        requirement="VoiceStudio rodando (app ou docker, porta 3900)",
+        docs="https://github.com/debpalash/VoiceStudio",
+        fields=[Field("base_url", "Endereço do servidor", "VOICESTUDIO_URL",
+                      secret=False, required=False,
+                      hint="vazio = http://127.0.0.1:3900")],
+        check=_check_voicestudio,
     ),
     Connector(
         id="elevenlabs", name="ElevenLabs", category="voz", auth="api_key",

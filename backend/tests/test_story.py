@@ -400,7 +400,8 @@ def fake_generation(monkeypatch):
         out_path.write_bytes(b"fake-clip")
         return out_path
 
-    def synthesize(text, out_path, voice=None, log=lambda m, level="info": None):
+    def synthesize(text, out_path, voice=None, log=lambda m, level="info": None,
+                   language=""):
         out_path.write_bytes(b"fake-audio")
         return story.tts.Narration(out_path, 1.5, [])
 

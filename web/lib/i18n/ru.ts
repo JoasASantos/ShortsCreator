@@ -153,6 +153,8 @@ export const ru: Dictionary = {
     angle: "Подход",
     angleHint: "какой угол подачи",
     niche: "Ниша",
+    language: "Язык видео",
+    languageHint: "сценарий, субтитры и озвучка выйдут на этом языке",
     nicheHint: "задаёт тон и темп сценария",
     duration: "Целевая длина",
     cta: "Финальный призыв (CTA)",

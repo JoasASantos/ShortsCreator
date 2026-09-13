@@ -523,6 +523,30 @@ def _tts_cloning(env: _Env) -> Requirement:
     )
 
 
+def _voice_cloning_local(env: _Env) -> Requirement:
+    """The free path to a cloned voice: a server on this machine, no key."""
+    from . import voice_clone
+
+    reason = ""
+    found = False
+    try:
+        reason = voice_clone.probe_voicestudio()
+        found = True
+    except Exception as exc:  # noqa: BLE001 — not running is the normal case
+        reason = str(exc)[:300]
+    return Requirement(
+        id="voicestudio", label="VoiceStudio (local voice cloning)",
+        required=False, found=found,
+        version="running" if found else "",
+        unlocks="cloning your own voice and narrating with it, on this machine, "
+                "with no key and nothing uploaded",
+        install="https://github.com/debpalash/VoiceStudio — or "
+                "`docker run -d -p 127.0.0.1:3900:3900 "
+                "palashdeb/omnivoice-studio:stable`",
+        note="" if found else reason,
+    )
+
+
 def _stock_video(env: _Env) -> Requirement:
     found = (_configured("pexels", settings.pexels_api_key)
              or _configured("pixabay", settings.pixabay_api_key)
@@ -611,6 +635,7 @@ def check() -> dict:
         _claude_cli(env),
         _codex_cli(env),
         _tts_cloning(env),
+        _voice_cloning_local(env),
         _stock_video(env),
         _page_recorder(env),
         *_assets(env),

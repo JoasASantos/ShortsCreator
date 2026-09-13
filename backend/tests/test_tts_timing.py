@@ -225,3 +225,46 @@ def test_a_refusal_is_not_retried(tmp_path, monkeypatch):
 
     tts.synthesize("frase", tmp_path / "n.mp3", {"provider": "fishaudio"})
     assert attempts["n"] == 1
+
+
+# ------------------ the voice follows the language of the short -------------
+
+def test_a_short_in_english_is_not_read_by_a_brazilian_voice(tmp_path, monkeypatch):
+    """The bug: the script already followed `job.language`, the voice did not.
+    EDGE_VOICE is a single pt-BR name, so an English script was narrated by a
+    Brazilian voice reading English words."""
+    asked: list[str] = []
+    monkeypatch.setattr(tts, "_edge", lambda text, out, voice, log:
+                        asked.append(voice.get("provider_voice_id", ""))
+                        or tts.Narration(out, 2.0, []))
+
+    tts.synthesize("a sentence", tmp_path / "n.mp3", None, language="en")
+    assert asked == ["en-US-AndrewNeural"]
+
+
+def test_every_language_the_script_writes_in_has_a_voice():
+    """A language the prompt can write but the catalogue cannot speak would
+    produce a short narrated in the wrong accent, silently."""
+    from app.pipeline.script import LANGUAGE_NAMES
+
+    for tag in LANGUAGE_NAMES:
+        assert tag in tts.DEFAULT_EDGE_VOICES, tag
+        assert tts.default_voice_for(tag).lower().startswith(tag)
+
+
+def test_a_chosen_voice_is_never_overridden_by_the_language(tmp_path, monkeypatch):
+    """A registered voice is a deliberate choice — someone who cloned their own
+    voice and writes a short in English wants their voice, accent and all."""
+    asked: list[str] = []
+    monkeypatch.setattr(tts, "_edge", lambda text, out, voice, log:
+                        asked.append(voice.get("provider_voice_id", ""))
+                        or tts.Narration(out, 2.0, []))
+
+    tts.synthesize("a sentence", tmp_path / "n.mp3",
+                   {"provider_voice_id": "pt-BR-AntonioNeural"}, language="en")
+    assert asked == ["pt-BR-AntonioNeural"]
+
+
+def test_an_unknown_language_falls_back_to_the_configured_voice(tmp_path, monkeypatch):
+    monkeypatch.setattr(tts.settings, "edge_voice", "pt-BR-AntonioNeural")
+    assert tts.default_voice_for("xx-YY") == "pt-BR-AntonioNeural"

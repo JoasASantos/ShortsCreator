@@ -73,8 +73,18 @@ def _xtts_down(monkeypatch):
 
 
 def _xtts_up(monkeypatch):
-    monkeypatch.setattr(voice_clone.httpx, "get", lambda *a, **k: _response(
-        200, method="GET", json=["speaker_a"]))
+    """XTTS answering — and nothing else.
+
+    Per URL, not a blanket 200: VoiceStudio is probed the same way (a GET that
+    comes back 200) and is tried before XTTS, so a stub that answers every
+    address would quietly send these tests down the other local path.
+    """
+    def only_xtts(url, *_a, **_k):
+        if "speakers_list" in str(url):
+            return _response(200, method="GET", json=["speaker_a"])
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(voice_clone.httpx, "get", only_xtts)
 
 
 def _tone(path, seconds: float, silent: bool = False):
@@ -366,7 +376,10 @@ def test_the_avatar_state_is_not_configured_rather_than_an_error(monkeypatch):
     assert report["avatar"]["cost"] == "paid"
     assert report["avatar"]["unlocks"]
     # the voice paths ride along, so one call answers "what can I do today"
-    assert [p["id"] for p in report["voice_clone"]] == ["xtts", "fishaudio"]
+    # local first, and VoiceStudio ahead of XTTS: both keep the sample on this
+    # machine, and VoiceStudio also speaks it without a second server
+    assert [p["id"] for p in report["voice_clone"]] == [
+        "voicestudio", "xtts", "fishaudio"]
     assert report["limits"]["min_sample_seconds"] == voice_clone.MIN_SECONDS
 
 
@@ -542,7 +555,8 @@ def test_the_capability_route_answers_with_nothing_configured(client, monkeypatc
     _xtts_down(monkeypatch)
     body = client.get("/api/avatar").json()
     assert body["avatar"]["state"] == NOT_CONFIGURED
-    assert {p["id"] for p in body["providers"]} == {"heygen", "xtts", "fishaudio"}
+    assert {p["id"] for p in body["providers"]} == {"heygen", "voicestudio",
+                                                    "xtts", "fishaudio"}
     assert body["limits"]["min_script_chars"] == avatar.MIN_SCRIPT_CHARS
 
 

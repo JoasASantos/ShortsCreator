@@ -1981,7 +1981,8 @@ def _prepare_narration(block: dict, ledger: dict[str, dict], work: Path,
             dest = work / f"nar_{block['key']}.mp3"
             voice = db.get_voice(options["voice_id"]) if options["voice_id"] else None
             narration = tts.synthesize(block["narration"], dest, voice,
-                                       lambda m, level="info": log(str(m), level))
+                                       lambda m, level="info": log(str(m), level),
+                                       language=options["language"])
             duration, words = narration.duration, narration.words
         words_file = work / f"{dest.stem}.words.json"
         words_file.write_text(json.dumps(words, ensure_ascii=False), encoding="utf-8")

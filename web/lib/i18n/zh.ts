@@ -152,6 +152,8 @@ export const zh: Dictionary = {
     angle: "切入角度",
     angleHint: "采用哪种视角",
     niche: "领域",
+    language: "视频语言",
+    languageHint: "脚本、字幕和配音都用这个语言",
     nicheHint: "决定脚本的语气与节奏",
     duration: "目标时长",
     cta: "结尾引导语（CTA）",

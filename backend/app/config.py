@@ -161,6 +161,14 @@ class Settings:
         # model family: s1 | s2-pro | s2.1-pro | s2.1-pro-free
         self.fishaudio_backend = os.getenv("FISHAUDIO_BACKEND", "s2.1-pro-free")
         self.fishaudio_model = os.getenv("FISHAUDIO_MODEL", "")
+        # VoiceStudio: the local ElevenLabs-alternative. Clones a voice from a
+        # sample and speaks with it on this machine, no key and no upload. Its
+        # speech API is OpenAI-shaped, its profiles API is its own.
+        self.voicestudio_url = os.getenv("VOICESTUDIO_URL", "http://127.0.0.1:3900")
+        # Which of its engines synthesizes. Empty means whichever is active in
+        # VoiceStudio itself — its own choice is the sane default, and naming
+        # one here is how someone pins OmniVoice or CosyVoice for a project.
+        self.voicestudio_engine = os.getenv("VOICESTUDIO_ENGINE", "")
 
         # B-roll
         self.pexels_api_key = os.getenv("PEXELS_API_KEY", "")
