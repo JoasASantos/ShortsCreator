@@ -150,6 +150,10 @@ export const es: Dictionary = {
     instructionHint: "de qué quieres que hable",
     instructionPlaceholder:
       "ej.: habla de la película usando la escena como fondo, no describas la escena · haz una crítica del juego · cuenta la historia detrás de esta canción",
+    research: "Materiales de apoyo",
+    researchHint: "enlaces que lee para escribir — no aparecen en el vídeo",
+    researchCounted: "{count} enlace(s) — cada uno se descarga y transcribe antes del guion",
+    researchPlaceholder: "Pega enlaces de reseñas, análisis, artículos — uno por línea. El texto suelto también sirve.",
     angle: "Enfoque",
     angleHint: "qué tipo de abordaje",
     niche: "Nicho",

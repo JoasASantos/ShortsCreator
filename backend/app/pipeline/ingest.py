@@ -52,9 +52,38 @@ class SourceMaterial:
     repo_tree: str = ""
     metadata: dict = field(default_factory=dict)
 
+    # Background material: read to write the script, never shown on screen.
+    # Each entry is {kind, title, url, text, status, error}.
+    research: list[dict] = field(default_factory=list)
+
     def context(self, limit: int = 24000) -> str:
+        """What the writer gets to read.
+
+        The source comes first and keeps most of the budget: it is the thing
+        the short is ABOUT. Background material follows under its own heading,
+        labelled as background — a review of a film is not the film, and a
+        script that quotes the reviewer as if they were the trailer is the
+        failure this labelling exists to prevent.
+        """
         parts = [p for p in (self.title, self.repo_tree, self.text, self.transcript) if p]
-        return "\n\n".join(parts)[:limit]
+        body = "\n\n".join(parts)[:limit]
+        extra = self.research_text(limit=max(limit // 2, 4000))
+        return f"{body}\n\n{extra}" if extra else body
+
+    def research_text(self, limit: int = 12000) -> str:
+        usable = [item for item in self.research
+                  if item.get("status") == "ok" and item.get("text")]
+        if not usable:
+            return ""
+        # Evenly split, so four reviews are four voices and not one review plus
+        # three truncated openings.
+        share = max(limit // len(usable), 800)
+        blocks = []
+        for item in usable:
+            head = item.get("title") or item.get("url") or item["kind"]
+            blocks.append(f"[apoio · {item['kind']}] {head}\n{item['text'][:share]}")
+        return ("MATERIAL DE APOIO (para você entender o assunto; NÃO é o que "
+                "aparece na tela):\n" + "\n\n".join(blocks))
 
 
 def is_url(value: str) -> bool:
@@ -69,7 +98,24 @@ def is_github_url(url: str) -> bool:
     return any(host in url.lower() for host in GITHUB_HOSTS)
 
 
-def ingest(job: JobInput, job_dir: Path, log=lambda m: None) -> SourceMaterial:
+# How many background items are read. Each video here is a download plus a
+# transcription, so this is minutes of someone's time, not a list length: four
+# reviews already say more about a film than a fifth would add.
+MAX_RESEARCH = 4
+# Per item, so one three-hour podcast cannot eat the whole prompt.
+RESEARCH_CHARS = 12000
+
+
+def ingest(job: JobInput, job_dir: Path,
+           log=lambda m, level="info": None) -> SourceMaterial:
+    """The source, plus whatever background material was given with it."""
+    material = _ingest_source(job, job_dir, log)
+    material.research = gather_research(job, job_dir, log)
+    return material
+
+
+def _ingest_source(job: JobInput, job_dir: Path,
+                   log=lambda m, level="info": None) -> SourceMaterial:
     source_type = job.source_type
     source = job.source.strip()
 
@@ -111,6 +157,99 @@ def ingest(job: JobInput, job_dir: Path, log=lambda m: None) -> SourceMaterial:
 
     log(f"Extracting article from {source}")
     return _ingest_article(source)
+
+
+def gather_research(job: JobInput, job_dir: Path,
+                    log=lambda m, level="info": None) -> list[dict]:
+    """Read the background material: links transcribed or extracted, files
+    transcribed, free text taken as written.
+
+    Every item is independent and every failure is its own: a review whose
+    video is private must not cost the other three, and it must not cost the
+    short either. What comes back carries the reason, so the job log can say
+    "three of four read" instead of quietly writing from less.
+    """
+    raw = (job.research or "").strip()
+    uploads = list(job.research_attachments or [])
+    if not raw and not uploads:
+        return []
+
+    urls = split_urls(raw)
+    leftover = raw
+    for url in urls:
+        leftover = leftover.replace(url, " ")
+    leftover = leftover.strip()
+
+    items: list[dict] = []
+    if leftover:
+        # Notes pasted alongside the links are material too, and they cost
+        # nothing to read.
+        items.append({"kind": "texto", "title": _first_line(leftover),
+                      "url": "", "text": leftover[:RESEARCH_CHARS],
+                      "status": "ok", "error": ""})
+
+    budget = MAX_RESEARCH
+    for url in urls[:budget]:
+        items.append(_research_url(url, job_dir, len(items), log))
+    budget -= len(urls[:budget])
+    for attachment_id in uploads[:max(budget, 0)]:
+        items.append(_research_upload(attachment_id, job_dir, len(items), log))
+
+    dropped = (len(urls) + len(uploads)) - sum(1 for i in items if i["kind"] != "texto")
+    if dropped > 0:
+        log(f"{dropped} background item(s) ignored: at most {MAX_RESEARCH} are "
+            f"read, and each one is a download plus a transcription.")
+    ok = sum(1 for item in items if item["status"] == "ok")
+    log(f"Background material: {ok} of {len(items)} item(s) read")
+    return items
+
+
+def _research_url(url: str, job_dir: Path, index: int, log) -> dict:
+    item = {"kind": "link", "title": "", "url": url, "text": "",
+            "status": "ok", "error": ""}
+    try:
+        if is_video_url(url) or not is_url(url):
+            log(f"Background: transcribing {url}")
+            work = job_dir / f"research_{index:02d}"
+            work.mkdir(parents=True, exist_ok=True)
+            path, info = download_video(url, work)
+            item["kind"] = "video"
+            item["title"] = info.get("title", "") or url
+            text = _read_subtitles(work)
+            if not text and path:
+                text = _whisper_transcribe(path, log)
+            if not text:
+                raise RuntimeError("no subtitles and nothing transcribable")
+            item["text"] = text[:RESEARCH_CHARS]
+        else:
+            log(f"Background: reading {url}")
+            article = _ingest_article(url)
+            item["kind"] = "artigo"
+            item["title"] = article.title or url
+            item["text"] = (article.text or "")[:RESEARCH_CHARS]
+            if not item["text"]:
+                raise RuntimeError("the page had no readable text")
+    except Exception as exc:  # noqa: BLE001 — one item, not the short
+        item.update(status="failed", error=str(exc)[:300])
+        log(f"Background: {url} was not read ({exc})", "warn")
+    return item
+
+
+def _research_upload(attachment_id: str, job_dir: Path, index: int, log) -> dict:
+    item = {"kind": "video", "title": attachment_id, "url": "", "text": "",
+            "status": "ok", "error": ""}
+    try:
+        src = uploads_router.resolve(attachment_id)
+        item["title"] = src.name
+        log(f"Background: transcribing {src.name}")
+        text = _whisper_transcribe(src, log)
+        if not text:
+            raise RuntimeError("nothing could be transcribed from this file")
+        item["text"] = text[:RESEARCH_CHARS]
+    except Exception as exc:  # noqa: BLE001 — one item, not the short
+        item.update(status="failed", error=str(exc)[:300])
+        log(f"Background: {attachment_id} was not read ({exc})", "warn")
+    return item
 
 
 def split_urls(value: str) -> list[str]:

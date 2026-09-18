@@ -81,6 +81,8 @@ const defaults = (language: string, cta: string): JobInput => ({
   edit_mode: "narrar_por_cima",
   angle: "auto",
   instruction: "",
+  research: "",
+  research_attachments: [],
   niche: "tecnologia",
   language,
   voice_id: null,
@@ -175,6 +177,9 @@ export default function NovoShort() {
   // several links pasted at once become a montage; the hint says how many
   // the backend will actually pick up
   const linkCount = (form.source.match(/https?:\/\/\S+/g) ?? []).length;
+  // Each background link is a download plus a transcription, so the count is
+  // minutes of waiting and worth showing before the job starts.
+  const researchCount = (form.research.match(/https?:\/\/\S+/g) ?? []).length;
 
   const acceptsFiles = form.source_type === "imagem" || form.source_type === "video";
   const isLongForm = form.source_type === "video";
@@ -366,6 +371,27 @@ export default function NovoShort() {
                       placeholder={t.newJob.instructionPlaceholder}
                       value={form.instruction}
                       onChange={(e) => set("instruction", e.target.value)}
+                    />
+                  </Field>
+                ) : null}
+
+                {/* Material that INFORMS the script without appearing in it:
+                    the trailer is the footage, three review videos are what
+                    the writer read before writing. Links are transcribed or
+                    extracted; nothing here reaches the screen. */}
+                {form.source_type !== "roteiro" ? (
+                  <Field
+                    label={t.newJob.research}
+                    hint={researchCount
+                      ? f(t.newJob.researchCounted, { count: researchCount })
+                      : t.newJob.researchHint}
+                  >
+                    <textarea
+                      className="textarea"
+                      style={{ minHeight: 62 }}
+                      placeholder={t.newJob.researchPlaceholder}
+                      value={form.research}
+                      onChange={(e) => set("research", e.target.value)}
                     />
                   </Field>
                 ) : null}

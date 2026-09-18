@@ -149,6 +149,10 @@ export const zh: Dictionary = {
     instructionHint: "你希望它讲什么",
     instructionPlaceholder:
       "例如：以这个场景为背景讲这部电影，不要描述场景本身 · 做一期游戏评测 · 讲讲这首歌背后的故事",
+    research: "参考材料",
+    researchHint: "用来写稿的链接 — 不会出现在视频里",
+    researchCounted: "{count} 个链接 — 写稿前每个都会下载并转写",
+    researchPlaceholder: "粘贴影评、分析、文章链接 — 每行一个。零散笔记也可以。",
     angle: "切入角度",
     angleHint: "采用哪种视角",
     niche: "领域",
