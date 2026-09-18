@@ -157,6 +157,10 @@ export const ptBR = {
     instructionHint: "o que você quer que ele fale",
     instructionPlaceholder:
       "ex.: fale sobre o filme usando a cena como imagem de fundo, não descreva a cena · faça uma crítica do jogo · conte a história por trás dessa música",
+    research: "Materiais de apoio",
+    researchHint: "links que ele lê para escrever — não aparecem no vídeo",
+    researchCounted: "{count} link(s) — cada um é baixado e transcrito antes do roteiro",
+    researchPlaceholder: "Cole links de reviews, análises, artigos — um por linha. Texto solto também vale.",
     angle: "Ângulo",
     angleHint: "qual o tipo de abordagem",
     niche: "Nicho",

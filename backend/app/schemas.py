@@ -58,6 +58,19 @@ class JobInput(BaseModel):
         default=[],
         description="IDs returned by /api/uploads — images or a local video",
     )
+    # Material that INFORMS the script without appearing in it. The trailer is
+    # the footage; three review videos are what the writer read before writing.
+    # Links are transcribed (video) or extracted (article); the result reaches
+    # the prompt as background and never the screen.
+    research: str = Field(
+        default="",
+        description="Links or text used as background for the script — "
+                    "transcribed and read, never shown on screen",
+    )
+    research_attachments: list[str] = Field(
+        default=[],
+        description="IDs from /api/uploads to transcribe as background only",
+    )
     edit_mode: EditMode = "narrar_por_cima"
     angle: Angle = "auto"
     instruction: str = Field(

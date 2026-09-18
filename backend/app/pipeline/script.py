@@ -130,6 +130,32 @@ LANGUAGE_NAMES = {
 }
 
 
+def _research_rules(material) -> str:
+    """How to use the background material, said once and plainly.
+
+    Without this the model treats three film reviews as if they were the film:
+    it narrates the reviewer's opinion in the first person and describes shots
+    that are in a YouTube video nobody is going to see. The footage on screen
+    is the source; the background is what the writer read beforehand.
+    """
+    read = [item for item in getattr(material, "research", [])
+            if item.get("status") == "ok" and item.get("text")]
+    if not read:
+        return ""
+    return f"""
+COMO USAR O MATERIAL DE APOIO ({len(read)} item(ns)):
+- Ele serve para você SABER do que está falando: fatos, contexto, o que as
+  pessoas estão dizendo, o que é consenso e o que é polêmica.
+- O que aparece na tela é o MATERIAL DE ORIGEM. Não descreva cenas, imagens ou
+  momentos que só existem no material de apoio — o espectador não os verá.
+- Não narre a opinião de quem escreveu o apoio como se fosse sua nem como se
+  fosse fato. Se uma opinião entra, ela entra como opinião de alguém.
+- Contradição entre apoios é assunto, não erro: dizer que há divergência é mais
+  honesto do que escolher um lado por acaso.
+- As instruções que o usuário escreveu mandam mais que o apoio.
+"""
+
+
 def language_name(tag: str) -> str:
     """'es-ES' -> 'espanhol (español)'. An unknown tag comes back as itself,
     which is still a useful instruction for the model."""
@@ -245,7 +271,7 @@ MATERIAL DE ORIGEM ({material.kind}):
 ---
 {material.context()}
 ---
-
+{_research_rules(material)}
 Gere o roteiro do short."""
 
     data = llm.complete_json(system, prompt, SCHEMA, purpose="roteiro")

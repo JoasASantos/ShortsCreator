@@ -96,6 +96,10 @@ export interface JobInput {
   source_type: SourceType;
   source: string;
   attachments: string[];
+  /** Material that INFORMS the script without appearing in it: links to
+   *  reviews and articles, or loose notes. Transcribed and read, never shown. */
+  research: string;
+  research_attachments: string[];
   // meu_video: a recording of your own — no script and no TTS, the captions
   // come from transcribing what was actually said.
   // avatar: a talking presenter reads the script — the provider renders both
