@@ -364,10 +364,13 @@ def run(job_id: str, job, job_dir: Path, log, stage) -> dict:
     result = {
         "mode": MODE,
         "title": dubbed.title,
-        # The source travels with the result: crediting whoever made the
-        # original is the one thing that turns "recycled" into "republished
-        # with attribution", and it has to be one copy away.
-        "description": f"Original: {dubbed.url}" if dubbed.url else "",
+        # The credit line, when it was asked for. It is a publishing choice,
+        # so it is a switch rather than a rule — but the source URL below is
+        # always in the result, because a job that cannot say where its footage
+        # came from is a job nobody can audit later.
+        "description": (f"Original: {dubbed.url}"
+                        if dubbed.url and getattr(job, "credit_source", True)
+                        else ""),
         "hashtags": [],
         "duration": round(edl.duration, 2),
         "video": f"/api/jobs/{job_id}/file/short.mp4",

@@ -124,6 +124,8 @@ export interface JobInput {
   // deliver it silent with captions only. Optional because this type doubles
   // as the request body, and the other flows have no reason to send it.
   keep_audio?: boolean;
+  /** Dubs only: put the original's link in the description. */
+  credit_source?: boolean;
   music_track: string;
   music_volume: number;
   caption_offset: number;

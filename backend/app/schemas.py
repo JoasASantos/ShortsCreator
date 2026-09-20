@@ -74,6 +74,10 @@ class JobInput(BaseModel):
         default=[],
         description="IDs from /api/uploads to transcribe as background only",
     )
+    # Dubs only: whether the original's link goes into the description. On by
+    # default because it costs nothing and is one click to remove — whether to
+    # credit is the publisher's call, not this field's.
+    credit_source: bool = True
     edit_mode: EditMode = "narrar_por_cima"
     angle: Angle = "auto"
     instruction: str = Field(

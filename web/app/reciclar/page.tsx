@@ -38,6 +38,7 @@ export default function Reciclar() {
   const [platform, setPlatform] = useState<string>("tiktok");
   const [language, setLanguage] = useState<string>(narrationLanguage);
   const [keepAudio, setKeepAudio] = useState(true);
+  const [credit, setCredit] = useState(true);
   const [scan, setScan] = useState<RecycleScan | null>(null);
   const [scanning, setScanning] = useState(false);
   const [sending, setSending] = useState("");
@@ -95,6 +96,7 @@ export default function Reciclar() {
         qa_autofix: true,
         qa_max_attempts: 3,
         keep_audio: keepAudio,
+        credit_source: credit,
       });
       router.push(`/job/${job.job_id}`);
     } catch (error) {
@@ -164,12 +166,16 @@ export default function Reciclar() {
               </Field>
             </div>
 
-            {/* Said once, plainly, where the decision is made: what comes back
-                is someone else's video. */}
-            <p className="dim" style={{ fontSize: 12, lineHeight: 1.6,
-                                        margin: 0 }}>
-              {t.recycle.rights}
-            </p>
+            <Field label={t.recycle.credit} hint={t.recycle.creditHint}>
+              <Chips
+                value={credit ? "sim" : "nao"}
+                onChange={(value) => setCredit(value === "sim")}
+                options={[
+                  { value: "sim", label: t.recycle.creditOn },
+                  { value: "nao", label: t.recycle.creditOff },
+                ]}
+              />
+            </Field>
 
             {failure ? (
               <span className="mono" style={{ fontSize: 12, lineHeight: 1.6,
