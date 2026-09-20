@@ -104,7 +104,7 @@ export interface JobInput {
   // come from transcribing what was actually said.
   // avatar: a talking presenter reads the script — the provider renders both
   // the picture and the voice, so there is no TTS stage either.
-  edit_mode: "narrar_por_cima" | "resumo" | "meu_video" | "avatar";
+  edit_mode: "narrar_por_cima" | "resumo" | "meu_video" | "avatar" | "dublar";
   angle: string;
   instruction: string;
   niche: string;
@@ -1107,6 +1107,28 @@ export type ServiceStatus = {
   docs: string;
 };
 
+/** One video from a profile listing — metadata only, nothing downloaded. */
+export type RecycleItem = {
+  id: string;
+  url: string;
+  title: string;
+  views: number | null;
+  likes: number | null;
+  duration: number | null;
+  thumbnail: string;
+  uploader: string;
+  platform: string;
+};
+
+export type RecycleScan = {
+  handle: string;
+  platform: string;
+  profile_url: string;
+  author: string;
+  items: RecycleItem[];
+  note: string;
+};
+
 export const api = {
   health: () => req<Health>("/api/health"),
   config: () => req<{ niches: string[]; min_seconds: number; max_seconds: number }>("/api/config"),
@@ -1120,6 +1142,14 @@ export const api = {
   services: () => req<{ docker: { ok: boolean; state: string; reason: string };
                         services: ServiceStatus[] }>("/api/services"),
   service: (id: string) => req<ServiceStatus>(`/api/services/${id}`),
+
+  // A profile's videos, most watched first. Metadata only: the download
+  // happens later, for the one that gets picked.
+  recycleScan: (target: string, platform: string, limit = 12) =>
+    req<RecycleScan>("/api/recycle/scan", {
+      method: "POST",
+      body: JSON.stringify({ target, platform, limit }),
+    }),
   startService: (id: string) =>
     req<{ started: boolean; state: ServiceStatus["state"]; message: string }>(
       `/api/services/${id}/start`, { method: "POST" }),

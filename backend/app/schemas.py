@@ -24,7 +24,10 @@ ScrollStyle = Literal["nenhum", "texto", "pan", "codigo"]
 # avatar: a talking presenter reads your script. The provider renders the
 # picture AND the voice, so there is no TTS stage either; handled by
 # pipeline.avatar, which writes the same artifacts as everything else.
-EditMode = Literal["narrar_por_cima", "resumo", "meu_video", "avatar"]
+# dublar: the words already exist — transcribe, translate, speak over the
+# original timing. No script is written.
+EditMode = Literal["narrar_por_cima", "resumo", "meu_video", "avatar",
+                   "dublar"]
 
 # Which angle the script should take on the material. It changes what the
 # SUBJECT is: "describe the scene" differs from "talk about the work, using

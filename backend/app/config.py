@@ -171,6 +171,12 @@ class Settings:
         self.voicestudio_engine = os.getenv("VOICESTUDIO_ENGINE", "")
 
         # B-roll
+        # Some platforms only list a profile to a logged-in session. A cookie
+        # file (or the browser to take cookies from) is what yt-dlp needs, and
+        # it is a path on this machine — never a credential this app stores.
+        self.ytdlp_cookies = os.getenv("YTDLP_COOKIES", "")
+        self.ytdlp_cookies_browser = os.getenv("YTDLP_COOKIES_BROWSER", "")
+
         self.pexels_api_key = os.getenv("PEXELS_API_KEY", "")
         self.pixabay_api_key = os.getenv("PIXABAY_API_KEY", "")
         self.coverr_api_key = os.getenv("COVERR_API_KEY", "")
