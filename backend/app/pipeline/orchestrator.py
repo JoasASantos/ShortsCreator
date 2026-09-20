@@ -12,7 +12,8 @@ from pathlib import Path
 from .. import db
 from ..config import settings
 from ..schemas import JobInput, ShortScript
-from . import (avatar, broll, captions, cover as cover_mod, highlights,
+from . import (avatar, broll, captions, cover as cover_mod, dub,
+               highlights,
                imagegen, ingest, llm, notify, overlays as overlay_mod, qa,
                reels, render, script as script_mod, timeline as timeline_mod,
                tts, webcast)
@@ -226,6 +227,12 @@ def run_job(job_id: str) -> dict:
         # and no TTS stage here either — but it writes the same artifacts.
         if job.edit_mode == avatar.MODE:
             return avatar.run(job_id, job, job_dir, log, stage)
+
+        # A dub has no script to write either: the words exist, someone said
+        # them, and the job is to say them in another language over the same
+        # picture.
+        if job.edit_mode == dub.MODE:
+            return dub.run(job_id, job, job_dir, log, stage)
 
         render.ensure_ffmpeg()
 
