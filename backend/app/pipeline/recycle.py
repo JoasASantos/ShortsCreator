@@ -44,9 +44,80 @@ MAX_ITEMS = 40
 DEFAULT_ITEMS = 12
 
 
+# A link to ONE video, as opposed to a profile. Checked before the handle
+# parser, which otherwise reads `youtube.com/shorts/abc` as the handle
+# "shorts" and lists a profile that does not exist.
+VIDEO_PATTERNS = (
+    (re.compile(r"youtube\.com/shorts/[\w-]+", re.I), "youtube"),
+    (re.compile(r"youtube\.com/watch\?", re.I), "youtube"),
+    (re.compile(r"youtube\.com/embed/[\w-]+", re.I), "youtube"),
+    (re.compile(r"youtu\.be/[\w-]+", re.I), "youtube"),
+    (re.compile(r"tiktok\.com/@[\w.\-]+/video/\d+", re.I), "tiktok"),
+    (re.compile(r"tiktok\.com/t/[\w-]+", re.I), "tiktok"),
+    (re.compile(r"instagram\.com/(?:reel|reels|p|tv)/[\w-]+", re.I), "instagram"),
+)
+
+# Reading one video's metadata is a single request; a profile listing walks
+# pages.
+VIDEO_TIMEOUT = 60.0
+
+
 class ProfileUnavailable(RuntimeError):
     """The profile could not be listed, with the reason in the message —
     private, gone, or a platform that wants a logged-in session."""
+
+
+def video_platform(url: str) -> str:
+    """The platform when `url` points at ONE video, "" when it does not."""
+    text = (url or "").strip()
+    for pattern, platform in VIDEO_PATTERNS:
+        if pattern.search(text):
+            return platform
+    return ""
+
+
+def is_video_link(url: str) -> bool:
+    return bool(video_platform(url))
+
+
+def video_info(url: str, platform: str = "") -> dict:
+    """One video's metadata, without downloading it.
+
+    `--skip-download` keeps this to the same cost as a profile listing: what
+    the screen needs is the title, the length and the view count, so someone
+    can see what they are about to dub.
+    """
+    url = (url or "").strip()
+    platform = platform or video_platform(url) or "youtube"
+
+    cmd = [*ytdlp_command(), "--dump-single-json", "--no-playlist",
+           "--skip-download", "--no-warnings"]
+    if settings.ytdlp_cookies:
+        cmd += ["--cookies", settings.ytdlp_cookies]
+    elif settings.ytdlp_cookies_browser:
+        cmd += ["--cookies-from-browser", settings.ytdlp_cookies_browser]
+    cmd.append(url)
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=VIDEO_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        raise ProfileUnavailable(f"{platform} took too long to answer for "
+                                 f"that link.") from exc
+    if proc.returncode != 0 or not (proc.stdout or "").strip():
+        raise ProfileUnavailable(_why(platform, url, proc.stderr))
+
+    try:
+        raw = json.loads(proc.stdout)
+    except ValueError as exc:
+        raise ProfileUnavailable(
+            f"{platform} answered something that is not a video.") from exc
+
+    item = _entry(raw, platform)
+    # `--dump-single-json` on a watch page carries the canonical URL; the flat
+    # listing shape does not always, so fall back to what was pasted.
+    item["url"] = raw.get("webpage_url") or url
+    return item
 
 
 def parse_target(value: str, platform: str = "") -> tuple[str, str]:
@@ -98,6 +169,21 @@ def scan(target: str, platform: str = "", limit: int = DEFAULT_ITEMS) -> dict:
     resolving every video: the view count is in the listing, and the point is
     to choose before downloading anything.
     """
+    if is_video_link(target):
+        # One link is a list of one: the screen shows the same card, with the
+        # same button, and nobody has to know which kind of thing they pasted.
+        found = video_platform(target)
+        item = video_info(target, found)
+        return {
+            "handle": item.get("uploader") or "",
+            "platform": found,
+            "kind": "video",
+            "profile_url": item["url"],
+            "author": item.get("uploader") or "",
+            "items": [item],
+            "note": "",
+        }
+
     handle, platform = parse_target(target, platform)
     url = profile_url(handle, platform)
     limit = max(1, min(int(limit or DEFAULT_ITEMS), MAX_ITEMS))
@@ -134,6 +220,7 @@ def scan(target: str, platform: str = "", limit: int = DEFAULT_ITEMS) -> dict:
     return {
         "handle": handle,
         "platform": platform,
+        "kind": "profile",
         "profile_url": url,
         "author": payload.get("uploader") or payload.get("channel") or f"@{handle}",
         "items": items[:limit],

@@ -343,3 +343,142 @@ def test_caption_words_stay_inside_their_own_line():
     words = dub.caption_words([line])
     assert words[0]["start"] >= 5.0
     assert words[-1]["end"] <= 7.2
+
+
+# ------------------------------------------- one link instead of a profile
+
+@pytest.mark.parametrize("url,platform", [
+    ("https://www.youtube.com/shorts/abc123", "youtube"),
+    ("https://www.youtube.com/watch?v=abc123", "youtube"),
+    ("https://youtu.be/abc123", "youtube"),
+    ("https://www.tiktok.com/@alguem/video/7123456", "tiktok"),
+    ("https://www.instagram.com/reel/Cxyz/", "instagram"),
+])
+def test_a_link_to_one_video_is_recognised_as_such(url, platform):
+    """Without this the handle parser reads `youtube.com/shorts/abc` as the
+    handle "shorts" and lists a profile that does not exist — and
+    `tiktok.com/@alguem/video/7123` as the profile @alguem, which exists and is
+    the wrong answer."""
+    assert recycle.video_platform(url) == platform
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.tiktok.com/@alguem",
+    "https://www.instagram.com/fulano/",
+    "@alguem",
+])
+def test_a_profile_is_not_mistaken_for_a_video(url):
+    assert recycle.is_video_link(url) is False
+
+
+def test_a_pasted_video_link_comes_back_as_a_list_of_one(monkeypatch):
+    """Same card, same button: nobody has to know which kind of thing they
+    pasted."""
+    def run(cmd, **kwargs):
+        assert "--skip-download" in cmd, "reading metadata must not download"
+        return _Proc(0, json.dumps({
+            "id": "abc123", "title": "O short que bombou",
+            "webpage_url": "https://www.youtube.com/shorts/abc123",
+            "view_count": 2_400_000, "duration": 38, "uploader": "Canal X"}))
+
+    monkeypatch.setattr(recycle.subprocess, "run", run)
+    found = recycle.scan("https://www.youtube.com/shorts/abc123")
+
+    assert found["kind"] == "video"
+    assert len(found["items"]) == 1
+    assert found["items"][0]["views"] == 2_400_000
+    assert found["items"][0]["url"].endswith("abc123")
+    assert found["author"] == "Canal X"
+
+
+def test_a_profile_scan_still_says_it_is_a_profile(monkeypatch):
+    _listing(monkeypatch, [{"id": "a", "url": "https://t/1", "title": "x"}])
+    assert recycle.scan("@alguem")["kind"] == "profile"
+
+
+def test_a_dead_link_says_why_like_a_dead_profile(monkeypatch):
+    monkeypatch.setattr(recycle.subprocess, "run",
+                        lambda cmd, **k: _Proc(1, "", "ERROR: Video unavailable"))
+    with pytest.raises(recycle.ProfileUnavailable):
+        recycle.scan("https://youtu.be/gone")
+
+
+# ---------------------------------------------------- crediting is a choice
+
+class _DubJob(_Job):
+    source = "https://www.youtube.com/shorts/abc123"
+    language = "pt-BR"
+    voice_id = None
+    edit_mode = "dublar"
+    credit_source = True
+
+
+def test_the_credit_line_is_written_when_asked_for(tmp_path, monkeypatch):
+    result = _finished_dub(tmp_path, monkeypatch, credit=True)
+    assert result["description"] == ("Original: "
+                                     "https://www.youtube.com/shorts/abc123")
+
+
+def test_the_credit_line_can_be_turned_off(tmp_path, monkeypatch):
+    """Whether to credit is a publishing choice, so it is a switch and not a
+    rule."""
+    result = _finished_dub(tmp_path, monkeypatch, credit=False)
+    assert result["description"] == ""
+
+
+def test_the_source_url_is_in_the_result_either_way(tmp_path, monkeypatch):
+    """A job that cannot say where its footage came from is a job nobody can
+    audit later — that is separate from what gets published."""
+    for credit in (True, False):
+        result = _finished_dub(tmp_path, monkeypatch, credit=credit)
+        assert result["source_url"] == "https://www.youtube.com/shorts/abc123"
+
+
+def _finished_dub(tmp_path, monkeypatch, credit: bool) -> dict:
+    """Run dub.run with everything expensive replaced."""
+    from app import db
+    from app.schemas import QAReport
+
+    job_dir = tmp_path / f"job_{credit}"
+    job_dir.mkdir(parents=True, exist_ok=True)
+    source = job_dir / "source.mp4"
+    source.write_bytes(b"video")
+
+    job = _DubJob()
+    job.credit_source = credit
+
+    monkeypatch.setattr(dub.render, "ensure_ffmpeg", lambda: None)
+    monkeypatch.setattr(dub.reels, "fetch_source",
+                        lambda job, d, log: (source, "Título"))
+    monkeypatch.setattr(dub.render, "probe_duration", lambda p: 10.0)
+    monkeypatch.setattr(dub, "transcribe", lambda src, log: (
+        [dub.Line(start=0.0, end=2.0, original="hello", text="")], "en", []))
+    monkeypatch.setattr(dub, "translate",
+                        lambda lines, language, log: [setattr(l, "text", "olá")
+                                                      for l in lines])
+
+    def speak(lines, d, voice, language, log):
+        for line in lines:
+            path = job_dir / "dub" / "line_000.mp3"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"a")
+            line.audio, line.seconds = path, 1.5
+
+    monkeypatch.setattr(dub, "synthesize", speak)
+    monkeypatch.setattr(dub.captions_mod, "build_ass",
+                        lambda *a, **k: job_dir / "captions.ass")
+    monkeypatch.setattr(dub.captions_mod, "build_srt", lambda *a, **k: None)
+    monkeypatch.setattr(dub.timeline_mod, "save", lambda *a, **k: None)
+    monkeypatch.setattr(dub.timeline_render, "render_timeline",
+                        lambda d, edl, out, log=None: out.write_bytes(b"mp4") or out)
+    monkeypatch.setattr(dub.render, "make_thumbnail", lambda *a, **k: None)
+    monkeypatch.setattr(dub.shutil, "copy", lambda *a, **k: None)
+    monkeypatch.setattr(dub.notify, "job_done", lambda *a, **k: None)
+
+    from app.pipeline import qa as qa_mod
+    monkeypatch.setattr(qa_mod, "audit",
+                        lambda *a, **k: QAReport(passed=True, score=95))
+
+    job_id = db.create_job({"source": job.source})
+    return dub.run(job_id, job, job_dir, lambda m, level="info": None,
+                   lambda name: None)
