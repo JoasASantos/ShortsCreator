@@ -1131,6 +1131,46 @@ export type RecycleScan = {
   note: string;
 };
 
+/** One beat of a cloned shape: the role it plays and the room it takes. */
+export type MoldeBeat = {
+  kind: string;
+  seconds: number;
+  words: number;
+  cuts: number;
+  starts_at: number;
+};
+
+export type Molde = {
+  id: string;
+  name: string;
+  source_url: string;
+  seconds: number;
+  words: number;
+  beats: MoldeBeat[];
+  cuts: number;
+  language: string;
+  pace: number;
+  cuts_per_minute: number;
+  hook_seconds: number;
+  created_at?: string;
+};
+
+export type MoldeSummary = {
+  id: string;
+  name: string;
+  source_url: string;
+  seconds: number;
+  words: number;
+  created_at: string;
+};
+
+export type MoldeVariant = {
+  subject: string;
+  title: string;
+  text: string;
+  job_id: string;
+};
+
 export const api = {
   health: () => req<Health>("/api/health"),
   config: () => req<{ niches: string[]; min_seconds: number; max_seconds: number }>("/api/config"),
@@ -1147,6 +1187,26 @@ export const api = {
 
   // A profile's videos, most watched first. Metadata only: the download
   // happens later, for the one that gets picked.
+  // The shape of a reference video, reused to write new ones.
+  moldes: () => req<{ moldes: MoldeSummary[] }>("/api/moldes")
+    .then((body) => body.moldes),
+  molde: (id: string) => req<Molde>(`/api/moldes/${id}`),
+  analyzeMolde: (source: string, name = "") =>
+    req<Molde>("/api/moldes/analisar", {
+      method: "POST",
+      body: JSON.stringify({ source, name }),
+    }),
+  deleteMolde: (id: string) =>
+    req<{ deleted: boolean }>(`/api/moldes/${id}`, { method: "DELETE" }),
+  moldeVariants: (id: string, body: {
+    subjects: string[]; instruction?: string; language?: string;
+    niche?: string; dry_run?: boolean;
+  }) =>
+    req<{ molde: string; variants: MoldeVariant[];
+          failed: { subject: string; error: string }[] }>(
+      `/api/moldes/${id}/variantes`,
+      { method: "POST", body: JSON.stringify(body) }),
+
   recycleScan: (target: string, platform: string, limit = 12) =>
     req<RecycleScan>("/api/recycle/scan", {
       method: "POST",

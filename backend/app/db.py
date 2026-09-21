@@ -168,6 +168,16 @@ CREATE TABLE IF NOT EXISTS metrics (
 -- Settings a person changes from the interface rather than from .env. Only
 -- what is genuinely a runtime choice lives here; credentials stay in
 -- connector_credentials and paths stay in the environment.
+CREATE TABLE IF NOT EXISTS moldes (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_url TEXT NOT NULL DEFAULT '',
+    seconds REAL NOT NULL DEFAULT 0,
+    words INTEGER NOT NULL DEFAULT 0,
+    data_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
@@ -676,3 +686,41 @@ def metrics_by_jobs(job_ids: list[str]) -> dict[str, dict]:
             job_ids,
         ).fetchall()
     return {r["job_id"]: dict(r) for r in rows}
+
+
+# ------------------------------------------------------------------ moldes
+
+def create_molde(name: str, source_url: str, seconds: float, words: int,
+                 data: dict) -> str:
+    """Guarda a forma de um vídeo para reaproveitar."""
+    import json as _json
+
+    molde_id = new_id("molde")
+    with _lock, connect() as conn:
+        conn.execute(
+            "INSERT INTO moldes (id,name,source_url,seconds,words,data_json,created_at)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (molde_id, name, source_url, float(seconds), int(words),
+             _json.dumps(data, ensure_ascii=False), now()))
+    return molde_id
+
+
+def list_moldes() -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM moldes ORDER BY created_at DESC").fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_molde(molde_id: str) -> dict | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM moldes WHERE id=?",
+                           (molde_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def delete_molde(molde_id: str) -> bool:
+    with _lock, connect() as conn:
+        changed = conn.execute("DELETE FROM moldes WHERE id=?",
+                               (molde_id,)).rowcount
+    return bool(changed)
