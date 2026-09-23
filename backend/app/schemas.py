@@ -27,7 +27,7 @@ ScrollStyle = Literal["nenhum", "texto", "pan", "codigo"]
 # dublar: the words already exist — transcribe, translate, speak over the
 # original timing. No script is written.
 EditMode = Literal["narrar_por_cima", "resumo", "meu_video", "avatar",
-                   "dublar"]
+                   "dublar", "dialogo"]
 
 # Which angle the script should take on the material. It changes what the
 # SUBJECT is: "describe the scene" differs from "talk about the work, using
@@ -71,6 +71,11 @@ class JobInput(BaseModel):
     fundo: str = Field(
         default="",
         description="id de /api/fundos, ou link de um vídeo longo",
+    )
+    # Quem conversa, quando o modo é `dialogo`: ids de /api/elenco.
+    cast: list[str] = Field(
+        default=[],
+        description="Personagens da conversa (mínimo dois)",
     )
     research: str = Field(
         default="",

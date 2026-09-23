@@ -168,6 +168,16 @@ CREATE TABLE IF NOT EXISTS metrics (
 -- Settings a person changes from the interface rather than from .env. Only
 -- what is genuinely a runtime choice lives here; credentials stay in
 -- connector_credentials and paths stay in the environment.
+CREATE TABLE IF NOT EXISTS personagens (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    voice_id TEXT NOT NULL,
+    image_path TEXT NOT NULL DEFAULT '',
+    side TEXT NOT NULL DEFAULT 'esquerda',
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS moldes (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -723,4 +733,38 @@ def delete_molde(molde_id: str) -> bool:
     with _lock, connect() as conn:
         changed = conn.execute("DELETE FROM moldes WHERE id=?",
                                (molde_id,)).rowcount
+    return bool(changed)
+
+
+# ------------------------------------------------------------- personagens
+
+def create_personagem(person_id: str, name: str, voice_id: str,
+                      image_path: str = "", side: str = "esquerda",
+                      note: str = "") -> str:
+    with _lock, connect() as conn:
+        conn.execute(
+            "INSERT INTO personagens (id,name,voice_id,image_path,side,note,created_at)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (person_id, name, voice_id, image_path, side, note, now()))
+    return person_id
+
+
+def list_personagens() -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM personagens ORDER BY created_at").fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_personagem(person_id: str) -> dict | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM personagens WHERE id=?",
+                           (person_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def delete_personagem(person_id: str) -> bool:
+    with _lock, connect() as conn:
+        changed = conn.execute("DELETE FROM personagens WHERE id=?",
+                               (person_id,)).rowcount
     return bool(changed)

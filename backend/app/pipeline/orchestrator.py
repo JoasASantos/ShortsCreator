@@ -12,7 +12,8 @@ from pathlib import Path
 from .. import db
 from ..config import settings
 from ..schemas import JobInput, ShortScript
-from . import (avatar, broll, captions, cover as cover_mod, dub, fundos,
+from . import (avatar, broll, captions, cover as cover_mod, dialogo, dub,
+               fundos,
                highlights,
                imagegen, ingest, llm, notify, overlays as overlay_mod, qa,
                reels, render, script as script_mod, timeline as timeline_mod,
@@ -233,6 +234,12 @@ def run_job(job_id: str) -> dict:
         # picture.
         if job.edit_mode == dub.MODE:
             return dub.run(job_id, job, job_dir, log, stage)
+
+        # Uma conversa entre personagens: cada fala tem dono, e o dono decide
+        # voz, imagem e lado da tela ao mesmo tempo. Outra montagem, mesmos
+        # artefatos no fim.
+        if job.edit_mode == dialogo.MODE:
+            return dialogo.run(job_id, job, job_dir, log, stage)
 
         render.ensure_ffmpeg()
 
