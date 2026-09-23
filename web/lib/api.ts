@@ -98,6 +98,8 @@ export interface JobInput {
   attachments: string[];
   /** Material that INFORMS the script without appearing in it: links to
    *  reviews and articles, or loose notes. Transcribed and read, never shown. */
+  /** Footage sua por baixo da narração: id de /api/fundos ou link. */
+  fundo?: string;
   research: string;
   research_attachments: string[];
   // meu_video: a recording of your own — no script and no TTS, the captions
@@ -117,7 +119,7 @@ export interface JobInput {
   background:
     | "auto" | "broll" | "gradiente" | "video_fonte"
     | "imagem_kenburns" | "codigo_scroll" | "ia_video" | "ia_imagem"
-    | "site_scroll" | "upload";
+    | "site_scroll" | "video_fundo" | "upload";
   background_query: string;
   music: boolean;
   // Only meaningful in meu_video mode: keep the voice on the recording, or
@@ -1171,6 +1173,15 @@ export type MoldeVariant = {
   job_id: string;
 };
 
+/** Footage sua, guardada uma vez e reusada por todos os shorts. */
+export type Fundo = {
+  id: string;
+  name: string;
+  seconds: number;
+  source_url: string;
+  size_mb: number;
+};
+
 export const api = {
   health: () => req<Health>("/api/health"),
   config: () => req<{ niches: string[]; min_seconds: number; max_seconds: number }>("/api/config"),
@@ -1188,6 +1199,16 @@ export const api = {
   // A profile's videos, most watched first. Metadata only: the download
   // happens later, for the one that gets picked.
   // The shape of a reference video, reused to write new ones.
+  fundos: () => req<{ fundos: Fundo[] }>("/api/fundos")
+    .then((body) => body.fundos),
+  saveFundo: (source: string, name = "") =>
+    req<Fundo>("/api/fundos", {
+      method: "POST",
+      body: JSON.stringify({ source, name }),
+    }),
+  deleteFundo: (id: string) =>
+    req<{ deleted: boolean }>(`/api/fundos/${id}`, { method: "DELETE" }),
+
   moldes: () => req<{ moldes: MoldeSummary[] }>("/api/moldes")
     .then((body) => body.moldes),
   molde: (id: string) => req<Molde>(`/api/moldes/${id}`),

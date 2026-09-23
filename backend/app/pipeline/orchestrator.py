@@ -12,7 +12,7 @@ from pathlib import Path
 from .. import db
 from ..config import settings
 from ..schemas import JobInput, ShortScript
-from . import (avatar, broll, captions, cover as cover_mod, dub,
+from . import (avatar, broll, captions, cover as cover_mod, dub, fundos,
                highlights,
                imagegen, ingest, llm, notify, overlays as overlay_mod, qa,
                reels, render, script as script_mod, timeline as timeline_mod,
@@ -637,6 +637,20 @@ def _build_background(job: JobInput, short, narration, material, job_dir: Path,
         log("Background: gradient with code scroll")
         render.background_gradient(duration, job.niche, out, scroll="nenhum")
         applied_scroll = "codigo"
+
+    elif mode == "video_fundo":
+        # Footage que o usuário trouxe, por baixo da narração. Não ilustra
+        # nada: existe para a mão não subir a tela.
+        if not job.fundo.strip():
+            raise RuntimeError(
+                "O fundo foi marcado como vídeo próprio, mas nenhum foi "
+                "escolhido. Escolha um fundo guardado ou cole o link de um "
+                "vídeo longo (gameplay, parkour) na tela de Fundos.")
+        chosen = fundos.get(job.fundo.strip()) or fundos.fetch(
+            job.fundo.strip(), log)
+        fundos.build(chosen, duration, out, seed=job_dir.name,
+                     fill=job.background_fill, log=log)
+        applied_scroll = "nenhum"
 
     elif mode == "site_scroll":
         page = _page_to_record(job, material)

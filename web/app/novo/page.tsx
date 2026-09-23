@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { api, type JobInput, type SourceType, type UploadResult, type Voice,
+import { api, type Fundo, type JobInput, type SourceType,
+         type UploadResult, type Voice,
          type WatermarkPosition, type WatermarkSize } from "@/lib/api";
 import { useI18n, type Dictionary } from "@/lib/i18n";
 import { readDefaultWatermark, saveDefaultWatermark } from "@/lib/watermark";
@@ -35,7 +36,7 @@ const CAPTION_STYLE_VALUES = ["karaoke", "bloco", "palavra"] as const;
 const SCROLL_VALUES = ["nenhum", "texto", "codigo", "pan"] as const;
 const BACKGROUND_VALUES = [
   "auto", "broll", "video_fonte", "imagem_kenburns", "codigo_scroll", "gradiente",
-  "ia_imagem", "ia_video", "site_scroll",
+  "ia_imagem", "ia_video", "site_scroll", "video_fundo",
 ] as const;
 
 // The nine the script prompt knows how to write in (backend: script.LANGUAGE_NAMES).
@@ -83,6 +84,7 @@ const defaults = (language: string, cta: string): JobInput => ({
   instruction: "",
   research: "",
   research_attachments: [],
+  fundo: "",
   niche: "tecnologia",
   language,
   voice_id: null,
@@ -115,6 +117,7 @@ export default function NovoShort() {
   const [form, setForm] = useState<JobInput>(() =>
     defaults(narrationLanguage, t.newJob.ctaDefault));
   const [voices, setVoices] = useState<Voice[]>([]);
+  const [fundos, setFundos] = useState<Fundo[]>([]);
   const [uploads, setUploads] = useState<UploadResult[]>([]);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -133,6 +136,7 @@ export default function NovoShort() {
 
   useEffect(() => {
     api.voices().then(setVoices).catch(() => setVoices([]));
+    api.fundos().then(setFundos).catch(() => setFundos([]));
 
     // the handle used on the last short comes pre-filled: it is the same on
     // practically every video, and retyping it was pure friction
@@ -423,6 +427,32 @@ export default function NovoShort() {
                     make the second video. The narration voice follows this
                     too: without it, an English script was read by a Brazilian
                     voice. */}
+                {/* Footage própria por baixo da narração. Só aparece quando
+                    o fundo pede uma: um seletor vazio ao lado de nove modos
+                    que não o usam é ruído. */}
+                {form.background === "video_fundo" ? (
+                  <Field label={t.newJob.fundo} hint={t.newJob.fundoHint}>
+                    {fundos.length ? (
+                      <select className="select" value={form.fundo ?? ""}
+                              onChange={(e) => set("fundo", e.target.value)}>
+                        <option value="">{t.newJob.fundoPick}</option>
+                        {fundos.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} · {Math.round(item.seconds / 60)}min
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        className="input"
+                        placeholder="https://youtu.be/... (gameplay longo)"
+                        value={form.fundo ?? ""}
+                        onChange={(e) => set("fundo", e.target.value)}
+                      />
+                    )}
+                  </Field>
+                ) : null}
+
                 <Field label={t.newJob.language} hint={t.newJob.languageHint}>
                   <Chips
                     value={form.language}

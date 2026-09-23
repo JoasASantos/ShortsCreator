@@ -161,6 +161,9 @@ export const en: Dictionary = {
     niche: "Niche",
     language: "Video language",
     languageHint: "script, captions and narration come out in this language",
+    fundo: "Background footage",
+    fundoHint: "gameplay/parkour under the narration — saved once, reused always",
+    fundoPick: "pick a saved one",
     nicheHint: "sets the tone and pace of the script",
     duration: "Target length",
     cta: "Closing call (CTA)",
@@ -297,6 +300,7 @@ export const en: Dictionary = {
     ia_video: "AI video",
     ia_imagem: "AI images",
     site_scroll: "Screen recording of the page",
+    video_fundo: "Background footage (gameplay)",
     upload: "Uploaded",
   },
 

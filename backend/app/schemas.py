@@ -47,7 +47,8 @@ WatermarkSize = Literal["pequeno", "medio", "grande"]
 
 BackgroundMode = Literal[
     "auto", "broll", "gradiente", "video_fonte", "imagem_kenburns",
-    "codigo_scroll", "ia_video", "ia_imagem", "site_scroll", "upload",
+    "codigo_scroll", "ia_video", "ia_imagem", "site_scroll",
+    "video_fundo", "upload",
 ]
 
 
@@ -65,6 +66,12 @@ class JobInput(BaseModel):
     # the footage; three review videos are what the writer read before writing.
     # Links are transcribed (video) or extracted (article); the result reaches
     # the prompt as background and never the screen.
+    # Footage sua por baixo da narração (gameplay, parkour, satisfying): o id
+    # de um fundo já guardado, ou o link de um vídeo longo para guardar agora.
+    fundo: str = Field(
+        default="",
+        description="id de /api/fundos, ou link de um vídeo longo",
+    )
     research: str = Field(
         default="",
         description="Links or text used as background for the script — "
