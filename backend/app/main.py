@@ -11,7 +11,7 @@ from .pipeline import doctor
 from .routers import (avatar, clips, connectors, films, generators, jobs,
                       models as models_router,
                       livecuts, longform, metrics, music, outputs, publish, reels,
-                      trends, uploads, voices, services, recycle, moldes, fundos)
+                      trends, uploads, voices, services, recycle, moldes, fundos, elenco)
 
 app = FastAPI(title="ShortsCreator API", version="1.0.0",
               description="Automated generation of 9:16 vertical Shorts with QA.")
@@ -45,6 +45,7 @@ app.include_router(services.router)
 app.include_router(recycle.router)
 app.include_router(moldes.router)
 app.include_router(fundos.router)
+app.include_router(elenco.router)
 
 
 @app.on_event("startup")

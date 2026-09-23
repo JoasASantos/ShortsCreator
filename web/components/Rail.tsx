@@ -62,6 +62,7 @@ export function Rail({ open = false }: { open?: boolean }) {
         { href: "/tendencias", label: t.nav.trends },
         { href: "/reciclar", label: t.nav.recycle },
         { href: "/moldes", label: t.nav.moldes },
+        { href: "/elenco", label: t.nav.elenco },
       ],
     },
     {

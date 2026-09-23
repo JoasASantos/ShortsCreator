@@ -98,6 +98,8 @@ export interface JobInput {
   attachments: string[];
   /** Material that INFORMS the script without appearing in it: links to
    *  reviews and articles, or loose notes. Transcribed and read, never shown. */
+  /** Quem conversa, quando o modo é dialogo. */
+  cast?: string[];
   /** Footage sua por baixo da narração: id de /api/fundos ou link. */
   fundo?: string;
   research: string;
@@ -106,7 +108,7 @@ export interface JobInput {
   // come from transcribing what was actually said.
   // avatar: a talking presenter reads the script — the provider renders both
   // the picture and the voice, so there is no TTS stage either.
-  edit_mode: "narrar_por_cima" | "resumo" | "meu_video" | "avatar" | "dublar";
+  edit_mode: "narrar_por_cima" | "resumo" | "meu_video" | "avatar" | "dublar" | "dialogo";
   angle: string;
   instruction: string;
   niche: string;
@@ -1182,6 +1184,17 @@ export type Fundo = {
   size_mb: number;
 };
 
+/** Quem conversa nos vídeos de diálogo: nome, voz e cara, amarrados. */
+export type Personagem = {
+  id: string;
+  name: string;
+  voice_id: string;
+  voice_name: string;
+  side: string;
+  note: string;
+  has_image: boolean;
+};
+
 export const api = {
   health: () => req<Health>("/api/health"),
   config: () => req<{ niches: string[]; min_seconds: number; max_seconds: number }>("/api/config"),
@@ -1199,6 +1212,14 @@ export const api = {
   // A profile's videos, most watched first. Metadata only: the download
   // happens later, for the one that gets picked.
   // The shape of a reference video, reused to write new ones.
+  elenco: () => req<{ personagens: Personagem[]; lados: string[] }>("/api/elenco")
+    .then((body) => body.personagens),
+  createPersonagem: (form: FormData) =>
+    req<Personagem>("/api/elenco", { method: "POST", body: form }),
+  deletePersonagem: (id: string) =>
+    req<{ deleted: boolean }>(`/api/elenco/${id}`, { method: "DELETE" }),
+  personagemImage: (id: string) => `/api/elenco/${id}/imagem`,
+
   fundos: () => req<{ fundos: Fundo[] }>("/api/fundos")
     .then((body) => body.fundos),
   saveFundo: (source: string, name = "") =>
