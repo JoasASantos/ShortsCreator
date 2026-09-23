@@ -160,6 +160,9 @@ export const zh: Dictionary = {
     niche: "领域",
     language: "视频语言",
     languageHint: "脚本、字幕和配音都用这个语言",
+    fundo: "背景素材",
+    fundoHint: "解说下面的游戏/跑酷画面 — 存一次，反复使用",
+    fundoPick: "选择已保存的素材",
     nicheHint: "决定脚本的语气与节奏",
     duration: "目标时长",
     cta: "结尾引导语（CTA）",
@@ -296,6 +299,7 @@ export const zh: Dictionary = {
     ia_video: "AI 生成视频",
     ia_imagem: "AI 生成图片",
     site_scroll: "网页录屏",
+    video_fundo: "背景素材（游戏画面）",
     upload: "已上传",
   },
 

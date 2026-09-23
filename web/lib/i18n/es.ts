@@ -161,6 +161,9 @@ export const es: Dictionary = {
     niche: "Nicho",
     language: "Idioma del vídeo",
     languageHint: "guion, subtítulos y narración salen en este idioma",
+    fundo: "Vídeo de fondo",
+    fundoHint: "gameplay/parkour bajo la narración — se guarda una vez y se reutiliza",
+    fundoPick: "elige un fondo guardado",
     nicheHint: "ajusta el tono y el ritmo del guion",
     duration: "Duración objetivo",
     cta: "Llamada final (CTA)",
@@ -297,6 +300,7 @@ export const es: Dictionary = {
     ia_video: "Vídeo por IA",
     ia_imagem: "Imágenes por IA",
     site_scroll: "Grabación del sitio",
+    video_fundo: "Vídeo de fondo (gameplay)",
     upload: "Subido",
   },
 

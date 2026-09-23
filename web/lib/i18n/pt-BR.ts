@@ -168,6 +168,9 @@ export const ptBR = {
     niche: "Nicho",
     language: "Idioma do vídeo",
     languageHint: "roteiro, legenda e narração saem neste idioma",
+    fundo: "Vídeo de fundo",
+    fundoHint: "gameplay/parkour por baixo da narração — guardado uma vez, reusado sempre",
+    fundoPick: "escolha um fundo guardado",
     nicheHint: "ajusta o tom e o ritmo do roteiro",
     duration: "Duração alvo",
     cta: "Chamada final (CTA)",
@@ -305,6 +308,7 @@ export const ptBR = {
     ia_video: "Vídeo por IA",
     ia_imagem: "Imagens por IA",
     site_scroll: "Gravação do site",
+    video_fundo: "Vídeo de fundo (gameplay)",
     upload: "Enviado",
   },
 
