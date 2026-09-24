@@ -1191,6 +1191,7 @@ export type Personagem = {
   voice_id: string;
   voice_name: string;
   side: string;
+  size: string;
   note: string;
   has_image: boolean;
 };

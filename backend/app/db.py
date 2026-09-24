@@ -174,6 +174,7 @@ CREATE TABLE IF NOT EXISTS personagens (
     voice_id TEXT NOT NULL,
     image_path TEXT NOT NULL DEFAULT '',
     side TEXT NOT NULL DEFAULT 'esquerda',
+    size TEXT NOT NULL DEFAULT 'medio',
     note TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
@@ -211,9 +212,23 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+# Colunas acrescentadas depois que a tabela já existia. `CREATE TABLE IF NOT
+# EXISTS` não altera tabela nenhuma, então um banco criado antes da coluna
+# ficaria sem ela e o INSERT quebraria com "no such column" — em produção, no
+# primeiro uso.
+_ADDED_COLUMNS = (
+    ("personagens", "size", "TEXT NOT NULL DEFAULT 'medio'"),
+)
+
+
 def init_db() -> None:
     with _lock, connect() as conn:
         conn.executescript(SCHEMA)
+        for table, column, spec in _ADDED_COLUMNS:
+            existing = {row["name"] for row in
+                        conn.execute(f"PRAGMA table_info({table})")}
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {spec}")
 
 
 def _row(r: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -740,12 +755,12 @@ def delete_molde(molde_id: str) -> bool:
 
 def create_personagem(person_id: str, name: str, voice_id: str,
                       image_path: str = "", side: str = "esquerda",
-                      note: str = "") -> str:
+                      note: str = "", size: str = "medio") -> str:
     with _lock, connect() as conn:
         conn.execute(
-            "INSERT INTO personagens (id,name,voice_id,image_path,side,note,created_at)"
-            " VALUES (?,?,?,?,?,?,?)",
-            (person_id, name, voice_id, image_path, side, note, now()))
+            "INSERT INTO personagens (id,name,voice_id,image_path,side,size,note,created_at)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (person_id, name, voice_id, image_path, side, size, note, now()))
     return person_id
 
 

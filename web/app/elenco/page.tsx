@@ -7,6 +7,7 @@ import { useI18n } from "@/lib/i18n";
 import { Chips, Field, Topbar, useToast } from "@/components/ui";
 
 const SIDES = ["esquerda", "centro", "direita"] as const;
+const SIZES = ["pequeno", "medio", "grande"] as const;
 
 export default function Elenco() {
   const { t } = useI18n();
@@ -17,6 +18,7 @@ export default function Elenco() {
   const [name, setName] = useState("");
   const [voiceId, setVoiceId] = useState("");
   const [side, setSide] = useState<string>("esquerda");
+  const [size, setSize] = useState<string>("medio");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const image = useRef<HTMLInputElement>(null);
@@ -40,6 +42,7 @@ export default function Elenco() {
       form.append("name", name.trim());
       form.append("voice_id", voiceId);
       form.append("side", side);
+      form.append("size", size);
       form.append("note", note.trim());
       const file = image.current?.files?.[0];
       if (file) form.append("image", file);
@@ -109,6 +112,17 @@ export default function Elenco() {
                      }))} />
             </Field>
 
+            {/* Tamanho pela ALTURA do quadro: um recorte de personagem é
+                alto e estreito, e dois com a mesma largura saem com alturas
+                completamente diferentes — foi assim que uma cabeça foi parar
+                na zona da interface do app. */}
+            <Field label={t.elenco.size} hint={t.elenco.sizeHint}>
+              <Chips value={size} onChange={setSize}
+                     options={SIZES.map((value) => ({
+                       value, label: t.elenco.sizes[value],
+                     }))} />
+            </Field>
+
             <Field label={t.elenco.note} hint={t.elenco.noteHint}>
               <input className="input" placeholder={t.elenco.notePlaceholder}
                      value={note} onChange={(e) => setNote(e.target.value)} />
@@ -148,6 +162,9 @@ export default function Elenco() {
                       <span className="dimmer" style={{ fontSize: 11.5 }}>
                         {person.voice_name} · {t.elenco.sides[
                           person.side as keyof typeof t.elenco.sides] ?? person.side}
+                        {" · "}
+                        {(t.elenco.sizes as Record<string, string>)[person.size]
+                         ?? person.size}
                         {person.note ? ` · ${person.note}` : ""}
                       </span>
                     </div>

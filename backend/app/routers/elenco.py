@@ -12,7 +12,8 @@ router = APIRouter(prefix="/api/elenco", tags=["elenco"])
 @router.get("")
 def listar():
     return {"personagens": [p.as_dict() for p in elenco_mod.listar()],
-            "lados": sorted(elenco_mod.SIDES)}
+            "lados": list(elenco_mod.SIDES),
+            "tamanhos": list(elenco_mod.SIZES)}
 
 
 @router.post("")
@@ -20,6 +21,7 @@ async def criar(
     name: str = Form(...),
     voice_id: str = Form(...),
     side: str = Form(elenco_mod.DEFAULT_SIDE),
+    size: str = Form(elenco_mod.DEFAULT_SIZE),
     note: str = Form(""),
     image: UploadFile | None = File(None),
 ):
@@ -32,7 +34,7 @@ async def criar(
         stored = temp / image.filename
         stored.write_bytes(await image.read())
     try:
-        person = elenco_mod.create(name, voice_id, stored, side, note)
+        person = elenco_mod.create(name, voice_id, stored, side, note, size)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:

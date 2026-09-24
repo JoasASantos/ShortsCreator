@@ -14,6 +14,23 @@ from app.pipeline import tts
 from conftest import needs_ffmpeg
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_voice_keys(monkeypatch):
+    """Um .env de desenvolvedor não pode decidir se estes testes passam.
+
+    Isto apareceu num clone limpo: `_fishaudio` exige a chave ANTES do ponto
+    que os testes substituem, então numa máquina COM chave eles exercitavam o
+    caminho pretendido e num clone SEM chave falhavam com outro erro. A chave
+    falsa é o que põe as duas máquinas no mesmo lugar.
+    """
+    monkeypatch.delenv("FISHAUDIO_API_KEY", raising=False)
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    monkeypatch.setattr(tts.settings, "fishaudio_api_key", "chave-de-teste")
+    monkeypatch.setattr(tts.settings, "elevenlabs_api_key", "chave-de-teste")
+    # E sem espera de verdade: o laço de repetição dorme entre tentativas.
+    monkeypatch.setattr(tts.time, "sleep", lambda seconds: None)
+
+
 def test_estimate_words_covers_the_whole_duration():
     words = tts.estimate_words("uma frase curta de teste aqui", 5.0)
     assert words[0]["start"] == 0.0
