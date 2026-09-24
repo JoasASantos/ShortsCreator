@@ -23,7 +23,8 @@ from pathlib import Path
 
 from .. import db
 from ..config import settings
-from . import (captions as captions_mod, elenco as elenco_mod, fundos, llm,
+from . import (captions as captions_mod, elenco as elenco_mod, formats,
+               fundos, llm,
                notify, render, script as script_mod, timeline as timeline_mod,
                timeline_render, tts)
 from .timeline import AudioClip, CaptionCue, MediaOverlay, Timeline, VideoClip
@@ -230,7 +231,7 @@ def build_timeline(job_dir: Path, conversa: Conversa,
             picture = job_dir / f"pers_{person.id}{Path(person.image).suffix}"
             if not picture.exists():
                 shutil.copy(person.image, picture)
-            geometry = person.geometry()
+            geometry = person.geometry(formats.VERTICAL)
             media.append(MediaOverlay(
                 id=timeline_mod._new_id("m"),  # noqa: SLF001
                 source=picture.name,

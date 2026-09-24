@@ -28,15 +28,26 @@ def home() -> Path:
     return path
 
 
-# Onde cada lado põe o personagem. Fracções do quadro, como todo o resto da
-# geometria do projeto — o editor desenha a prévia no tamanho que o navegador
-# der, e fração sobrevive a isso.
-SIDES = {
-    "esquerda": {"x": 0.26, "y": 0.30, "width": 0.46},
-    "direita": {"x": 0.74, "y": 0.30, "width": 0.46},
-    "centro": {"x": 0.50, "y": 0.28, "width": 0.54},
-}
+# Onde cada lado põe o personagem, como fração da LARGURA do quadro.
+SIDES = {"esquerda": 0.27, "centro": 0.50, "direita": 0.73}
 DEFAULT_SIDE = "esquerda"
+
+# O tamanho é fração da ALTURA do quadro, não da largura — e essa é a
+# correção que mais muda o resultado. Um recorte de personagem é alto e
+# estreito, e duas imagens com a mesma largura na tela saem com alturas
+# completamente diferentes: com 46% da largura, o Peter (aspecto 0.63) ocupava
+# 41% da altura e o Rick (aspecto 0.42) ocupava 62% — a cabeça dele entrava na
+# zona da interface do aplicativo. Medindo por altura, "médio" é médio para
+# todo mundo.
+SIZES = {"pequeno": 0.30, "medio": 0.40, "grande": 0.52}
+DEFAULT_SIZE = "medio"
+
+# Onde ficam os pés, em fração da altura. Personagem apoiado num chão comum
+# lê como cena; flutuando no meio da tela, lê como adesivo.
+FLOOR = 0.70
+# O topo da cabeça nunca sobe além disso: acima é onde o aplicativo desenha a
+# própria interface por cima do vídeo.
+TOP_LIMIT = 0.10
 
 
 @dataclass
@@ -46,22 +57,59 @@ class Personagem:
     voice_id: str
     image: str = ""          # caminho absoluto, vazio = só voz
     side: str = DEFAULT_SIDE
+    size: str = DEFAULT_SIZE
     note: str = ""
 
-    def geometry(self) -> dict:
-        return SIDES.get(self.side, SIDES[DEFAULT_SIDE])
+    def geometry(self, frame=None) -> dict:
+        """Onde e de que tamanho, para a imagem que este personagem tem.
+
+        A sobreposição é declarada em `width` (fração da largura), então a
+        altura desejada é convertida usando o aspecto REAL do arquivo. Sem
+        ler o arquivo não dá para acertar: duas imagens de "tamanho médio" com
+        aspectos diferentes sairiam com alturas diferentes, que é exatamente o
+        bug que isto conserta.
+        """
+        from . import formats
+
+        frame = frame or formats.VERTICAL
+        height = SIZES.get(self.size, SIZES[DEFAULT_SIZE])
+        aspect = _aspect(self.image)
+        # altura em px -> largura em px -> fração da largura do quadro
+        width = (height * frame.height * aspect) / frame.width
+        # Largura demais é tão ruim quanto altura demais: um personagem que
+        # ocupa a tela inteira tapa o fundo que ele deveria estar comentando.
+        width = min(width, 0.62)
+        half = (width * frame.width / aspect) / frame.height / 2
+        y = min(max(FLOOR - half, TOP_LIMIT + half), 1.0 - half)
+        return {"x": SIDES.get(self.side, SIDES[DEFAULT_SIDE]),
+                "y": round(y, 4), "width": round(width, 4)}
 
     def as_dict(self) -> dict:
         data = {"id": self.id, "name": self.name, "voice_id": self.voice_id,
-                "side": self.side, "note": self.note,
+                "side": self.side, "size": self.size, "note": self.note,
                 "has_image": bool(self.image and Path(self.image).exists())}
         voice = db.get_voice(self.voice_id) if self.voice_id else None
         data["voice_name"] = voice["name"] if voice else ""
         return data
 
 
+def _aspect(image: str) -> float:
+    """Largura/altura do arquivo. Sem imagem, um retrato comum."""
+    if not image or not Path(image).exists():
+        return 0.55
+    try:
+        from PIL import Image
+
+        with Image.open(image) as picture:
+            width, height = picture.size
+        return (width / height) if height else 0.55
+    except Exception:  # noqa: BLE001 — arquivo ilegível não derruba a montagem
+        return 0.55
+
+
 def create(name: str, voice_id: str, image: Path | None = None,
-           side: str = DEFAULT_SIDE, note: str = "") -> Personagem:
+           side: str = DEFAULT_SIDE, note: str = "",
+           size: str = DEFAULT_SIZE) -> Personagem:
     label = (name or "").strip()
     if not label:
         raise ValueError("Dê um nome ao personagem.")
@@ -69,6 +117,8 @@ def create(name: str, voice_id: str, image: Path | None = None,
         raise ValueError("Escolha uma voz já registrada para este personagem.")
     if side not in SIDES:
         side = DEFAULT_SIDE
+    if size not in SIZES:
+        size = DEFAULT_SIZE
 
     person_id = db.new_id("pers")
     stored = ""
@@ -77,9 +127,9 @@ def create(name: str, voice_id: str, image: Path | None = None,
         dest.write_bytes(image.read_bytes())
         stored = str(dest)
 
-    db.create_personagem(person_id, label, voice_id, stored, side, note)
+    db.create_personagem(person_id, label, voice_id, stored, side, note, size)
     return Personagem(id=person_id, name=label, voice_id=voice_id,
-                      image=stored, side=side, note=note)
+                      image=stored, side=side, size=size, note=note)
 
 
 def listar() -> list[Personagem]:
@@ -121,7 +171,9 @@ def remove(person_id: str) -> bool:
 def _row(row: dict) -> Personagem:
     return Personagem(id=row["id"], name=row["name"],
                       voice_id=row["voice_id"], image=row["image_path"] or "",
-                      side=row["side"] or DEFAULT_SIDE, note=row["note"] or "")
+                      side=row["side"] or DEFAULT_SIDE,
+                      size=row.get("size") or DEFAULT_SIZE,
+                      note=row["note"] or "")
 
 
 def _key(text: str) -> str:

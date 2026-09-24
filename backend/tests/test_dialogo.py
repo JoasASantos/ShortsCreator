@@ -316,3 +316,108 @@ def test_criar_sem_voz_valida_e_400(client):
 
 def test_um_personagem_sem_imagem_responde_404_na_imagem(client, cast):
     assert client.get(f"/api/elenco/{cast[0].id}/imagem").status_code == 404
+
+
+# ------------------------------------------- o tamanho na tela é por altura
+
+def _picture(path: Path, width: int, height: int) -> Path:
+    from PIL import Image
+
+    Image.new("RGBA", (width, height), (255, 0, 0, 255)).save(path)
+    return path
+
+
+def test_dois_personagens_do_mesmo_tamanho_ocupam_a_mesma_altura(tmp_path):
+    """O bug que isto conserta: com 46% da LARGURA, o Peter (aspecto 0.63)
+    ocupava 41% da altura e o Rick (aspecto 0.42) ocupava 62% — a cabeça dele
+    entrava na zona da interface do aplicativo."""
+    from app.pipeline import formats
+
+    largo = elenco.Personagem(id="a", name="Largo", voice_id="v",
+                              image=str(_picture(tmp_path / "l.png", 404, 640)),
+                              side="esquerda", size="medio")
+    estreito = elenco.Personagem(id="b", name="Estreito", voice_id="v",
+                                 image=str(_picture(tmp_path / "e.png", 267, 640)),
+                                 side="direita", size="medio")
+
+    alturas = []
+    for person in (largo, estreito):
+        geometry = person.geometry(formats.VERTICAL)
+        aspect = elenco._aspect(person.image)  # noqa: SLF001
+        alturas.append(geometry["width"] * formats.VERTICAL.width / aspect
+                       / formats.VERTICAL.height)
+
+    assert alturas[0] == pytest.approx(alturas[1], abs=0.01)
+    assert alturas[0] == pytest.approx(elenco.SIZES["medio"], abs=0.01)
+
+
+def test_a_cabeca_nunca_entra_na_zona_da_interface(tmp_path):
+    """Acima disso é onde o aplicativo desenha a própria interface por cima do
+    vídeo — foi lá que o Rick foi parar."""
+    from app.pipeline import formats
+
+    for width, height in ((267, 640), (200, 900), (404, 640)):
+        person = elenco.Personagem(
+            id="x", name="X", voice_id="v", size="grande", side="centro",
+            image=str(_picture(tmp_path / f"p{width}x{height}.png", width, height)))
+        geometry = person.geometry(formats.VERTICAL)
+        aspect = elenco._aspect(person.image)  # noqa: SLF001
+        altura = (geometry["width"] * formats.VERTICAL.width / aspect
+                  / formats.VERTICAL.height)
+        topo = geometry["y"] - altura / 2
+        assert topo >= elenco.TOP_LIMIT - 0.01, f"{width}x{height} invadiu o topo"
+
+
+def test_todo_mundo_pisa_no_mesmo_chao(tmp_path):
+    """Personagem flutuando no meio da tela lê como adesivo, não como cena."""
+    from app.pipeline import formats
+
+    pes = []
+    for width, height in ((404, 640), (267, 640)):
+        person = elenco.Personagem(
+            id="x", name="X", voice_id="v", size="medio", side="esquerda",
+            image=str(_picture(tmp_path / f"c{width}.png", width, height)))
+        geometry = person.geometry(formats.VERTICAL)
+        aspect = elenco._aspect(person.image)  # noqa: SLF001
+        altura = (geometry["width"] * formats.VERTICAL.width / aspect
+                  / formats.VERTICAL.height)
+        pes.append(geometry["y"] + altura / 2)
+
+    assert pes[0] == pytest.approx(pes[1], abs=0.01)
+    assert pes[0] == pytest.approx(elenco.FLOOR, abs=0.01)
+
+
+def test_o_tamanho_muda_o_que_aparece(tmp_path):
+    from app.pipeline import formats
+
+    alturas = {}
+    for size in ("pequeno", "medio", "grande"):
+        person = elenco.Personagem(
+            id="x", name="X", voice_id="v", size=size, side="esquerda",
+            image=str(_picture(tmp_path / "t.png", 404, 640)))
+        geometry = person.geometry(formats.VERTICAL)
+        aspect = elenco._aspect(person.image)  # noqa: SLF001
+        alturas[size] = (geometry["width"] * formats.VERTICAL.width / aspect
+                         / formats.VERTICAL.height)
+
+    assert alturas["pequeno"] < alturas["medio"] < alturas["grande"]
+
+
+def test_um_personagem_largo_demais_nao_tapa_o_fundo(tmp_path):
+    """Um personagem que ocupa a tela inteira tapa o fundo que ele deveria
+    estar comentando."""
+    from app.pipeline import formats
+
+    person = elenco.Personagem(
+        id="x", name="Panorama", voice_id="v", size="grande", side="centro",
+        image=str(_picture(tmp_path / "wide.png", 1200, 400)))
+    assert person.geometry(formats.VERTICAL)["width"] <= 0.62
+
+
+def test_uma_imagem_ilegivel_nao_derruba_a_montagem(tmp_path):
+    quebrada = tmp_path / "quebrada.png"
+    quebrada.write_bytes(b"isto nao e um png")
+    person = elenco.Personagem(id="x", name="X", voice_id="v",
+                               image=str(quebrada), size="medio")
+    geometry = person.geometry()
+    assert 0 < geometry["width"] < 1
