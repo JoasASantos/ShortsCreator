@@ -24,13 +24,28 @@ const PENDING_POLL_MAX = 8;
  *  in as a topic instead of a URL. */
 const NOT_INGESTIBLE = ["reddit.com", "youtube.com", "news.google.com"];
 
+// Os idiomas em que a busca sabe procurar — a escolha decide a imprensa que
+// responde, não só a língua do texto.
+const SEARCH_LANGS = [
+  ["pt", "Português"], ["en", "English"], ["es", "Español"],
+  ["fr", "Français"], ["de", "Deutsch"], ["it", "Italiano"],
+  ["ru", "Русский"], ["zh", "简体中文"], ["ja", "日本語"],
+] as const;
+
 export default function Tendencias() {
   const { t, f } = useI18n();
-  const { node } = useToast();
+  const { toast, node } = useToast();
   const [niche, setNiche] = useState("tecnologia");
   const [geo, setGeo] = useState("BR");
   const [items, setItems] = useState<TrendItem[]>([]);
   const [pending, setPending] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [searchLang, setSearchLang] = useState("pt");
+  const [searching, setSearching] = useState(false);
+  // Resultados de busca substituem a lista enquanto durarem: são o que
+  // a pessoa pediu, e misturar com as tendências do nicho esconderia
+  // justamente o que ela foi procurar.
+  const [found, setFound] = useState<TrendItem[] | null>(null);
   const [loading, setLoading] = useState(true);
 
   const niches: { value: string; label: string }[] =
@@ -96,16 +111,59 @@ export default function Tendencias() {
   const maxHeat = Math.max(1, ...items.map((i) => i.heat));
   const aiPending = pending.includes("web_search");
 
+  const runSearch = async () => {
+    if (!query.trim()) return;
+    setSearching(true);
+    try {
+      const answer = await api.searchTrends(query.trim(), searchLang, niche);
+      setFound(answer.items);
+      if (!answer.items.length) toast(t.trends.searchEmpty);
+    } catch (error) {
+      toast((error as Error).message);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  // O que está na tela: o resultado da busca quando existe, o nicho quando não.
+  const shown = found ?? items;
+
   return (
     <>
       <Topbar title={t.trends.title}>
         {loading || pending.length ? <i className="dot pulse" style={{ color: "var(--cyan)" }} /> : null}
-        <span className="label">{f(t.trends.subtitle, { n: items.length })}</span>
+        <span className="label">{f(t.trends.subtitle, { n: shown.length })}</span>
       </Topbar>
 
       <div className="content grid" style={{ gap: 16 }}>
         <section className="panel">
           <div className="panel-body grid" style={{ gap: 12 }}>
+            <div className="row" style={{ gap: 8 }}>
+              <input
+                className="input"
+                placeholder={t.trends.searchPlaceholder}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
+              />
+              <select className="select" style={{ maxWidth: 150 }}
+                      value={searchLang}
+                      onChange={(e) => setSearchLang(e.target.value)}>
+                {SEARCH_LANGS.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              <button className="btn primary" onClick={runSearch}
+                      disabled={searching}>
+                {searching ? t.trends.searching : t.trends.search}
+              </button>
+              {found ? (
+                <button className="btn ghost" onClick={() => { setFound(null); setQuery(""); }}>
+                  {t.trends.clearSearch}
+                </button>
+              ) : null}
+            </div>
+
             <Chips value={niche} onChange={setNiche} options={niches} />
             <Chips value={geo} onChange={setGeo} options={geos} />
             {aiPending && !loading ? (
@@ -119,13 +177,13 @@ export default function Tendencias() {
 
         {/* with items on screen, a new query does not wipe the list: only the
             pulsing dot in the title bar signals that it is refreshing */}
-        {loading && items.length === 0 ? (
+        {loading && shown.length === 0 && !found ? (
           <div className="empty">{t.trends.loading}</div>
-        ) : items.length === 0 ? (
+        ) : shown.length === 0 ? (
           <div className="empty">{t.trends.empty}</div>
         ) : (
           <div className="grid" style={{ gap: 8 }}>
-            {items.map((item, index) => (
+            {shown.map((item, index) => (
               <div className="panel" key={`${item.source}-${index}`}>
                 <div className="panel-body" style={{ display: "grid",
                      gridTemplateColumns: "44px minmax(0,1fr) auto", gap: 14, alignItems: "center" }}>

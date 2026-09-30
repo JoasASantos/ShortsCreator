@@ -1176,12 +1176,24 @@ export type MoldeVariant = {
 };
 
 /** Footage sua, guardada uma vez e reusada por todos os shorts. */
+/** Um gameplay livre do catálogo, com a licença que o canal declarou. */
+export type StockItem = {
+  id: string;
+  name: string;
+  url: string;
+  kind: string;
+  declared: string;
+  minutes: number;
+  saved: boolean;
+};
+
 export type Fundo = {
   id: string;
   name: string;
   seconds: number;
   source_url: string;
   size_mb: number;
+  origem?: string;
 };
 
 /** Quem conversa nos vídeos de diálogo: nome, voz e cara, amarrados. */
@@ -1221,8 +1233,17 @@ export const api = {
     req<{ deleted: boolean }>(`/api/elenco/${id}`, { method: "DELETE" }),
   personagemImage: (id: string) => `/api/elenco/${id}/imagem`,
 
-  fundos: () => req<{ fundos: Fundo[] }>("/api/fundos")
+  // Busca livre: o assunto que a pessoa quiser, no idioma que escolher.
+  searchTrends: (q: string, lang: string, niche = "generico") =>
+    req<{ query: string; lang: string; items: TrendItem[]; curated: boolean }>(
+      `/api/trends/search?q=${encodeURIComponent(q)}&lang=${lang}&niche=${niche}`),
+
+  fundos: () => req<{ fundos: Fundo[]; pasta: string; catalogo: StockItem[] }>("/api/fundos")
     .then((body) => body.fundos),
+  fundosFull: () => req<{ fundos: Fundo[]; pasta: string; catalogo: StockItem[] }>(
+    "/api/fundos"),
+  fetchStock: (id: string) =>
+    req<Fundo>(`/api/fundos/catalogo/${id}`, { method: "POST" }),
   saveFundo: (source: string, name = "") =>
     req<Fundo>("/api/fundos", {
       method: "POST",

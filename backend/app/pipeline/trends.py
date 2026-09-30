@@ -584,6 +584,110 @@ SEARCH_SCHEMA = {
 }
 
 
+# O idioma escolhido decide onde procurar, não só em que língua escrever: uma
+# busca por "GTA VI" em português tem que trazer a imprensa brasileira, não a
+# americana traduzida.
+LANG_REGION = {
+    "pt": ("pt-BR", "BR", "BR:pt-419"),
+    "en": ("en-US", "US", "US:en"),
+    "es": ("es", "ES", "ES:es"),
+    "ru": ("ru", "RU", "RU:ru"),
+    "zh": ("zh-CN", "CN", "CN:zh-Hans"),
+    "fr": ("fr", "FR", "FR:fr"),
+    "de": ("de", "DE", "DE:de"),
+    "it": ("it", "IT", "IT:it"),
+    "ja": ("ja", "JP", "JP:ja"),
+}
+
+SEARCH_TERM_SYSTEM = """Você é um editor de pauta para vídeos curtos verticais.
+
+Recebe resultados brutos de busca na web sobre UM ASSUNTO pedido por quem vai
+gravar, e devolve o que dali vira vídeo.
+
+REGRAS
+- Agrupe resultados que falam do mesmo fato em um assunto só.
+- Ignore propaganda, cupom, página institucional, lista evergreen e o que não
+  é notícia.
+- Nunca invente fato: só o que os resultados sustentam, e cite a fonte pelo
+  nome. Boato reportado como boato é boato, não notícia confirmada.
+- Em política, seja factual e atribua cada afirmação a quem a fez.
+- `title`: o assunto em até 12 palavras. `why`: por que importa agora, uma
+  frase. `angle`: um gancho falado para abrir o short. `url`: o melhor link.
+  `heat`: 1 a 100 — mais fontes e mais recente, maior.
+- Se os resultados não sustentam nada sobre o assunto pedido, devolva a lista
+  vazia. Inventar pauta é pior que não ter pauta.
+- Responda APENAS com JSON válido, sem markdown."""
+
+SEARCH_TERM_PROMPT = """Assunto pedido: __QUERY__
+Escreva `title`, `why` e `angle` em __LANGUAGE__.
+
+Resultados brutos:
+__RESULTS__
+
+Devolva no máximo 12 assuntos neste formato:
+{"items": [{"title": "...", "why": "...", "angle": "...", "url": "https://...", "heat": 80}]}"""
+
+
+def search(query: str, lang: str = "pt", niche: str = "generico") -> list[dict]:
+    """Busca livre na web sobre um assunto, no idioma escolhido.
+
+    Os mesmos motores que alimentam as tendências por nicho, com a consulta de
+    quem pediu. A curadoria por LLM é opcional: quando ela falha, as manchetes
+    cruas já valem a tela — o que não pode acontecer é a busca inteira morrer
+    porque um modelo estava sem cota.
+    """
+    query = (query or "").strip()
+    if not query:
+        raise ValueError("Escreva o que você quer pesquisar.")
+    lang = (lang or "pt").split("-")[0].lower()
+    hl, gl, ceid = LANG_REGION.get(lang, LANG_REGION["pt"])
+
+    raw: list[dict] = []
+    for engine in (_search_google_news, _search_bing, _search_duckduckgo):
+        try:
+            raw.extend(engine(query, lang, hl, gl, ceid))
+        except Exception as exc:  # noqa: BLE001 — um motor fora não é o fim
+            log.info("busca '%s' via %s indisponível: %s", query,
+                     engine.__name__, str(exc)[:160])
+    raw = _dedupe(raw)
+    if not raw:
+        return []
+
+    lines = [f"- [{r['source']}] {r['title']} — {r['snippet'][:160]} <{r['url']}>"
+             for r in raw[:40]]
+    prompt = (SEARCH_TERM_PROMPT.replace("__QUERY__", query[:200])
+              .replace("__LANGUAGE__", LANGUAGE_NAME.get(lang, "inglês"))
+              .replace("__RESULTS__", "\n".join(lines)))
+    try:
+        data = llm.complete_json(SEARCH_TERM_SYSTEM, prompt, SEARCH_SCHEMA,
+                                 max_tokens=3000, purpose="busca")
+    except Exception as exc:  # noqa: BLE001 — sem LLM as manchetes ainda valem
+        log.info("busca '%s': curadoria indisponível (%s); servindo o cru",
+                 query, str(exc)[:160])
+        return [{"source": r["source"], "title": r["title"],
+                 "snippet": r["snippet"], "angle": "", "url": r["url"],
+                 "heat": max(60 - i * 4, 5), "heat_kind": "busca",
+                 "heat_data": {}, "niches": [niche], "lang": lang,
+                 "curated": False}
+                for i, r in enumerate(raw[:12])]
+
+    out = []
+    for item in data.get("items", []):
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        out.append({
+            "source": "busca", "title": title,
+            "snippet": str(item.get("why") or "").strip(),
+            "angle": str(item.get("angle") or "").strip(),
+            "url": str(item.get("url") or "").strip(),
+            "heat": _int(item.get("heat"), 50),
+            "heat_kind": "busca", "heat_data": {},
+            "niches": [niche], "lang": lang, "curated": True,
+        })
+    return out
+
+
 def _web_search(niche: str, geo: str) -> list[dict]:
     """Search the web for the niche and let the LLM pick the trends out of the
     raw results. Three engines, each optional; the LLM curation optional too:

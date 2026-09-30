@@ -49,6 +49,40 @@ def cache_dir() -> Path:
 EDGE = 8.0
 
 
+# A pasta onde você larga os seus próprios gameplays. Qualquer arquivo de vídeo
+# colocado aqui aparece como fundo disponível, sem download e sem cadastro —
+# arrastar para uma pasta é menos fricção que qualquer formulário.
+def stocks_dir() -> Path:
+    path = settings.data_dir / "stocks"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
+
+# Gameplays longos e livres para uso, para quem não tem nenhum à mão. São
+# pontos de partida verificados no momento em que foram anotados, não uma
+# promessa: um vídeo do YouTube pode sair do ar ou mudar de licença, e por isso
+# o que aparece na tela é a licença que o canal declarou, para você conferir.
+STOCK_CATALOG = [
+    {"id": "minecraft-parkour-10", "name": "Minecraft Parkour · 10 min",
+     "url": "https://www.youtube.com/watch?v=__NQWLBA7Co",
+     "kind": "minecraft", "declared": "Free to Use (declarado pelo canal)",
+     "minutes": 10},
+    {"id": "minecraft-parkour-7", "name": "Minecraft Parkour 4K · 7 min",
+     "url": "https://www.youtube.com/watch?v=XBIaqOm0RKQ",
+     "kind": "minecraft", "declared": "Free to Use (declarado pelo canal)",
+     "minutes": 7},
+    {"id": "minecraft-parkour-30", "name": "Minecraft Parkour · 30 min",
+     "url": "https://www.youtube.com/watch?v=u7kdVe8q5zs",
+     "kind": "minecraft", "declared": "No Copyright (declarado pelo canal)",
+     "minutes": 30},
+    {"id": "minecraft-parkour-80", "name": "Minecraft Parkour relaxante · 80 min",
+     "url": "https://www.youtube.com/watch?v=n_Dv4JMiwK8",
+     "kind": "minecraft", "declared": "declarado pelo canal", "minutes": 80},
+]
+
+
 @dataclass
 class Fundo:
     """Um arquivo de footage guardado, pronto para virar fundo."""
@@ -127,6 +161,31 @@ def adopt(source: Path, name: str = "",
     return Fundo(id=key, name=label, path=dest, seconds=seconds)
 
 
+def from_folder() -> list[dict]:
+    """Os vídeos que você largou em `data/stocks/`.
+
+    Sem cadastro e sem cópia: o arquivo fica onde está e é lido de lá. Copiar
+    um gameplay de duas horas para "guardar" seria duplicar gigabytes por
+    nada.
+    """
+    out = []
+    for path in sorted(stocks_dir().iterdir()):
+        if not path.is_file() or path.suffix.lower() not in VIDEO_SUFFIXES:
+            continue
+        seconds = render.probe_duration(path)
+        if seconds <= 0:
+            continue
+        out.append(Fundo(id=f"pasta:{path.name}", name=path.stem, path=path,
+                         seconds=seconds).as_dict() | {"origem": "pasta"})
+    return out
+
+
+def catalog() -> list[dict]:
+    """O catálogo de gameplays livres, dizendo quais já estão aqui."""
+    saved = {item["source_url"] for item in listar() if item["source_url"]}
+    return [dict(entry, saved=entry["url"] in saved) for entry in STOCK_CATALOG]
+
+
 def listar() -> list[dict]:
     """Os fundos já guardados."""
     out = []
@@ -143,11 +202,25 @@ def listar() -> list[dict]:
             continue
         out.append(Fundo(id=home.name, name=meta.get("name", home.name),
                          path=path, seconds=float(meta.get("seconds") or 0),
-                         source_url=meta.get("url", "")).as_dict())
+                         source_url=meta.get("url", "")).as_dict()
+                   | {"origem": "baixado"})
     return out
 
 
+def todos() -> list[dict]:
+    """Baixados e largados na pasta, juntos — é tudo fundo."""
+    return listar() + from_folder()
+
+
 def get(fundo_id: str) -> Fundo | None:
+    if fundo_id.startswith("pasta:"):
+        path = stocks_dir() / fundo_id.split(":", 1)[1]
+        if not path.exists():
+            return None
+        seconds = render.probe_duration(path)
+        return Fundo(id=fundo_id, name=path.stem, path=path,
+                     seconds=seconds) if seconds > 0 else None
+
     home = cache_dir() / fundo_id
     meta_path = home / "fundo.json"
     if not meta_path.exists():

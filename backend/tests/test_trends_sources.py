@@ -307,3 +307,99 @@ def test_the_route_reports_pending_units(monkeypatch):
     body = TestClient(app).get("/api/trends?niche=politica").json()
     assert body["pending"] == ["web_search"]
     assert body["items"] == []
+
+
+# ------------------------------- busca livre por assunto --------------------
+
+def _raw(n=3):
+    return [{"source": f"fonte{i}", "title": f"GTA VI notícia {i}",
+             "snippet": "resumo", "url": f"https://noticia.test/{i}"}
+            for i in range(n)]
+
+
+def test_o_idioma_escolhido_decide_onde_procurar(monkeypatch):
+    """Uma busca por "GTA VI" em português tem que trazer a imprensa
+    brasileira, não a americana traduzida."""
+    seen: list[tuple] = []
+
+    def spy(query, lang, hl, gl, ceid):
+        seen.append((query, lang, hl, gl, ceid))
+        return _raw(1)
+
+    monkeypatch.setattr(trends, "_search_google_news", spy)
+    monkeypatch.setattr(trends, "_search_bing", lambda *a: [])
+    monkeypatch.setattr(trends, "_search_duckduckgo", lambda *a: [])
+    monkeypatch.setattr(trends.llm, "complete_json", lambda *a, **k: {"items": []})
+
+    trends.search("GTA VI", "pt")
+    assert seen[0][:2] == ("GTA VI", "pt")
+    assert seen[0][2:] == ("pt-BR", "BR", "BR:pt-419")
+
+    seen.clear()
+    trends.search("GTA VI", "en")
+    assert seen[0][2:] == ("en-US", "US", "US:en")
+
+
+def test_uma_busca_vazia_e_recusada():
+    with pytest.raises(ValueError, match="pesquisar"):
+        trends.search("   ")
+
+
+def test_um_motor_fora_do_ar_nao_derruba_a_busca(monkeypatch):
+    def broken(*a):
+        raise RuntimeError("503")
+
+    monkeypatch.setattr(trends, "_search_google_news", broken)
+    monkeypatch.setattr(trends, "_search_bing", lambda *a: _raw(2))
+    monkeypatch.setattr(trends, "_search_duckduckgo", broken)
+    monkeypatch.setattr(trends.llm, "complete_json",
+                        lambda *a, **k: {"items": [
+                            {"title": "assunto", "why": "por isso",
+                             "angle": "gancho", "url": "https://x.test",
+                             "heat": 70}]})
+
+    found = trends.search("GTA VI", "pt")
+    assert len(found) == 1 and found[0]["curated"] is True
+
+
+def test_sem_LLM_as_manchetes_cruas_ainda_valem(monkeypatch):
+    """Que a busca inteira morra porque um modelo estava sem cota seria pior
+    que servir o cru."""
+    monkeypatch.setattr(trends, "_search_google_news", lambda *a: _raw(4))
+    monkeypatch.setattr(trends, "_search_bing", lambda *a: [])
+    monkeypatch.setattr(trends, "_search_duckduckgo", lambda *a: [])
+
+    def sem_cota(*a, **k):
+        raise RuntimeError("sem cota")
+
+    monkeypatch.setattr(trends.llm, "complete_json", sem_cota)
+    found = trends.search("GTA VI", "pt")
+
+    assert len(found) == 4
+    assert all(item["curated"] is False for item in found)
+    assert found[0]["heat"] > found[-1]["heat"], "a ordem do motor vira o calor"
+
+
+def test_nenhum_motor_respondendo_devolve_lista_vazia(monkeypatch):
+    for name in ("_search_google_news", "_search_bing", "_search_duckduckgo"):
+        monkeypatch.setattr(trends, name, lambda *a: [])
+    monkeypatch.setattr(trends.llm, "complete_json",
+                        lambda *a, **k: pytest.fail("não havia o que curar"))
+    assert trends.search("assunto sem notícia nenhuma", "pt") == []
+
+
+def test_o_mesmo_link_vindo_de_dois_motores_conta_uma_vez(monkeypatch):
+    mesmo = [{"source": "a", "title": "t", "snippet": "s",
+              "url": "https://noticia.test/1"}]
+    monkeypatch.setattr(trends, "_search_google_news", lambda *a: list(mesmo))
+    monkeypatch.setattr(trends, "_search_bing", lambda *a: list(mesmo))
+    monkeypatch.setattr(trends, "_search_duckduckgo", lambda *a: [])
+    capturado: dict = {}
+
+    def capture(system, prompt, schema=None, max_tokens=8000, purpose=""):
+        capturado["prompt"] = prompt
+        return {"items": []}
+
+    monkeypatch.setattr(trends.llm, "complete_json", capture)
+    trends.search("assunto", "pt")
+    assert capturado["prompt"].count("https://noticia.test/1") == 1
