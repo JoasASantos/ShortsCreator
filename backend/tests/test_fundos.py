@@ -235,3 +235,84 @@ def test_o_fundo_escolhido_e_exigido_quando_o_modo_pede(tmp_path, monkeypatch):
         orchestrator._build_background(  # noqa: SLF001
             job, script, _Narration(), SourceMaterial(kind="tema", title="x"),
             tmp_path, 20.0, lambda m, level="info": None)
+
+
+# --------------------------- a pasta stocks/ e o catálogo -------------------
+
+def test_um_video_largado_na_pasta_vira_fundo(monkeypatch, tmp_path):
+    """Arrastar para uma pasta é menos fricção que qualquer formulário."""
+    stocks = fundos.stocks_dir()
+    _clip(stocks / "meu_parkour.mp4", 6)
+
+    found = fundos.from_folder()
+    assert [item["name"] for item in found] == ["meu_parkour"]
+    assert found[0]["origem"] == "pasta"
+    assert found[0]["seconds"] > 5
+
+
+def test_o_que_nao_e_video_e_ignorado(monkeypatch, tmp_path):
+    stocks = fundos.stocks_dir()
+    (stocks / "leiame.txt").write_text("nada aqui", encoding="utf-8")
+    (stocks / "quebrado.mp4").write_bytes(b"isto nao e um video")
+    assert fundos.from_folder() == []
+
+
+def test_o_arquivo_da_pasta_e_lido_de_onde_esta(monkeypatch, tmp_path):
+    """Copiar um gameplay de duas horas para 'guardar' seria duplicar
+    gigabytes por nada."""
+    stocks = fundos.stocks_dir()
+    source = _clip(stocks / "parkour.mp4", 5)
+
+    fundo = fundos.get("pasta:parkour.mp4")
+    assert fundo is not None
+    assert fundo.path == source, "apontou para o arquivo original"
+
+
+def test_um_arquivo_removido_da_pasta_some_do_catalogo(monkeypatch, tmp_path):
+    stocks = fundos.stocks_dir()
+    path = _clip(stocks / "some.mp4", 5)
+    assert fundos.get("pasta:some.mp4") is not None
+    path.unlink()
+    assert fundos.get("pasta:some.mp4") is None
+
+
+def test_o_catalogo_diz_o_que_ja_esta_aqui(monkeypatch, tmp_path):
+    def fake_download(url, home):
+        path = home / "s.mp4"
+        path.write_bytes(b"v")
+        return path, {"title": "Parkour"}
+
+    monkeypatch.setattr(fundos.ingest, "download_video", fake_download)
+    monkeypatch.setattr(fundos.render, "probe_duration", lambda p: 600.0)
+
+    antes = fundos.catalog()
+    assert all(item["saved"] is False for item in antes)
+
+    fundos.fetch(fundos.STOCK_CATALOG[0]["url"])
+    depois = {item["id"]: item["saved"] for item in fundos.catalog()}
+    assert depois[fundos.STOCK_CATALOG[0]["id"]] is True
+    assert sum(depois.values()) == 1, "só o que foi baixado"
+
+
+def test_o_catalogo_declara_a_licenca_que_o_canal_declarou():
+    """Não é promessa nossa: um vídeo pode sair do ar ou mudar de licença, e
+    quem publica precisa saber de onde veio a afirmação."""
+    for item in fundos.catalog():
+        assert item["declared"], item["id"]
+        assert "declarado" in item["declared"]
+        assert item["url"].startswith("https://")
+
+
+def test_baixados_e_da_pasta_aparecem_juntos(monkeypatch, tmp_path):
+    def fake_download(url, home):
+        path = home / "s.mp4"
+        path.write_bytes(b"v")
+        return path, {"title": "Baixado"}
+
+    monkeypatch.setattr(fundos.ingest, "download_video", fake_download)
+    monkeypatch.setattr(fundos.render, "probe_duration", lambda p: 300.0)
+    fundos.fetch("https://youtu.be/x")
+    _clip(fundos.stocks_dir() / "local.mp4", 5)
+
+    origens = {item["origem"] for item in fundos.todos()}
+    assert origens == {"baixado", "pasta"}

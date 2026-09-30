@@ -18,7 +18,24 @@ class SaveRequest(BaseModel):
 
 @router.get("")
 def listar():
-    return {"fundos": fundos_mod.listar()}
+    """Tudo que serve de fundo: o que foi baixado e o que você largou na
+    pasta. Para quem escolhe, a origem não muda nada."""
+    return {"fundos": fundos_mod.todos(),
+            "pasta": str(fundos_mod.stocks_dir()),
+            "catalogo": fundos_mod.catalog()}
+
+
+@router.post("/catalogo/{item_id}")
+def baixar_do_catalogo(item_id: str):
+    """Guarda um dos gameplays livres do catálogo, com um clique."""
+    entry = next((e for e in fundos_mod.STOCK_CATALOG if e["id"] == item_id), None)
+    if entry is None:
+        raise HTTPException(404, "Esse item não está no catálogo")
+    try:
+        fundo = fundos_mod.fetch(entry["url"])
+    except Exception as exc:  # noqa: BLE001 — vídeo fora do ar, rede, etc.
+        raise HTTPException(502, f"Não deu para baixar: {exc}") from exc
+    return fundo.as_dict()
 
 
 @router.post("")
