@@ -17,7 +17,7 @@ from . import (avatar, broll, captions, cover as cover_mod, dialogo, dub,
                highlights,
                imagegen, ingest, llm, notify, overlays as overlay_mod, qa,
                reels, render, script as script_mod, timeline as timeline_mod,
-               tts, webcast)
+               tts, tutorial, webcast)
 
 # A 90 s short with one image every ~6 s wants 15; a cap keeps a long script
 # from turning one render into forty paid image calls.
@@ -240,6 +240,9 @@ def run_job(job_id: str) -> dict:
         # artefatos no fim.
         if job.edit_mode == dialogo.MODE:
             return dialogo.run(job_id, job, job_dir, log, stage)
+
+        if job.edit_mode == tutorial.MODE:
+            return tutorial.run(job_id, job, job_dir, log, stage)
 
         render.ensure_ffmpeg()
 

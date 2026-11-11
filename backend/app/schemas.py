@@ -27,7 +27,7 @@ ScrollStyle = Literal["nenhum", "texto", "pan", "codigo"]
 # dublar: the words already exist — transcribe, translate, speak over the
 # original timing. No script is written.
 EditMode = Literal["narrar_por_cima", "resumo", "meu_video", "avatar",
-                   "dublar", "dialogo"]
+                   "dublar", "dialogo", "tutorial"]
 
 # Which angle the script should take on the material. It changes what the
 # SUBJECT is: "describe the scene" differs from "talk about the work, using
