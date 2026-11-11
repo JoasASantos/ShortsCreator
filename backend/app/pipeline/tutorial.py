@@ -753,6 +753,25 @@ def _detect_mode(job: JobInput, source: Path | None) -> str:
     return "script"
 
 
+def _pick_motion_renderer(log=lambda m, level="info": None):
+    """The best available motion renderer, or None to fall back to Pillow panels.
+
+    Order: HyperFrames (HTML+GSAP, pro-grade) → motion_html (hand-rolled
+    HTML+Playwright) → None (static Pillow). Each returns a callable with the
+    signature (storyboard, stock_images, out_path, w, h, fps, duration, log).
+    """
+    from . import motion_html, motion_hyperframes
+
+    if motion_hyperframes.available():
+        log("Motion renderer: HyperFrames (HTML + GSAP)")
+        return motion_hyperframes.render_video
+    if motion_html.available():
+        log("Motion renderer: HTML/Playwright (animated)")
+        return motion_html.render_video
+    log("Motion renderer: Pillow (static panels — no HTML renderer available)", "warn")
+    return None
+
+
 # ============================================================================
 #  Main run
 # ============================================================================
@@ -859,20 +878,13 @@ def run(job_id: str, job: JobInput, job_dir: Path, log, stage) -> dict:
 
     # ---- 5+6. Render motion graphics and compose video ----
     stage("fundo")
-    from . import motion_html
-
-    use_html = motion_html.available()
-    if use_html:
-        log("Motion renderer: HTML (animated)")
-    else:
-        log("Motion renderer: Pillow (static panels — Playwright unavailable)", "warn")
+    renderer = _pick_motion_renderer(log)
 
     if mode == "facecam":
-        if use_html:
+        if renderer is not None:
             motion_video = job_dir / "motion_top.mp4"
-            motion_html.render_video(
-                storyboard, stock_images, motion_video,
-                W, SPLIT_MOTION_H, FPS, duration, log)
+            renderer(storyboard, stock_images, motion_video,
+                     W, SPLIT_MOTION_H, FPS, duration, log)
             facecam = frame_facecam(source, duration, job_dir / "facecam.mp4")
             _vstack_videos(job_dir, motion_video, facecam, duration, log)
         else:
@@ -883,10 +895,9 @@ def run(job_id: str, job: JobInput, job_dir: Path, log, stage) -> dict:
             compose_split_screen(job_dir, facecam, panels, duration, log)
         video_source = "split_screen.mp4"
     else:
-        if use_html:
-            motion_html.render_video(
-                storyboard, stock_images, job_dir / "full_motion.mp4",
-                W, H, FPS, duration, log)
+        if renderer is not None:
+            renderer(storyboard, stock_images, job_dir / "full_motion.mp4",
+                     W, H, FPS, duration, log)
         else:
             panels = render_motion_panels(
                 storyboard, job_dir / "motion_panels",
