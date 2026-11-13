@@ -61,6 +61,14 @@ STORYBOARD_SCHEMA = {
     "type": "object",
     "properties": {
         "title": {"type": "string"},
+        "style": {
+            "type": "string",
+            "enum": ["keynote", "hud", "line", "screencast"],
+            "description": "Visual do vídeo inteiro. keynote: palco tech escuro, "
+                           "sweep de luz, número gigante. hud: monospace ciano/âmbar, "
+                           "número faz scramble. line: papel claro, traço contínuo. "
+                           "screencast: interface em HTML com cursor animado.",
+        },
         "steps": {
             "type": "array",
             "items": {
@@ -70,8 +78,8 @@ STORYBOARD_SCHEMA = {
                     "end": {"type": "number"},
                     "label": {
                         "type": "string",
-                        "description": "Texto grande que aparece no topo do painel. "
-                                       "Ex: 'Passo 1. Monta o ambiente'",
+                        "description": "Texto do topo. Formato 'Passo N. Ação' "
+                                       "(prefixo curto + ação). STRING, nunca objeto.",
                     },
                     "icons": {
                         "type": "array",
@@ -86,26 +94,55 @@ STORYBOARD_SCHEMA = {
                     },
                     "layout": {
                         "type": "string",
-                        "enum": ["icons_row", "tree", "connection", "list",
-                                 "highlight", "big_text", "comparison"],
+                        "enum": ["icons_row", "connection", "list", "highlight",
+                                 "big_text", "counter", "screencast"],
                     },
                     "subtitle": {"type": "string"},
                     "stock_query": {
                         "type": "string",
-                        "description": "Busca de imagem/vídeo de stock em INGLÊS "
-                                       "que ilustra este step. Vazio se emoji basta.",
+                        "description": "Busca de FOTO real em INGLÊS, concreta e "
+                                       "fotográfica (pessoa, lugar, objeto, cena). "
+                                       "NUNCA peça screenshot de app, print de tela, "
+                                       "logo em fundo branco ou UI. Vazio se emoji basta.",
                     },
                     "big_words": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Até 3 palavras grandes em destaque (layout big_text)",
+                        "description": "layout big_text: 1-3 palavras CURTAS (máx ~8 "
+                                       "caracteres cada, uma palavra por item, sem "
+                                       "quebrar). Cada item é uma linha enorme.",
+                    },
+                    "number": {
+                        "type": "number",
+                        "description": "layout counter: valor exato que o número "
+                                       "gigante atinge contando (ex: 60, 1500).",
+                    },
+                    "number_prefix": {"type": "string",
+                                      "description": "Ex: 'R$', '+'. Opcional."},
+                    "number_suffix": {"type": "string",
+                                      "description": "Ex: '%', 'x', 'seg'. Opcional."},
+                    "number_label": {"type": "string",
+                                     "description": "Legenda do número no counter."},
+                    "accent": {"type": "string",
+                               "description": "Em big_text, a palavra (de big_words) "
+                                              "que recebe a cor de destaque. Só uma."},
+                    "ui": {
+                        "type": "object",
+                        "description": "layout screencast: interface a reconstruir.",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "rows": {"type": "array", "items": {"type": "string"},
+                                     "description": "Itens do menu/lista da tela."},
+                            "click_row": {"type": "integer",
+                                          "description": "Índice (0-based) da linha clicada."},
+                        },
                     },
                 },
                 "required": ["start", "end", "label", "icons", "layout"],
             },
         },
     },
-    "required": ["title", "steps"],
+    "required": ["title", "style", "steps"],
 }
 
 
@@ -127,20 +164,34 @@ def plan_storyboard(words: list[dict], duration: float,
 TRANSCRIÇÃO COM TEMPOS:
 {transcript}
 
+Escolha um `style` para o vídeo inteiro (coerente com o tema):
+- keynote: palco tech escuro, elegante. Padrão para tech/produto/geral.
+- hud: ciano e âmbar monospace, cara de painel/dados. Para números, métricas,
+  segurança, "sistema".
+- line: papel claro, traço de caneta. Para histórias, conceitos, didático leve.
+- screencast: reconstrói uma interface. Só quando o vídeo mostra um app/site.
+
 Planeje os STEPS (painéis visuais):
-- Cada step cobre um trecho contínuo sem sobreposição.
-- `label`: texto do topo (itálico "Passo N." + bold "Ação").
-- `icons`: conceitos com emoji e nome.
-- `layout`: icons_row | tree | connection | list | highlight | big_text | comparison
-  - big_text: 1-3 palavras enormes no centro (campo big_words).
-  - comparison: dois cards lado a lado.
-- `stock_query`: busca de imagem real (inglês, concreto). Vazio quando emoji basta.
-- `subtitle`: linha de apoio embaixo.
-- Steps devem cobrir toda duração, máximo 12.
-- Todo texto em {language_name(language)}."""
+- Cada step cobre um trecho contínuo sem sobreposição; cobrir toda a duração; máx 12.
+- `label`: STRING "Passo N. Ação" (prefixo curto + ação). Nunca objeto.
+- `layout` por step, VARIE para dar ritmo:
+  - big_text: 1-3 palavras CURTAS e de impacto (big_words). Uma palavra por linha,
+    máx ~8 caracteres, nunca palavra que quebraria. Marque uma em `accent`.
+  - counter: UM número que importa (number + number_label, number_prefix/suffix).
+    Use sempre que a fala citar uma quantidade, prazo, preço, % ou "350+".
+  - highlight: um conceito central (1 ícone grande + nome).
+  - icons_row: 2-5 conceitos lado a lado.
+  - list: passos/itens (3-6). connection: fluxo A->B->C.
+  - screencast: só com style=screencast, quando mostra uma tela (ui.title, ui.rows,
+    ui.click_row).
+- `stock_query`: FOTO real, fotográfica e concreta, em INGLÊS (pessoa agindo, lugar,
+  objeto, cena). NUNCA screenshot de app, print de UI, logo em fundo branco ou
+  "website homepage". Vazio quando o emoji/número já basta.
+- `subtitle`: uma linha curta de apoio.
+- Todo texto visível em {language_name(language)}."""
 
     data = llm.complete_json(STORYBOARD_SYSTEM, prompt, STORYBOARD_SCHEMA,
-                             max_tokens=5000, purpose="tutorial_storyboard")
+                             max_tokens=6000, purpose="tutorial_storyboard")
     steps = data.get("steps") or []
     steps = [s for s in steps
              if isinstance(s, dict) and s.get("start") is not None
@@ -151,8 +202,11 @@ Planeje os STEPS (painéis visuais):
         step["end"] = min(round(float(step["end"]), 2), duration)
         step["label"] = _normalize_label(step.get("label"))
 
-    log(f"Storyboard: {len(steps)} step(s) planned")
-    return {"title": str(data.get("title") or ""), "steps": steps}
+    style = str(data.get("style") or "keynote").lower()
+    if style not in ("keynote", "hud", "line", "screencast"):
+        style = "keynote"
+    log(f"Storyboard: {len(steps)} step(s), style={style}")
+    return {"title": str(data.get("title") or ""), "style": style, "steps": steps}
 
 
 def _normalize_label(label) -> str:
